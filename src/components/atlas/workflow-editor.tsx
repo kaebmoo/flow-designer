@@ -7,9 +7,7 @@ import "@xyflow/react/dist/style.css";
 import { AtlasNode, type AtlasNodeData } from "./workflow-node";
 import { NODE_KINDS, useAtlas, type Workflow, type NodeKind } from "@/lib/atlas-store";
 import { StatusPill } from "./page";
-import {
-  Play, Save, Sparkles, Wrench, Zap, ChevronRight, X, Plus, Trash2,
-} from "lucide-react";
+import { Play, Save, Sparkles, Wrench, Zap, ChevronRight, X, Trash2 } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 
 const nodeTypes = { atlas: AtlasNode };
@@ -314,6 +312,3 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </label>
   );
 }
-
-// Silence unused-imports for icons that could be useful later
-export const _icons = { Plus };
