@@ -17,6 +17,7 @@ import { Route as AppFleetRouteImport } from './routes/_app/fleet'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppConversationsRouteImport } from './routes/_app/conversations'
 import { Route as AppWorkflowsIndexRouteImport } from './routes/_app/workflows.index'
+import { Route as AppRunsIndexRouteImport } from './routes/_app/runs.index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/_app/workflows.$id'
 
 const AppRoute = AppRouteImport.update({
@@ -58,6 +59,11 @@ const AppWorkflowsIndexRoute = AppWorkflowsIndexRouteImport.update({
   path: '/workflows/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppRunsIndexRoute = AppRunsIndexRouteImport.update({
+  id: '/runs/',
+  path: '/runs/',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
   id: '/workflows/$id',
   path: '/workflows/$id',
@@ -72,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/jobs': typeof AppJobsRoute
   '/workspaces': typeof AppWorkspacesRoute
   '/workflows/$id': typeof AppWorkflowsIdRoute
+  '/runs/': typeof AppRunsIndexRoute
   '/workflows/': typeof AppWorkflowsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -82,6 +89,7 @@ export interface FileRoutesByTo {
   '/jobs': typeof AppJobsRoute
   '/workspaces': typeof AppWorkspacesRoute
   '/workflows/$id': typeof AppWorkflowsIdRoute
+  '/runs': typeof AppRunsIndexRoute
   '/workflows': typeof AppWorkflowsIndexRoute
 }
 export interface FileRoutesById {
@@ -94,6 +102,7 @@ export interface FileRoutesById {
   '/_app/jobs': typeof AppJobsRoute
   '/_app/workspaces': typeof AppWorkspacesRoute
   '/_app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/_app/runs/': typeof AppRunsIndexRoute
   '/_app/workflows/': typeof AppWorkflowsIndexRoute
 }
 export interface FileRouteTypes {
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/jobs'
     | '/workspaces'
     | '/workflows/$id'
+    | '/runs/'
     | '/workflows/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
     | '/jobs'
     | '/workspaces'
     | '/workflows/$id'
+    | '/runs'
     | '/workflows'
   id:
     | '__root__'
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
     | '/_app/jobs'
     | '/_app/workspaces'
     | '/_app/workflows/$id'
+    | '/_app/runs/'
     | '/_app/workflows/'
   fileRoutesById: FileRoutesById
 }
@@ -193,6 +205,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkflowsIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/runs/': {
+      id: '/_app/runs/'
+      path: '/runs'
+      fullPath: '/runs/'
+      preLoaderRoute: typeof AppRunsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/workflows/$id': {
       id: '/_app/workflows/$id'
       path: '/workflows/$id'
@@ -210,6 +229,7 @@ interface AppRouteChildren {
   AppJobsRoute: typeof AppJobsRoute
   AppWorkspacesRoute: typeof AppWorkspacesRoute
   AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
+  AppRunsIndexRoute: typeof AppRunsIndexRoute
   AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
 }
 
@@ -220,6 +240,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppJobsRoute: AppJobsRoute,
   AppWorkspacesRoute: AppWorkspacesRoute,
   AppWorkflowsIdRoute: AppWorkflowsIdRoute,
+  AppRunsIndexRoute: AppRunsIndexRoute,
   AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
 }
 
