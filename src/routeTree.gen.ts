@@ -9,38 +9,249 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AppWorkspacesRouteImport } from './routes/_app/workspaces'
+import { Route as AppUsersRouteImport } from './routes/_app/users'
+import { Route as AppUsageRouteImport } from './routes/_app/usage'
+import { Route as AppTriggersRouteImport } from './routes/_app/triggers'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppJobsRouteImport } from './routes/_app/jobs'
+import { Route as AppFleetRouteImport } from './routes/_app/fleet'
+import { Route as AppDeliveriesRouteImport } from './routes/_app/deliveries'
+import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppConversationsRouteImport } from './routes/_app/conversations'
+import { Route as AppAuditRouteImport } from './routes/_app/audit'
+import { Route as AppArtifactsRouteImport } from './routes/_app/artifacts'
+import { Route as AppWorkflowsIndexRouteImport } from './routes/_app/workflows.index'
+import { Route as AppRunsIndexRouteImport } from './routes/_app/runs.index'
+import { Route as AppWorkflowsIdRouteImport } from './routes/_app/workflows.$id'
+import { Route as AppRunsIdRouteImport } from './routes/_app/runs.$id'
 
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppWorkspacesRoute = AppWorkspacesRouteImport.update({
+  id: '/workspaces',
+  path: '/workspaces',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppUsersRoute = AppUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppUsageRoute = AppUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTriggersRoute = AppTriggersRouteImport.update({
+  id: '/triggers',
+  path: '/triggers',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppJobsRoute = AppJobsRouteImport.update({
+  id: '/jobs',
+  path: '/jobs',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFleetRoute = AppFleetRouteImport.update({
+  id: '/fleet',
+  path: '/fleet',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDeliveriesRoute = AppDeliveriesRouteImport.update({
+  id: '/deliveries',
+  path: '/deliveries',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppConversationsRoute = AppConversationsRouteImport.update({
+  id: '/conversations',
+  path: '/conversations',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAuditRoute = AppAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppArtifactsRoute = AppArtifactsRouteImport.update({
+  id: '/artifacts',
+  path: '/artifacts',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWorkflowsIndexRoute = AppWorkflowsIndexRouteImport.update({
+  id: '/workflows/',
+  path: '/workflows/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRunsIndexRoute = AppRunsIndexRouteImport.update({
+  id: '/runs/',
+  path: '/runs/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
+  id: '/workflows/$id',
+  path: '/workflows/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRunsIdRoute = AppRunsIdRouteImport.update({
+  id: '/runs/$id',
+  path: '/runs/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/artifacts': typeof AppArtifactsRoute
+  '/audit': typeof AppAuditRoute
+  '/conversations': typeof AppConversationsRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/deliveries': typeof AppDeliveriesRoute
+  '/fleet': typeof AppFleetRoute
+  '/jobs': typeof AppJobsRoute
+  '/settings': typeof AppSettingsRoute
+  '/triggers': typeof AppTriggersRoute
+  '/usage': typeof AppUsageRoute
+  '/users': typeof AppUsersRoute
+  '/workspaces': typeof AppWorkspacesRoute
+  '/runs/$id': typeof AppRunsIdRoute
+  '/workflows/$id': typeof AppWorkflowsIdRoute
+  '/runs/': typeof AppRunsIndexRoute
+  '/workflows/': typeof AppWorkflowsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/artifacts': typeof AppArtifactsRoute
+  '/audit': typeof AppAuditRoute
+  '/conversations': typeof AppConversationsRoute
+  '/dashboard': typeof AppDashboardRoute
+  '/deliveries': typeof AppDeliveriesRoute
+  '/fleet': typeof AppFleetRoute
+  '/jobs': typeof AppJobsRoute
+  '/settings': typeof AppSettingsRoute
+  '/triggers': typeof AppTriggersRoute
+  '/usage': typeof AppUsageRoute
+  '/users': typeof AppUsersRoute
+  '/workspaces': typeof AppWorkspacesRoute
+  '/runs/$id': typeof AppRunsIdRoute
+  '/workflows/$id': typeof AppWorkflowsIdRoute
+  '/runs': typeof AppRunsIndexRoute
+  '/workflows': typeof AppWorkflowsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_app': typeof AppRouteWithChildren
+  '/_app/artifacts': typeof AppArtifactsRoute
+  '/_app/audit': typeof AppAuditRoute
+  '/_app/conversations': typeof AppConversationsRoute
+  '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/deliveries': typeof AppDeliveriesRoute
+  '/_app/fleet': typeof AppFleetRoute
+  '/_app/jobs': typeof AppJobsRoute
+  '/_app/settings': typeof AppSettingsRoute
+  '/_app/triggers': typeof AppTriggersRoute
+  '/_app/usage': typeof AppUsageRoute
+  '/_app/users': typeof AppUsersRoute
+  '/_app/workspaces': typeof AppWorkspacesRoute
+  '/_app/runs/$id': typeof AppRunsIdRoute
+  '/_app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/_app/runs/': typeof AppRunsIndexRoute
+  '/_app/workflows/': typeof AppWorkflowsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/artifacts'
+    | '/audit'
+    | '/conversations'
+    | '/dashboard'
+    | '/deliveries'
+    | '/fleet'
+    | '/jobs'
+    | '/settings'
+    | '/triggers'
+    | '/usage'
+    | '/users'
+    | '/workspaces'
+    | '/runs/$id'
+    | '/workflows/$id'
+    | '/runs/'
+    | '/workflows/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/artifacts'
+    | '/audit'
+    | '/conversations'
+    | '/dashboard'
+    | '/deliveries'
+    | '/fleet'
+    | '/jobs'
+    | '/settings'
+    | '/triggers'
+    | '/usage'
+    | '/users'
+    | '/workspaces'
+    | '/runs/$id'
+    | '/workflows/$id'
+    | '/runs'
+    | '/workflows'
+  id:
+    | '__root__'
+    | '/'
+    | '/_app'
+    | '/_app/artifacts'
+    | '/_app/audit'
+    | '/_app/conversations'
+    | '/_app/dashboard'
+    | '/_app/deliveries'
+    | '/_app/fleet'
+    | '/_app/jobs'
+    | '/_app/settings'
+    | '/_app/triggers'
+    | '/_app/usage'
+    | '/_app/users'
+    | '/_app/workspaces'
+    | '/_app/runs/$id'
+    | '/_app/workflows/$id'
+    | '/_app/runs/'
+    | '/_app/workflows/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AppRoute: typeof AppRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +259,165 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/workspaces': {
+      id: '/_app/workspaces'
+      path: '/workspaces'
+      fullPath: '/workspaces'
+      preLoaderRoute: typeof AppWorkspacesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/users': {
+      id: '/_app/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof AppUsersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/usage': {
+      id: '/_app/usage'
+      path: '/usage'
+      fullPath: '/usage'
+      preLoaderRoute: typeof AppUsageRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/triggers': {
+      id: '/_app/triggers'
+      path: '/triggers'
+      fullPath: '/triggers'
+      preLoaderRoute: typeof AppTriggersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/jobs': {
+      id: '/_app/jobs'
+      path: '/jobs'
+      fullPath: '/jobs'
+      preLoaderRoute: typeof AppJobsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/fleet': {
+      id: '/_app/fleet'
+      path: '/fleet'
+      fullPath: '/fleet'
+      preLoaderRoute: typeof AppFleetRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/deliveries': {
+      id: '/_app/deliveries'
+      path: '/deliveries'
+      fullPath: '/deliveries'
+      preLoaderRoute: typeof AppDeliveriesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/conversations': {
+      id: '/_app/conversations'
+      path: '/conversations'
+      fullPath: '/conversations'
+      preLoaderRoute: typeof AppConversationsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/audit': {
+      id: '/_app/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AppAuditRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/artifacts': {
+      id: '/_app/artifacts'
+      path: '/artifacts'
+      fullPath: '/artifacts'
+      preLoaderRoute: typeof AppArtifactsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/workflows/': {
+      id: '/_app/workflows/'
+      path: '/workflows'
+      fullPath: '/workflows/'
+      preLoaderRoute: typeof AppWorkflowsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/runs/': {
+      id: '/_app/runs/'
+      path: '/runs'
+      fullPath: '/runs/'
+      preLoaderRoute: typeof AppRunsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/workflows/$id': {
+      id: '/_app/workflows/$id'
+      path: '/workflows/$id'
+      fullPath: '/workflows/$id'
+      preLoaderRoute: typeof AppWorkflowsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/runs/$id': {
+      id: '/_app/runs/$id'
+      path: '/runs/$id'
+      fullPath: '/runs/$id'
+      preLoaderRoute: typeof AppRunsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
+interface AppRouteChildren {
+  AppArtifactsRoute: typeof AppArtifactsRoute
+  AppAuditRoute: typeof AppAuditRoute
+  AppConversationsRoute: typeof AppConversationsRoute
+  AppDashboardRoute: typeof AppDashboardRoute
+  AppDeliveriesRoute: typeof AppDeliveriesRoute
+  AppFleetRoute: typeof AppFleetRoute
+  AppJobsRoute: typeof AppJobsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
+  AppTriggersRoute: typeof AppTriggersRoute
+  AppUsageRoute: typeof AppUsageRoute
+  AppUsersRoute: typeof AppUsersRoute
+  AppWorkspacesRoute: typeof AppWorkspacesRoute
+  AppRunsIdRoute: typeof AppRunsIdRoute
+  AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
+  AppRunsIndexRoute: typeof AppRunsIndexRoute
+  AppWorkflowsIndexRoute: typeof AppWorkflowsIndexRoute
+}
+
+const AppRouteChildren: AppRouteChildren = {
+  AppArtifactsRoute: AppArtifactsRoute,
+  AppAuditRoute: AppAuditRoute,
+  AppConversationsRoute: AppConversationsRoute,
+  AppDashboardRoute: AppDashboardRoute,
+  AppDeliveriesRoute: AppDeliveriesRoute,
+  AppFleetRoute: AppFleetRoute,
+  AppJobsRoute: AppJobsRoute,
+  AppSettingsRoute: AppSettingsRoute,
+  AppTriggersRoute: AppTriggersRoute,
+  AppUsageRoute: AppUsageRoute,
+  AppUsersRoute: AppUsersRoute,
+  AppWorkspacesRoute: AppWorkspacesRoute,
+  AppRunsIdRoute: AppRunsIdRoute,
+  AppWorkflowsIdRoute: AppWorkflowsIdRoute,
+  AppRunsIndexRoute: AppRunsIndexRoute,
+  AppWorkflowsIndexRoute: AppWorkflowsIndexRoute,
+}
+
+const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AppRoute: AppRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
