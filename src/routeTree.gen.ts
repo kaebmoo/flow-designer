@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppWorkspacesRouteImport } from './routes/_app/workspaces'
+import { Route as AppUsersRouteImport } from './routes/_app/users'
 import { Route as AppUsageRouteImport } from './routes/_app/usage'
 import { Route as AppTriggersRouteImport } from './routes/_app/triggers'
 import { Route as AppJobsRouteImport } from './routes/_app/jobs'
@@ -38,6 +39,11 @@ const IndexRoute = IndexRouteImport.update({
 const AppWorkspacesRoute = AppWorkspacesRouteImport.update({
   id: '/workspaces',
   path: '/workspaces',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppUsersRoute = AppUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
   getParentRoute: () => AppRoute,
 } as any)
 const AppUsageRoute = AppUsageRouteImport.update({
@@ -117,6 +123,7 @@ export interface FileRoutesByFullPath {
   '/jobs': typeof AppJobsRoute
   '/triggers': typeof AppTriggersRoute
   '/usage': typeof AppUsageRoute
+  '/users': typeof AppUsersRoute
   '/workspaces': typeof AppWorkspacesRoute
   '/runs/$id': typeof AppRunsIdRoute
   '/workflows/$id': typeof AppWorkflowsIdRoute
@@ -134,6 +141,7 @@ export interface FileRoutesByTo {
   '/jobs': typeof AppJobsRoute
   '/triggers': typeof AppTriggersRoute
   '/usage': typeof AppUsageRoute
+  '/users': typeof AppUsersRoute
   '/workspaces': typeof AppWorkspacesRoute
   '/runs/$id': typeof AppRunsIdRoute
   '/workflows/$id': typeof AppWorkflowsIdRoute
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/_app/jobs': typeof AppJobsRoute
   '/_app/triggers': typeof AppTriggersRoute
   '/_app/usage': typeof AppUsageRoute
+  '/_app/users': typeof AppUsersRoute
   '/_app/workspaces': typeof AppWorkspacesRoute
   '/_app/runs/$id': typeof AppRunsIdRoute
   '/_app/workflows/$id': typeof AppWorkflowsIdRoute
@@ -172,6 +181,7 @@ export interface FileRouteTypes {
     | '/jobs'
     | '/triggers'
     | '/usage'
+    | '/users'
     | '/workspaces'
     | '/runs/$id'
     | '/workflows/$id'
@@ -189,6 +199,7 @@ export interface FileRouteTypes {
     | '/jobs'
     | '/triggers'
     | '/usage'
+    | '/users'
     | '/workspaces'
     | '/runs/$id'
     | '/workflows/$id'
@@ -207,6 +218,7 @@ export interface FileRouteTypes {
     | '/_app/jobs'
     | '/_app/triggers'
     | '/_app/usage'
+    | '/_app/users'
     | '/_app/workspaces'
     | '/_app/runs/$id'
     | '/_app/workflows/$id'
@@ -240,6 +252,13 @@ declare module '@tanstack/react-router' {
       path: '/workspaces'
       fullPath: '/workspaces'
       preLoaderRoute: typeof AppWorkspacesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/users': {
+      id: '/_app/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof AppUsersRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/usage': {
@@ -346,6 +365,7 @@ interface AppRouteChildren {
   AppJobsRoute: typeof AppJobsRoute
   AppTriggersRoute: typeof AppTriggersRoute
   AppUsageRoute: typeof AppUsageRoute
+  AppUsersRoute: typeof AppUsersRoute
   AppWorkspacesRoute: typeof AppWorkspacesRoute
   AppRunsIdRoute: typeof AppRunsIdRoute
   AppWorkflowsIdRoute: typeof AppWorkflowsIdRoute
@@ -363,6 +383,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppJobsRoute: AppJobsRoute,
   AppTriggersRoute: AppTriggersRoute,
   AppUsageRoute: AppUsageRoute,
+  AppUsersRoute: AppUsersRoute,
   AppWorkspacesRoute: AppWorkspacesRoute,
   AppRunsIdRoute: AppRunsIdRoute,
   AppWorkflowsIdRoute: AppWorkflowsIdRoute,
