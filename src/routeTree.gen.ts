@@ -15,6 +15,7 @@ import { Route as AppWorkspacesRouteImport } from './routes/_app/workspaces'
 import { Route as AppUsersRouteImport } from './routes/_app/users'
 import { Route as AppUsageRouteImport } from './routes/_app/usage'
 import { Route as AppTriggersRouteImport } from './routes/_app/triggers'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppJobsRouteImport } from './routes/_app/jobs'
 import { Route as AppFleetRouteImport } from './routes/_app/fleet'
 import { Route as AppDeliveriesRouteImport } from './routes/_app/deliveries'
@@ -54,6 +55,11 @@ const AppUsageRoute = AppUsageRouteImport.update({
 const AppTriggersRoute = AppTriggersRouteImport.update({
   id: '/triggers',
   path: '/triggers',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppJobsRoute = AppJobsRouteImport.update({
@@ -121,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/deliveries': typeof AppDeliveriesRoute
   '/fleet': typeof AppFleetRoute
   '/jobs': typeof AppJobsRoute
+  '/settings': typeof AppSettingsRoute
   '/triggers': typeof AppTriggersRoute
   '/usage': typeof AppUsageRoute
   '/users': typeof AppUsersRoute
@@ -139,6 +146,7 @@ export interface FileRoutesByTo {
   '/deliveries': typeof AppDeliveriesRoute
   '/fleet': typeof AppFleetRoute
   '/jobs': typeof AppJobsRoute
+  '/settings': typeof AppSettingsRoute
   '/triggers': typeof AppTriggersRoute
   '/usage': typeof AppUsageRoute
   '/users': typeof AppUsersRoute
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/_app/deliveries': typeof AppDeliveriesRoute
   '/_app/fleet': typeof AppFleetRoute
   '/_app/jobs': typeof AppJobsRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/triggers': typeof AppTriggersRoute
   '/_app/usage': typeof AppUsageRoute
   '/_app/users': typeof AppUsersRoute
@@ -179,6 +188,7 @@ export interface FileRouteTypes {
     | '/deliveries'
     | '/fleet'
     | '/jobs'
+    | '/settings'
     | '/triggers'
     | '/usage'
     | '/users'
@@ -197,6 +207,7 @@ export interface FileRouteTypes {
     | '/deliveries'
     | '/fleet'
     | '/jobs'
+    | '/settings'
     | '/triggers'
     | '/usage'
     | '/users'
@@ -216,6 +227,7 @@ export interface FileRouteTypes {
     | '/_app/deliveries'
     | '/_app/fleet'
     | '/_app/jobs'
+    | '/_app/settings'
     | '/_app/triggers'
     | '/_app/usage'
     | '/_app/users'
@@ -273,6 +285,13 @@ declare module '@tanstack/react-router' {
       path: '/triggers'
       fullPath: '/triggers'
       preLoaderRoute: typeof AppTriggersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/jobs': {
@@ -363,6 +382,7 @@ interface AppRouteChildren {
   AppDeliveriesRoute: typeof AppDeliveriesRoute
   AppFleetRoute: typeof AppFleetRoute
   AppJobsRoute: typeof AppJobsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppTriggersRoute: typeof AppTriggersRoute
   AppUsageRoute: typeof AppUsageRoute
   AppUsersRoute: typeof AppUsersRoute
@@ -381,6 +401,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppDeliveriesRoute: AppDeliveriesRoute,
   AppFleetRoute: AppFleetRoute,
   AppJobsRoute: AppJobsRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppTriggersRoute: AppTriggersRoute,
   AppUsageRoute: AppUsageRoute,
   AppUsersRoute: AppUsersRoute,
