@@ -19,6 +19,7 @@ import { Route as AppFleetRouteImport } from './routes/_app/fleet'
 import { Route as AppDeliveriesRouteImport } from './routes/_app/deliveries'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppConversationsRouteImport } from './routes/_app/conversations'
+import { Route as AppAuditRouteImport } from './routes/_app/audit'
 import { Route as AppArtifactsRouteImport } from './routes/_app/artifacts'
 import { Route as AppWorkflowsIndexRouteImport } from './routes/_app/workflows.index'
 import { Route as AppRunsIndexRouteImport } from './routes/_app/runs.index'
@@ -74,6 +75,11 @@ const AppConversationsRoute = AppConversationsRouteImport.update({
   path: '/conversations',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAuditRoute = AppAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppArtifactsRoute = AppArtifactsRouteImport.update({
   id: '/artifacts',
   path: '/artifacts',
@@ -103,6 +109,7 @@ const AppRunsIdRoute = AppRunsIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/artifacts': typeof AppArtifactsRoute
+  '/audit': typeof AppAuditRoute
   '/conversations': typeof AppConversationsRoute
   '/dashboard': typeof AppDashboardRoute
   '/deliveries': typeof AppDeliveriesRoute
@@ -119,6 +126,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/artifacts': typeof AppArtifactsRoute
+  '/audit': typeof AppAuditRoute
   '/conversations': typeof AppConversationsRoute
   '/dashboard': typeof AppDashboardRoute
   '/deliveries': typeof AppDeliveriesRoute
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
   '/_app/artifacts': typeof AppArtifactsRoute
+  '/_app/audit': typeof AppAuditRoute
   '/_app/conversations': typeof AppConversationsRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/deliveries': typeof AppDeliveriesRoute
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/artifacts'
+    | '/audit'
     | '/conversations'
     | '/dashboard'
     | '/deliveries'
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/artifacts'
+    | '/audit'
     | '/conversations'
     | '/dashboard'
     | '/deliveries'
@@ -188,6 +199,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_app'
     | '/_app/artifacts'
+    | '/_app/audit'
     | '/_app/conversations'
     | '/_app/dashboard'
     | '/_app/deliveries'
@@ -279,6 +291,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConversationsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/audit': {
+      id: '/_app/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AppAuditRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/artifacts': {
       id: '/_app/artifacts'
       path: '/artifacts'
@@ -319,6 +338,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppArtifactsRoute: typeof AppArtifactsRoute
+  AppAuditRoute: typeof AppAuditRoute
   AppConversationsRoute: typeof AppConversationsRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDeliveriesRoute: typeof AppDeliveriesRoute
@@ -335,6 +355,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppArtifactsRoute: AppArtifactsRoute,
+  AppAuditRoute: AppAuditRoute,
   AppConversationsRoute: AppConversationsRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDeliveriesRoute: AppDeliveriesRoute,
