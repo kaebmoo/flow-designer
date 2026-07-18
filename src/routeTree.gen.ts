@@ -15,6 +15,7 @@ import { Route as AppWorkspacesRouteImport } from './routes/_app/workspaces'
 import { Route as AppTriggersRouteImport } from './routes/_app/triggers'
 import { Route as AppJobsRouteImport } from './routes/_app/jobs'
 import { Route as AppFleetRouteImport } from './routes/_app/fleet'
+import { Route as AppDeliveriesRouteImport } from './routes/_app/deliveries'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
 import { Route as AppConversationsRouteImport } from './routes/_app/conversations'
 import { Route as AppArtifactsRouteImport } from './routes/_app/artifacts'
@@ -50,6 +51,11 @@ const AppJobsRoute = AppJobsRouteImport.update({
 const AppFleetRoute = AppFleetRouteImport.update({
   id: '/fleet',
   path: '/fleet',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDeliveriesRoute = AppDeliveriesRouteImport.update({
+  id: '/deliveries',
+  path: '/deliveries',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/artifacts': typeof AppArtifactsRoute
   '/conversations': typeof AppConversationsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/deliveries': typeof AppDeliveriesRoute
   '/fleet': typeof AppFleetRoute
   '/jobs': typeof AppJobsRoute
   '/triggers': typeof AppTriggersRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByTo {
   '/artifacts': typeof AppArtifactsRoute
   '/conversations': typeof AppConversationsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/deliveries': typeof AppDeliveriesRoute
   '/fleet': typeof AppFleetRoute
   '/jobs': typeof AppJobsRoute
   '/triggers': typeof AppTriggersRoute
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   '/_app/artifacts': typeof AppArtifactsRoute
   '/_app/conversations': typeof AppConversationsRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/deliveries': typeof AppDeliveriesRoute
   '/_app/fleet': typeof AppFleetRoute
   '/_app/jobs': typeof AppJobsRoute
   '/_app/triggers': typeof AppTriggersRoute
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/conversations'
     | '/dashboard'
+    | '/deliveries'
     | '/fleet'
     | '/jobs'
     | '/triggers'
@@ -153,6 +163,7 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/conversations'
     | '/dashboard'
+    | '/deliveries'
     | '/fleet'
     | '/jobs'
     | '/triggers'
@@ -168,6 +179,7 @@ export interface FileRouteTypes {
     | '/_app/artifacts'
     | '/_app/conversations'
     | '/_app/dashboard'
+    | '/_app/deliveries'
     | '/_app/fleet'
     | '/_app/jobs'
     | '/_app/triggers'
@@ -227,6 +239,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFleetRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/deliveries': {
+      id: '/_app/deliveries'
+      path: '/deliveries'
+      fullPath: '/deliveries'
+      preLoaderRoute: typeof AppDeliveriesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
@@ -283,6 +302,7 @@ interface AppRouteChildren {
   AppArtifactsRoute: typeof AppArtifactsRoute
   AppConversationsRoute: typeof AppConversationsRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppDeliveriesRoute: typeof AppDeliveriesRoute
   AppFleetRoute: typeof AppFleetRoute
   AppJobsRoute: typeof AppJobsRoute
   AppTriggersRoute: typeof AppTriggersRoute
@@ -297,6 +317,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppArtifactsRoute: AppArtifactsRoute,
   AppConversationsRoute: AppConversationsRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppDeliveriesRoute: AppDeliveriesRoute,
   AppFleetRoute: AppFleetRoute,
   AppJobsRoute: AppJobsRoute,
   AppTriggersRoute: AppTriggersRoute,
