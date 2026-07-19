@@ -60,35 +60,50 @@
   --color-danger: var(--danger);
 
   @keyframes flow {
-    0% { stroke-dashoffset: 24; }
-    100% { stroke-dashoffset: 0; }
+    0% {
+      stroke-dashoffset: 24;
+    }
+    100% {
+      stroke-dashoffset: 0;
+    }
   }
   @keyframes slide-up {
-    from { transform: translateY(100%); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
   }
   @keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-primary) 40%, transparent); }
-    50% { box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-primary) 0%, transparent); }
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-primary) 40%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-primary) 0%, transparent);
+    }
   }
 }
 
 :root {
   --radius: 0.5rem;
   /* Air Traffic Obsidian palette */
-  --background: oklch(0.19 0.03 254);         /* deep obsidian */
+  --background: oklch(0.19 0.03 254); /* deep obsidian */
   --foreground: oklch(0.97 0.01 240);
   --card: oklch(0.22 0.03 254);
   --card-foreground: oklch(0.97 0.01 240);
   --popover: oklch(0.22 0.03 254);
   --popover-foreground: oklch(0.97 0.01 240);
-  --primary: oklch(0.82 0.15 200);            /* cyan runway light */
+  --primary: oklch(0.82 0.15 200); /* cyan runway light */
   --primary-foreground: oklch(0.18 0.03 254);
   --secondary: oklch(0.28 0.03 254);
   --secondary-foreground: oklch(0.97 0.01 240);
   --muted: oklch(0.28 0.03 254);
   --muted-foreground: oklch(0.72 0.03 240);
-  --accent: oklch(0.78 0.16 70);              /* amber warning light */
+  --accent: oklch(0.78 0.16 70); /* amber warning light */
   --accent-foreground: oklch(0.18 0.03 254);
   --destructive: oklch(0.65 0.22 25);
   --destructive-foreground: oklch(0.98 0.01 240);
@@ -102,7 +117,7 @@
   --chart-2: oklch(0.75 0.17 160);
   --chart-3: oklch(0.78 0.16 70);
   --chart-4: oklch(0.65 0.22 25);
-  --chart-5: oklch(0.65 0.20 300);
+  --chart-5: oklch(0.65 0.2 300);
   --sidebar: oklch(0.22 0.03 254);
   --sidebar-foreground: oklch(0.97 0.01 240);
   --sidebar-primary: oklch(0.82 0.15 200);
@@ -113,10 +128,14 @@
   --sidebar-ring: oklch(0.82 0.15 200);
 }
 
-.dark { color-scheme: dark; }
+.dark {
+  color-scheme: dark;
+}
 
 @layer base {
-  html { color-scheme: dark; }
+  html {
+    color-scheme: dark;
+  }
   * {
     border-color: var(--color-border);
   }
@@ -128,30 +147,110 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
-  .font-mono { font-family: var(--font-mono); }
+  .font-mono {
+    font-family: var(--font-mono);
+  }
 
   /* Radial canvas grid for editor surfaces */
   .atlas-grid {
     background-image: radial-gradient(circle at center, oklch(1 0 0 / 0.05) 1px, transparent 1px);
     background-size: 24px 24px;
   }
+
+  .workflow-canvas {
+    background-color: #0b1420;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgb(130 155 180 / 0.13) 1px, transparent 1.2px),
+      radial-gradient(ellipse at 50% 0%, rgb(21 207 226 / 0.035), transparent 58%);
+    background-size:
+      22px 22px,
+      100% 100%;
+  }
+
+  .inspector-input {
+    width: 100%;
+    border: 1px solid #33475a;
+    border-radius: 0.625rem;
+    background: #0c1622;
+    padding: 0.625rem 0.75rem;
+    color: var(--color-foreground);
+    font-size: 0.8125rem;
+    outline: none;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease,
+      background 150ms ease;
+  }
+  .inspector-input:hover {
+    border-color: #4b6278;
+  }
+  .inspector-input:focus {
+    border-color: var(--color-primary);
+    background: #0e1a28;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 14%, transparent);
+  }
+  .inspector-input option {
+    background: #101a27;
+    color: var(--color-foreground);
+  }
+  .inspector-help {
+    margin-top: 0.5rem;
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    color: var(--color-muted-foreground);
+  }
+  .inspector-help code {
+    color: var(--color-primary);
+    font-family: var(--font-mono);
+  }
 }
 
 /* React Flow overrides — match obsidian theme */
 .react-flow__renderer,
-.react-flow__pane { background: transparent; }
-.react-flow__edge-path { stroke: var(--color-primary); stroke-opacity: 0.5; }
-.react-flow__edge.selected .react-flow__edge-path { stroke-opacity: 1; }
+.react-flow__pane {
+  background: transparent;
+}
+.react-flow__edge-path {
+  stroke: var(--color-primary);
+  stroke-opacity: 0.5;
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke-opacity: 1;
+}
+.workflow-editor .react-flow__edge-textbg {
+  fill: #101a27;
+  stroke: #33475a;
+}
+.workflow-editor .react-flow__edge-text {
+  fill: #b6c7d7;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
 .react-flow__handle {
-  width: 10px; height: 10px;
+  width: 10px;
+  height: 10px;
   background: var(--color-primary);
   border: 2px solid var(--color-background);
 }
-.react-flow__controls { background: var(--color-card); border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+.react-flow__controls {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
 .react-flow__controls-button {
-  background: var(--color-card); color: var(--color-foreground);
+  background: var(--color-card);
+  color: var(--color-foreground);
   border-bottom: 1px solid var(--color-border);
 }
-.react-flow__controls-button:hover { background: var(--color-secondary); }
-.react-flow__minimap { background: var(--color-card) !important; border: 1px solid var(--color-border); border-radius: 8px; }
-.react-flow__attribution { display: none; }
+.react-flow__controls-button:hover {
+  background: var(--color-secondary);
+}
+.react-flow__minimap {
+  background: var(--color-card) !important;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.react-flow__attribution {
+  display: none;
+}
