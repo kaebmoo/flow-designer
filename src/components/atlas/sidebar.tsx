@@ -1,8 +1,25 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import {
-  LayoutDashboard, Server, FolderTree, Play, MessagesSquare,
-  Workflow, Activity, Zap, Package, Send, BarChart3, ScrollText, Users, Settings2,
+  LayoutDashboard,
+  Server,
+  FolderTree,
+  Play,
+  MessagesSquare,
+  Workflow,
+  Activity,
+  Zap,
+  Package,
+  Send,
+  BarChart3,
+  ScrollText,
+  Users,
+  Settings2,
+  LogOut,
 } from "lucide-react";
+import { useState } from "react";
+
+import { logoutFn } from "@/lib/auth.functions";
+import type { IdentityView } from "@/lib/atlas-mappers";
 
 const groups = [
   {
@@ -41,9 +58,25 @@ const groups = [
   },
 ] as const;
 
-export function AtlasSidebar() {
+export function AtlasSidebar({ identity }: { identity?: IdentityView }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const isActive = (to: string) => path === to || (to !== "/dashboard" && path.startsWith(to));
+  const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
+
+  async function onSignOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    try {
+      // Always best-effort: the server clears the local session even when Atlas revocation
+      // fails, so the user ends up signed out either way.
+      await logoutFn();
+    } finally {
+      await router.invalidate();
+      await router.navigate({ to: "/auth" });
+      setSigningOut(false);
+    }
+  }
 
   return (
     <nav className="hidden md:flex w-60 shrink-0 flex-col border-r border-border bg-sidebar">
@@ -88,11 +121,30 @@ export function AtlasSidebar() {
 
       <div className="border-t border-border p-4">
         <div className="flex items-center gap-3 px-2 py-1">
-          <div className="grid size-8 place-items-center rounded bg-secondary font-mono text-xs">01</div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-xs font-medium">Operator 01</span>
-            <span className="font-mono text-[10px] text-muted-foreground">SYS_ADMIN</span>
+          <div className="grid size-8 shrink-0 place-items-center rounded bg-secondary font-mono text-xs">
+            {identity?.initials ?? "--"}
           </div>
+          <div className="flex min-w-0 flex-col leading-tight">
+            <span className="truncate text-xs font-medium">
+              {identity?.username ?? "Signed out"}
+            </span>
+            {/* Role is a display hint. Atlas enforces the real permission on every call. */}
+            <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+              {identity?.roleLabel ?? "—"}
+            </span>
+          </div>
+          {identity ? (
+            <button
+              type="button"
+              onClick={onSignOut}
+              disabled={signingOut}
+              title="Sign out"
+              aria-label="Sign out"
+              className="ml-auto grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+            >
+              <LogOut className="size-4" aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </div>
     </nav>
