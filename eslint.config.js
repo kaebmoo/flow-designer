@@ -36,5 +36,42 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
     },
   },
+  {
+    /**
+     * The server boundary, enforced rather than merely documented.
+     *
+     * `*.server.ts` holds the Atlas bearer, the private origin, and session sealing. Client
+     * code reaching it would ship all of that to the browser. Only `*.server.ts` itself and
+     * the `*.functions.ts` RPC wrappers — whose bodies the bundler replaces with a network
+     * call — may import it. Tests run server-side and are exempt.
+     */
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/**/*.server.ts", "src/**/*.functions.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/*.server", "**/*.server.ts"],
+              message:
+                "Client code must not import `*.server.ts` — it carries the Atlas bearer and secrets. Go through a `*.functions.ts` server function instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    /**
+     * `useSession` from `@tanstack/react-start/server` is TanStack Start's request-scoped
+     * session primitive, not a React hook — the shared `use*` naming is all that makes the
+     * rule fire. Server modules render nothing, so the rule cannot apply here.
+     */
+    files: ["src/**/*.server.ts"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+    },
+  },
   eslintPluginPrettier,
 );
