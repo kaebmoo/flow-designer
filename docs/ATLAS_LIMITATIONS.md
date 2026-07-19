@@ -147,6 +147,29 @@ Backend follow-up (**required before production release**):
 - Add cleanup/revocation of orphaned `"dashboard login"` tokens (reuse-or-cap per user).
 - Add login brute-force/rate limiting in Atlas.
 
+### P0 — Keep-alive connection desync after a rejected POST
+
+**Found during Phase 1 implementation (2026-07-20) and reproduced against Atlas `595ef62`.** This is a new finding, not carried over from Phase 0.
+
+Atlas advertises HTTP/1.1 with keep-alive (`protocol_version = "HTTP/1.1"`, `atlas/app.py:156`) but rejects unauthorized and forbidden requests **before reading the request body** (`atlas/app.py:237-242`). The undrained body stays in the socket, so the next request reused on that connection is parsed starting at the leftover bytes. Its request line becomes something like `{}POST /api/auth/login`, and Python's `BaseHTTPRequestHandler` answers **501 "Unsupported method"** with an **HTML** body — no `{"error": ...}` envelope.
+
+The damage lands on the *wrong* request: the rejected POST returns a correct 401, and an unrelated later request on the pooled connection fails instead. Observed rate in a plain sequence of `POST /api/auth/logout` (401) followed by `POST /api/auth/login`: roughly two failures in five iterations under Node's default connection pooling.
+
+Related: because `do_PATCH`/`do_HEAD` are not defined either, any `PATCH` or `HEAD` to `/api/*` also returns a 501 HTML body rather than the JSON error envelope.
+
+Frontend mitigation (in place):
+
+- `src/lib/atlas-api.server.ts` sends `Connection: close` on every POST, so no connection is reused after a request that may be rejected pre-body-read. Verified to eliminate the failure entirely; `GET` needs no such treatment because it carries no body.
+- The client validates `content-type` before parsing, so a 501 HTML page is normalised to an `AtlasError` rather than crashing a JSON parse.
+- Regression coverage: `tests/contract/auth.contract.test.ts` ("survives repeated rejected POSTs"), which fails without the workaround.
+
+Cost of the mitigation: one extra TCP handshake per mutation on a private network. Remove the header once Atlas is fixed.
+
+Backend follow-up:
+
+- Drain (or refuse with `Connection: close`) the request body on the 401/403 rejection paths in `_handle_api`.
+- Define `do_PATCH`/`do_HEAD`, or return the JSON error envelope for unsupported methods.
+
 ### P1 — No mutation idempotency or optimistic concurrency
 
 Confirmed in Atlas source: no mutation endpoint accepts `Idempotency-Key`, `ETag`, or `If-Match` (no matches across `atlas/` or the OpenAPI spec). The `workflow_definitions.version` column is stored and returned but never checked or incremented on update (`atlas/db.py` `update_workflow_definition`), so concurrent `PUT`s are last-write-wins. Idempotency that exists is internal and per-write-type (usage-event unique key, delivery deterministic id, worker-callback replay) plus state-guarded conditional updates (approvals, run finalization) — not a caller-facing contract.

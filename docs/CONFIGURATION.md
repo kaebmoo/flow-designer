@@ -30,6 +30,26 @@ These defaults have passed technical review, but they are **not** a substitute f
 
 Still needing explicit user approval: the complete Phase 1 gate, plus exact public/private production origins and domains (decisions 2–3) and the production secret store (decision 4).
 
+### Confirmed at the Phase 1 gate (2026-07-20)
+
+The user opened Phase 1 with these decisions. Three deployment values were **deliberately deferred**, so Phase 1 shipped against local values and committed placeholders rather than inventing production names.
+
+| Item | Decision |
+| --- | --- |
+| Session max age | **28800 s (8 hours)**, implemented as the default in `src/lib/env.server.ts` and overridable with `SESSION_MAX_AGE` |
+| Cookie | `HttpOnly`, `SameSite=Lax`, `Path=/`, host-only; `Secure` only when `NODE_ENV=production` **and** `PUBLIC_ORIGIN` is https |
+| Session mechanism | TanStack Start `useSession`, single `SESSION_SECRET` (≥32 chars); rotation forces re-login |
+| Env var names | `ATLAS_API_ORIGIN`, `SESSION_SECRET`, `PUBLIC_ORIGIN`, `NODE_ENV`, optional `SESSION_MAX_AGE` |
+| Local Atlas origin | `http://127.0.0.1:8787` |
+| `PUBLIC_ORIGIN` (production) | **Deferred.** `.env.example` documents it as a TODO. Required before any deploy. |
+| `ATLAS_API_ORIGIN` (production) | **Deferred.** `.env.example` documents it as a TODO. Required before any deploy. |
+| Production secret store | **Deferred.** No code depends on the choice — every variable is read from the process environment regardless of what supplies it. |
+
+Two implementation details worth recording, both discovered by reading the installed source rather than assuming:
+
+- **`sessionHeader: false` is mandatory.** `useSession` otherwise accepts a sealed session from an `x-fd_session-session` **request header in preference to the cookie**, which would let a caller supply a session out-of-band. The httpOnly cookie is now the only accepted carrier.
+- **CSRF `origin` is singular and only consulted when `Sec-Fetch-Site` is absent.** The framework checks `Sec-Fetch-Site` first, then `Origin`, then `Referer`, and denies a request carrying none of the three. The `origin` matcher therefore exists for the reverse-proxy case, where the browser's origin differs from the internal request URL.
+
 ### 1. Package manager and deployment runtime (separate concerns)
 
 Treat the package manager and the production runtime as two independent choices.
