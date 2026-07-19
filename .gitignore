@@ -20,6 +20,15 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Local environment (server-only secrets). .env.example is the committed template.
+.env
+.env.*
+!.env.example
+
+# Test artifacts
+test-results
+playwright-report
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
