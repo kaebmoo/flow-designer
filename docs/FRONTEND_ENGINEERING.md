@@ -9,8 +9,12 @@ src/lib/atlas-api.server.ts  server-only authenticated HTTP client
 src/lib/auth.server.ts       server-only session/cookie helpers
 src/lib/*.functions.ts       typed server functions used by routes/components
 src/lib/query-keys.ts        stable TanStack Query keys
-src/lib/atlas-store.ts       UI-only state only; no durable domain collections
+src/lib/workflow-graph.ts    semantic workflow graph: parse, serialize, validate, rename
 ```
+
+There is no client-side domain store. The mock Zustand store was deleted in Phase 3 along with
+the timer-based simulator; server state lives in TanStack Query, and the only local state is
+UI-local (selection, panels, and the editor's node layout in `localStorage`).
 
 ### Import boundary
 

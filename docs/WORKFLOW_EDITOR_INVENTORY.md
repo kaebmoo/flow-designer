@@ -322,8 +322,15 @@ no validation, no start-node selection, no artifact handling, and no trigger man
 
 ## 6. Phase 3 acceptance checklist
 
-Derived from the tables above. This is the list to run at the Phase 3 gate, so "complete" is
-decided against something written down before the work started.
+Derived from the tables above, so "complete" is decided against something written down before the
+work started.
+
+**Scope: this covers the editor only.** Phase 3 in `IMPLEMENTATION_PLAN.md` is wider than the
+canvas — worker/workspace mutations, workflow delete, job cancel, delivery retry, artifact
+download, and the mutation conflict guard are all Phase 3 work that no table above describes,
+because none of them existed in the editor scaffold this document inventoried. They are tracked
+in `CHECKLIST.md` under "Phase 3 — Mutations/editor". Run both lists at the gate; this one alone
+is not the gate.
 
 ### Palette and graph model
 
