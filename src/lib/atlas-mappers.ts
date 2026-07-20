@@ -804,6 +804,8 @@ export interface MetricsView {
   artifacts: number;
   /** Atlas's own version string, useful when a UI/Atlas mismatch is suspected. */
   atlasVersion: string;
+  /** Atlas's applied database schema version, from the same metrics snapshot. */
+  schemaVersion: number;
   /** When Atlas produced the snapshot, so a stale card is visibly stale. */
   generatedAt: string;
 }
@@ -852,6 +854,7 @@ export function toMetricsView(metrics: AtlasMetrics): MetricsView {
     approvalsPending: Number(metrics.approvals_pending) || 0,
     artifacts: Number(metrics.artifacts) || 0,
     atlasVersion: metrics.version,
+    schemaVersion: Number(metrics.schema_version) || 0,
     generatedAt: formatAtlasTimestamp(metrics.time),
   };
 }
