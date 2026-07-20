@@ -61,7 +61,7 @@ test.describe("workflow editor", () => {
   test("the palette offers exactly the four node types Atlas has", async ({ page }) => {
     await createWorkflow(page);
 
-    for (const kind of ["Worker", "Manager", "Join", "Approval"]) {
+    for (const kind of ["AI Task", "AI Decision", "Wait for branches", "Human decision"]) {
       await expect(page.getByRole("button", { name: new RegExp(`^${kind}`) })).toBeVisible();
     }
     // The four kinds Atlas rejects must not be offerable. A palette entry for any of them would
@@ -77,12 +77,12 @@ test.describe("workflow editor", () => {
     const id = await createWorkflow(page);
 
     // The workflow starts with one worker node; add a second and connect nothing yet.
-    await page.getByRole("button", { name: /^Manager/ }).click();
+    await page.getByRole("button", { name: /^AI Decision/ }).click();
     await expect(dirtyState(page)).toHaveText("Unsaved changes");
 
     // Renaming must rewrite graph.start too, since the first node is the start.
     await page
-      .getByRole("button", { name: /^Worker/ })
+      .getByRole("button", { name: /^AI Task/ })
       .first()
       .isVisible();
     await canvas(page).getByText("worker_1", { exact: true }).click();
@@ -145,7 +145,7 @@ test.describe("workflow editor", () => {
     page,
   }) => {
     const id = await createWorkflow(page);
-    await page.getByRole("button", { name: /^Join/ }).click();
+    await page.getByRole("button", { name: /^Wait for branches/ }).click();
     await page.getByRole("button", { name: "Save" }).click();
     await expect(dirtyState(page)).toHaveText("Saved");
 
@@ -163,7 +163,7 @@ test.describe("workflow editor", () => {
     page,
   }) => {
     await createWorkflow(page);
-    await page.getByRole("button", { name: /^Join/ }).click();
+    await page.getByRole("button", { name: /^Wait for branches/ }).click();
     await page.getByRole("button", { name: "Save" }).click();
     await expect(dirtyState(page)).toHaveText("Saved");
 
@@ -201,7 +201,7 @@ test.describe("workflow editor", () => {
     page,
   }) => {
     await createWorkflow(page);
-    await page.getByRole("button", { name: /^Join/ }).click();
+    await page.getByRole("button", { name: /^Wait for branches/ }).click();
 
     const workflows = page.getByRole("link", { name: "Workflows", exact: true });
     await workflows.click();
@@ -222,7 +222,7 @@ test.describe("workflow editor", () => {
 
     // A quorum join with nothing feeding it is invalid: Atlas requires quorum <= the distinct
     // incoming upstream count, and this one has none.
-    await page.getByRole("button", { name: /^Join/ }).click();
+    await page.getByRole("button", { name: /^Wait for branches/ }).click();
     await page.getByLabel("Mode").selectOption("quorum");
 
     const problem = page.getByRole("button", { name: /Quorum .* exceeds/ });
@@ -313,14 +313,14 @@ test.describe("workflow editor", () => {
     const other = await context.newPage();
     await other.goto(`/workflows/${id}`);
     await ready(other);
-    await other.getByRole("button", { name: /^Join/ }).click();
+    await other.getByRole("button", { name: /^Wait for branches/ }).click();
     await other.getByRole("button", { name: "Save" }).click();
     await expect(other.getByTestId("workflow-dirty-state")).toHaveText("Saved");
     await other.close();
 
     // The first tab still holds the older baseline, so its save must be refused rather than
     // quietly overwriting the other tab's work.
-    await page.getByRole("button", { name: /^Manager/ }).click();
+    await page.getByRole("button", { name: /^AI Decision/ }).click();
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByRole("alert")).toContainText(/changed in Atlas since you opened it/);
     await expect(dirtyState(page)).toHaveText("Unsaved changes");
@@ -341,7 +341,7 @@ test.describe("workflow editor", () => {
     page,
   }) => {
     await createWorkflow(page);
-    await page.getByRole("button", { name: /^Join/ }).click();
+    await page.getByRole("button", { name: /^Wait for branches/ }).click();
     await expect(dirtyState(page)).toHaveText("Unsaved changes");
 
     const run = page.getByRole("button", { name: "Run", exact: true });
