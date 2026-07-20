@@ -432,6 +432,145 @@ export interface AtlasWorkflowEvent {
   created_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Operational-page entities (Phase 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /api/conversations`, `POST /api/conversations` (`atlas/app.py:479-486`,
+ * `atlas/db.py:214-226`).
+ *
+ * The list is a **fixed window of the 100 most recently updated rows** — `list_conversations`
+ * hardcodes `LIMIT 100` and accepts no parameter (`atlas/db.py:2245-2248`). There is no
+ * get-by-id, update, or delete route: anything but the two operations above 404s.
+ */
+export interface AtlasConversation {
+  id: string;
+  title: string;
+  preferred_worker_id: string | null;
+  preferred_workspace_id: string | null;
+  workspace_key: string;
+  company: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `GET /api/users/{id}` and the `user` of create/update (`atlas/db.py:896-902`). */
+export interface AtlasUserRow {
+  id: string;
+  username: string;
+  /** Constrained by Atlas (`_validate_role_status`), but typed open for forward safety. */
+  role: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * `GET /api/users` (`atlas/db.py:912-922`).
+ *
+ * The list SQL joins a live (un-revoked) token count per user; the by-id route does not.
+ */
+export interface AtlasUserListRow extends AtlasUserRow {
+  token_count: number;
+}
+
+/**
+ * Token **metadata** — `GET /api/tokens`, `GET/PUT /api/tokens/{id}` (`atlas/db.py:988-1014`).
+ *
+ * Never contains the token value: the SELECT lists columns explicitly and excludes
+ * `token_hash`. The raw token exists in exactly one response — the create's `api_token`.
+ */
+export interface AtlasApiToken {
+  id: string;
+  user_id: string;
+  name: string;
+  last_used_at: string | null;
+  created_at: string;
+  revoked_at: string | null;
+  username: string;
+}
+
+/**
+ * `POST /api/tokens` — 201 (`atlas/app.py:329-337`).
+ *
+ * `api_token` is the raw bearer, returned **once**; no later route can recover it (Atlas
+ * stores only its hash). It must never enter a query cache, storage, a URL, or a log.
+ */
+export interface AtlasTokenCreated {
+  token: AtlasApiToken;
+  api_token: string;
+}
+
+/**
+ * `GET /api/audit` rows (`atlas/db.py:452-460`, `727-751`). Newest first, bounded by `limit`;
+ * `from`/`to` are inclusive created_at bounds. `id` is an autoincrement integer, so these rows
+ * do not satisfy `isAtlasRow`.
+ */
+export interface AtlasAuditEntry {
+  id: number;
+  action: string;
+  actor: string;
+  resource_type: string;
+  resource_id: string;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+/** One row of the usage ledger (`atlas/db.py:842-859`; fields per `usage.py` CSV order). */
+export interface AtlasUsageEvent {
+  id: string;
+  idempotency_key: string;
+  run_id: string | null;
+  job_id: string | null;
+  node_key: string | null;
+  worker_id: string | null;
+  actor: string;
+  kind: string;
+  status: string | null;
+  units: number;
+  seconds: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  model: string | null;
+  tokens_prompt: number | null;
+  tokens_output: number | null;
+  created_at: string;
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * `summarize_usage` (`atlas/usage.py:52-70`).
+ *
+ * `estimated_cost_usd` is a per-event visibility **estimate** Atlas froze at write time — the
+ * ledger is mediation/CDR source data, not an invoice, and nothing here is a billable charge.
+ */
+export interface AtlasUsageTotals {
+  workflow_runs: number;
+  successful_workflow_runs: number;
+  jobs: number;
+  budget_units: number;
+  wall_seconds: number;
+  job_wall_seconds: number;
+  tokens_prompt: number;
+  tokens_output: number;
+  estimated_cost_usd: number;
+}
+
+/**
+ * `GET /api/usage?format=json` (`atlas/app.py:382-395`).
+ *
+ * No `limit` and no pagination exist on this route: the range decides the size, and the whole
+ * ledger for that range comes back in one response.
+ */
+export interface AtlasUsageResponse {
+  usage: AtlasUsageEvent[];
+  totals: AtlasUsageTotals;
+  from: string | null;
+  to: string | null;
+}
+
 /** Structural guard for any Atlas row: an object carrying a non-empty string `id`. */
 export function isAtlasRow(value: unknown): boolean {
   if (value === null || typeof value !== "object") return false;

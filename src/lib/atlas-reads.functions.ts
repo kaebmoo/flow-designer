@@ -24,32 +24,48 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   atlasGetJob,
   atlasGetMetrics,
+  atlasGetUsage,
   atlasGetWorkflow,
   atlasGetWorkflowRun,
+  atlasListApiTokens,
+  atlasListAudit,
+  atlasListConversations,
   atlasListJobs,
+  atlasListUsers,
   atlasListWorkers,
   atlasListWorkflowRuns,
   atlasListWorkflows,
   atlasListWorkspaces,
 } from "./atlas-api.server";
+import { parseDateBoundary } from "./atlas-dates";
 import { clampAtlasLimit } from "./atlas-limits";
 import {
+  toApiTokenView,
+  toAuditEntryView,
   toClientAtlasError,
+  toConversationView,
   toJobDetailView,
   toJobListView,
   toMetricsView,
   toRunDetailView,
   toRunView,
+  toUsageView,
+  toUserAdminView,
   toWorkerView,
   toWorkflowDetailView,
   toWorkflowView,
   toWorkspaceView,
+  type ApiTokenView,
+  type AuditEntryView,
   type ClientAtlasError,
+  type ConversationView,
   type JobDetailView,
   type JobView,
   type MetricsView,
   type RunDetailView,
   type RunView,
+  type UsageView,
+  type UserAdminView,
   type WorkerView,
   type WorkflowDetailView,
   type WorkflowView,
@@ -236,4 +252,98 @@ export const getJobFn = createServerFn({ method: "GET" })
   .handler(
     async ({ data: jobId }): Promise<AtlasResult<JobDetailView>> =>
       read(async (token) => toJobDetailView(await atlasGetJob(token, jobId))),
+  );
+
+// ---------------------------------------------------------------------------
+// Operational-page reads (Phase 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * A window the caller cannot size: Atlas's conversation list is a fixed latest-100.
+ *
+ * `mayHaveMore` mirrors the list windows above — exactly 100 rows back means older
+ * conversations may exist and are unreachable through the API.
+ */
+export interface ConversationWindow {
+  items: ConversationView[];
+  limit: 100;
+  mayHaveMore: boolean;
+}
+
+/** `GET /api/conversations` — the 100 most recently updated rows; any role can read. */
+export const listConversationsFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AtlasResult<ConversationWindow>> =>
+    read(async (token) => {
+      const items = (await atlasListConversations(token)).map(toConversationView);
+      return { items, limit: 100 as const, mayHaveMore: items.length >= 100 };
+    }),
+);
+
+/** `GET /api/users` — admin only; a non-admin receives Atlas's 403 as a forbidden result. */
+export const listUsersFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AtlasResult<UserAdminView[]>> =>
+    read(async (token) => (await atlasListUsers(token)).map(toUserAdminView)),
+);
+
+/** `GET /api/tokens` — admin only. Metadata rows only; a token value never appears here. */
+export const listApiTokensFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AtlasResult<ApiTokenView[]>> =>
+    read(async (token) => (await atlasListApiTokens(token)).map(toApiTokenView)),
+);
+
+/**
+ * The audit window the UI asked for, echoed back with the rows so the page can state what it
+ * shows: newest-first, bounded by `limit`, optionally date-bounded (inclusive, per Atlas).
+ */
+export interface AuditWindow {
+  items: AuditEntryView[];
+  limit: number;
+  mayHaveMore: boolean;
+}
+
+/** `GET /api/audit?limit=&from=&to=` — requires `audit.read` (admin/auditor). */
+export const listAuditFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => ({
+    limit: validateLimit(data),
+    from: parseDateBoundary(
+      data === null || typeof data !== "object"
+        ? undefined
+        : (data as Record<string, unknown>).from,
+      "from",
+    ),
+    to: parseDateBoundary(
+      data === null || typeof data !== "object" ? undefined : (data as Record<string, unknown>).to,
+      "to",
+    ),
+  }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<AuditWindow>> =>
+      read(async (token) => {
+        const items = (await atlasListAudit(token, data)).map(toAuditEntryView);
+        return { items, limit: data.limit, mayHaveMore: items.length >= data.limit };
+      }),
+  );
+
+/**
+ * `GET /api/usage?from=&to=` — requires `audit.read` (admin/auditor).
+ *
+ * The range goes to Atlas; totals are Atlas's own `summarize_usage` output, never re-derived
+ * from the rows here.
+ */
+export const getUsageFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => ({
+    from: parseDateBoundary(
+      data === null || typeof data !== "object"
+        ? undefined
+        : (data as Record<string, unknown>).from,
+      "from",
+    ),
+    to: parseDateBoundary(
+      data === null || typeof data !== "object" ? undefined : (data as Record<string, unknown>).to,
+      "to",
+    ),
+  }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<UsageView>> =>
+      read(async (token) => toUsageView(await atlasGetUsage(token, data))),
   );

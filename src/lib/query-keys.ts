@@ -62,6 +62,23 @@ export const queryKeys = {
   triggers: () => ["atlas", "triggers"] as const,
   triggerList: (params: { limit: number; workflowDefinitionId?: string }) =>
     ["atlas", "triggers", "list", params] as const,
+
+  /**
+   * Phase 5 families.
+   *
+   * Conversations take no parameters because Atlas's list is a fixed latest-100 window.
+   * Audit and usage carry their date range in the key: two ranges are two different windows,
+   * and serving one for the other would silently lie about the period shown.
+   */
+  conversations: () => ["atlas", "conversations"] as const,
+  users: () => ["atlas", "users"] as const,
+  tokens: () => ["atlas", "tokens"] as const,
+  audit: () => ["atlas", "audit"] as const,
+  auditList: (params: { limit: number; from?: string; to?: string }) =>
+    ["atlas", "audit", "list", params] as const,
+  usage: () => ["atlas", "usage"] as const,
+  usageRange: (params: { from?: string; to?: string }) =>
+    ["atlas", "usage", "range", params] as const,
 } as const;
 
 export type QueryKeys = typeof queryKeys;

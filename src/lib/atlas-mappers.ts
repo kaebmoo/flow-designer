@@ -17,8 +17,11 @@ import {
   type WorkflowPolicy,
 } from "./workflow-graph";
 import type {
+  AtlasApiToken,
   AtlasApproval,
   AtlasArtifact,
+  AtlasAuditEntry,
+  AtlasConversation,
   AtlasDelivery,
   AtlasErrorKind,
   AtlasJob,
@@ -27,7 +30,11 @@ import type {
   AtlasRole,
   AtlasRuntimeEdge,
   AtlasRuntimeNode,
+  AtlasUsageEvent,
+  AtlasUsageResponse,
+  AtlasUsageTotals,
   AtlasUser,
+  AtlasUserListRow,
   AtlasWorker,
   AtlasWorkflowDefinition,
   AtlasWorkflowEvent,
@@ -1109,5 +1116,214 @@ export function toRunEventView(event: AtlasWorkflowEvent): RunEventView {
     nodeKey: event.node_key,
     detail: keys.length === 0 ? null : JSON.stringify(payload),
     createdAt: formatAtlasTimestamp(event.created_at),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Operational-page view models (Phase 5)
+// ---------------------------------------------------------------------------
+
+export interface ConversationView {
+  id: string;
+  title: string;
+  workspaceKey: string;
+  company: string;
+  preferredWorkerId: string | null;
+  preferredWorkspaceId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function toConversationView(conversation: AtlasConversation): ConversationView {
+  return {
+    id: conversation.id,
+    title: conversation.title || "Untitled",
+    workspaceKey: conversation.workspace_key || "",
+    company: conversation.company || "",
+    preferredWorkerId: conversation.preferred_worker_id ?? null,
+    preferredWorkspaceId: conversation.preferred_workspace_id ?? null,
+    createdAt: formatAtlasTimestamp(conversation.created_at),
+    updatedAt: formatAtlasTimestamp(conversation.updated_at),
+  };
+}
+
+export interface UserAdminView {
+  id: string;
+  username: string;
+  /** Raw Atlas value, kept for the edit form; `roleLabel` is the display form. */
+  role: string;
+  roleLabel: string;
+  status: StatusView;
+  disabled: boolean;
+  /** Live (un-revoked) API tokens Atlas counts for this user. */
+  tokenCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function toUserAdminView(user: AtlasUserListRow): UserAdminView {
+  const role = String(user.role ?? "");
+  return {
+    id: user.id,
+    username: user.username,
+    role,
+    // A role outside the known four renders as itself rather than crashing the lookup.
+    roleLabel: (ROLE_LABELS as Record<string, string>)[role] ?? role,
+    status: toStatusView(String(user.status ?? "")),
+    disabled: user.status === "disabled",
+    tokenCount: Number(user.token_count) || 0,
+    createdAt: formatAtlasTimestamp(user.created_at),
+    updatedAt: formatAtlasTimestamp(user.updated_at),
+  };
+}
+
+/**
+ * Token **metadata** only.
+ *
+ * Deliberately no field for a token value exists on this type, so the raw `api_token` a create
+ * returns cannot ride along into the token list, the query cache, or anything persisted. The
+ * raw value lives solely in the create dialog's transient component state.
+ */
+export interface ApiTokenView {
+  id: string;
+  userId: string;
+  username: string;
+  name: string;
+  revoked: boolean;
+  lastUsedAt: string;
+  createdAt: string;
+  revokedAt: string;
+}
+
+export function toApiTokenView(token: AtlasApiToken): ApiTokenView {
+  return {
+    id: token.id,
+    userId: token.user_id,
+    username: token.username,
+    name: token.name || "(unnamed)",
+    revoked: token.revoked_at !== null && token.revoked_at !== undefined,
+    lastUsedAt: formatAtlasTimestamp(token.last_used_at),
+    createdAt: formatAtlasTimestamp(token.created_at),
+    revokedAt: formatAtlasTimestamp(token.revoked_at),
+  };
+}
+
+export interface AuditEntryView {
+  /** Atlas's integer autoincrement id, stringified for React keys. */
+  id: string;
+  action: string;
+  actor: string;
+  resourceType: string;
+  resourceId: string;
+  /** The row's `details` object as compact JSON, or null when Atlas recorded none. */
+  detail: string | null;
+  createdAt: string;
+}
+
+/** Rendered exactly as Atlas recorded it — the UI never synthesises an audit narrative. */
+export function toAuditEntryView(entry: AtlasAuditEntry): AuditEntryView {
+  const details = entry.details !== null && typeof entry.details === "object" ? entry.details : {};
+  return {
+    id: String(entry.id),
+    action: entry.action,
+    actor: entry.actor,
+    resourceType: entry.resource_type,
+    resourceId: entry.resource_id,
+    detail: Object.keys(details).length === 0 ? null : JSON.stringify(details),
+    createdAt: formatAtlasTimestamp(entry.created_at),
+  };
+}
+
+export interface UsageEventView {
+  id: string;
+  kind: string;
+  status: string;
+  units: number;
+  seconds: number | null;
+  runId: string | null;
+  jobId: string | null;
+  nodeKey: string | null;
+  workerId: string | null;
+  actor: string;
+  model: string;
+  tokensPrompt: number | null;
+  tokensOutput: number | null;
+  /** Atlas's frozen per-event estimate, or null when the event carries none. Not a charge. */
+  estimatedCostUsd: number | null;
+  createdAt: string;
+}
+
+export function toUsageEventView(event: AtlasUsageEvent): UsageEventView {
+  const metadata =
+    event.metadata !== null && typeof event.metadata === "object" ? event.metadata : {};
+  const estimated = metadata.estimated_cost_usd;
+  return {
+    id: event.id,
+    kind: event.kind,
+    status: event.status ?? "",
+    units: Number(event.units) || 0,
+    seconds: typeof event.seconds === "number" ? event.seconds : null,
+    runId: event.run_id ?? null,
+    jobId: event.job_id ?? null,
+    nodeKey: event.node_key ?? null,
+    workerId: event.worker_id ?? null,
+    actor: event.actor ?? "",
+    model: event.model ?? "",
+    tokensPrompt: typeof event.tokens_prompt === "number" ? event.tokens_prompt : null,
+    tokensOutput: typeof event.tokens_output === "number" ? event.tokens_output : null,
+    estimatedCostUsd: typeof estimated === "number" ? estimated : null,
+    createdAt: formatAtlasTimestamp(event.created_at),
+  };
+}
+
+/** Period totals as Atlas computed them; every figure is Atlas's own, never re-derived. */
+export interface UsageTotalsView {
+  workflowRuns: number;
+  successfulWorkflowRuns: number;
+  jobs: number;
+  budgetUnits: number;
+  wallSeconds: number;
+  jobWallSeconds: number;
+  tokensPrompt: number;
+  tokensOutput: number;
+  estimatedCostUsd: number;
+}
+
+function toUsageTotalsView(totals: AtlasUsageTotals): UsageTotalsView {
+  return {
+    workflowRuns: Number(totals.workflow_runs) || 0,
+    successfulWorkflowRuns: Number(totals.successful_workflow_runs) || 0,
+    jobs: Number(totals.jobs) || 0,
+    budgetUnits: Number(totals.budget_units) || 0,
+    wallSeconds: Number(totals.wall_seconds) || 0,
+    jobWallSeconds: Number(totals.job_wall_seconds) || 0,
+    tokensPrompt: Number(totals.tokens_prompt) || 0,
+    tokensOutput: Number(totals.tokens_output) || 0,
+    estimatedCostUsd: Number(totals.estimated_cost_usd) || 0,
+  };
+}
+
+/**
+ * `GET /api/usage` for the UI.
+ *
+ * Events come back **newest first** (Atlas orders the ledger ascending; the reversal happens
+ * here, once) so the page's bounded rendering shows the most recent slice of the range.
+ */
+export interface UsageView {
+  events: UsageEventView[];
+  eventCount: number;
+  totals: UsageTotalsView;
+  from: string | null;
+  to: string | null;
+}
+
+export function toUsageView(response: AtlasUsageResponse): UsageView {
+  const events = response.usage.map(toUsageEventView).reverse();
+  return {
+    events,
+    eventCount: events.length,
+    totals: toUsageTotalsView(response.totals),
+    from: response.from ?? null,
+    to: response.to ?? null,
   };
 }

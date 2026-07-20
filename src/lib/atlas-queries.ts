@@ -22,9 +22,14 @@ import {
   getJobFn,
   getMetricsFn,
   getRunFn,
+  getUsageFn,
   getWorkflowFn,
+  listApiTokensFn,
+  listAuditFn,
+  listConversationsFn,
   listJobsFn,
   listRunsFn,
+  listUsersFn,
   listWorkersFn,
   listWorkflowsFn,
   listWorkspacesFn,
@@ -209,6 +214,53 @@ export function runEventsQuery(runId: string, params: { limit: number }) {
   return queryOptions({
     queryKey: queryKeys.runEvents(runId, params),
     queryFn: async () => unwrap(await listRunEventsFn({ data: { runId, limit: params.limit } })),
+    ...shared,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 reads: the operational pages.
+//
+// The shared retry policy already refuses to retry a 403, so the admin/auditor-only reads
+// (users, tokens, audit, usage) surface a forbidden state once instead of hammering Atlas.
+// ---------------------------------------------------------------------------
+
+export function conversationsQuery() {
+  return queryOptions({
+    queryKey: queryKeys.conversations(),
+    queryFn: async () => unwrap(await listConversationsFn()),
+    ...shared,
+  });
+}
+
+export function usersQuery() {
+  return queryOptions({
+    queryKey: queryKeys.users(),
+    queryFn: async () => unwrap(await listUsersFn()),
+    ...shared,
+  });
+}
+
+export function apiTokensQuery() {
+  return queryOptions({
+    queryKey: queryKeys.tokens(),
+    queryFn: async () => unwrap(await listApiTokensFn()),
+    ...shared,
+  });
+}
+
+export function auditQuery(params: { limit: number; from?: string; to?: string }) {
+  return queryOptions({
+    queryKey: queryKeys.auditList(params),
+    queryFn: async () => unwrap(await listAuditFn({ data: params })),
+    ...shared,
+  });
+}
+
+export function usageQuery(params: { from?: string; to?: string }) {
+  return queryOptions({
+    queryKey: queryKeys.usageRange(params),
+    queryFn: async () => unwrap(await getUsageFn({ data: params })),
     ...shared,
   });
 }

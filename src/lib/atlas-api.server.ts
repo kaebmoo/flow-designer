@@ -20,9 +20,12 @@ import {
   isAtlasRowListEnvelope,
   isAtlasUser,
   readAtlasErrorMessage,
+  type AtlasApiToken,
   type AtlasApproval,
   type AtlasApprovalDecision,
   type AtlasArtifact,
+  type AtlasAuditEntry,
+  type AtlasConversation,
   type AtlasDelivery,
   type AtlasErrorKind,
   type AtlasJob,
@@ -31,7 +34,11 @@ import {
   type AtlasLogoutResponse,
   type AtlasMeResponse,
   type AtlasMetrics,
+  type AtlasTokenCreated,
+  type AtlasUsageResponse,
   type AtlasUser,
+  type AtlasUserListRow,
+  type AtlasUserRow,
   type AtlasWorker,
   type AtlasWorkflowDefinition,
   type AtlasWorkflowEvent,
@@ -1440,4 +1447,428 @@ export async function atlasOpenJobEventStream(
     });
   }
   return response;
+}
+
+// ---------------------------------------------------------------------------
+// Operational-page operations (Phase 5).
+//
+// Same discipline as everything above: one exported function per Atlas route, method, path,
+// and permitted query keys baked in. Atlas alone authorises — users/tokens are admin-only and
+// audit/usage require `audit.read`, and a 403 from Atlas travels back as a 403.
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /api/conversations` — a **fixed window of the 100 most recently updated** rows.
+ *
+ * Atlas accepts no parameter on this route (`atlas/db.py:2245-2248` hardcodes `LIMIT 100`),
+ * so there is deliberately nothing to pass. There is also no get-by-id, update, or delete
+ * conversation route in Atlas at all.
+ */
+export async function atlasListConversations(
+  token: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasConversation[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/conversations",
+    token,
+    ...options,
+  });
+
+  return expectShape<{ conversations: AtlasConversation[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "conversations"),
+  ).conversations;
+}
+
+/**
+ * `POST /api/conversations` — 201. Requires `resources.manage` (admin/operator): the route
+ * falls through `_required_permission`'s default branch (`atlas/app.py:1211`).
+ */
+export async function atlasCreateConversation(
+  token: string,
+  conversation: { title: string; workspace_key?: string; company?: string },
+  options: AtlasCallOptions = {},
+): Promise<AtlasConversation> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/conversations",
+    token,
+    body: {
+      title: conversation.title,
+      workspace_key: conversation.workspace_key ?? "",
+      company: conversation.company ?? "",
+    },
+    ...options,
+  });
+
+  return expectShape<{ conversation: AtlasConversation }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "conversation"),
+  ).conversation;
+}
+
+/** `GET /api/users` — admin only; every row carries a live (un-revoked) `token_count`. */
+export async function atlasListUsers(
+  token: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasUserListRow[]> {
+  const payload = await atlasRequest({ method: "GET", path: "/api/users", token, ...options });
+
+  return expectShape<{ users: AtlasUserListRow[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "users"),
+  ).users;
+}
+
+/**
+ * `POST /api/users` — 201, admin only.
+ *
+ * Atlas validates role against exactly {admin, operator, viewer, auditor} and status against
+ * {active, disabled}; a duplicate username is a 400, not a 409 (`atlas/db.py:875-894`).
+ */
+export async function atlasCreateUser(
+  token: string,
+  user: { username: string; password: string; role: string; status: string },
+  options: AtlasCallOptions = {},
+): Promise<AtlasUserRow> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/users",
+    token,
+    body: {
+      username: user.username,
+      password: user.password,
+      role: user.role,
+      status: user.status,
+    },
+    ...options,
+  });
+
+  return expectShape<{ user: AtlasUserRow }>(payload, (value) => isAtlasRowEnvelope(value, "user"))
+    .user;
+}
+
+/**
+ * `PUT /api/users/{id}` — 200, admin only. A **partial** update: only the keys present in the
+ * body are persisted (`atlas/db.py:924-953`), so the patch here sends exactly what changed.
+ */
+export async function atlasUpdateUser(
+  token: string,
+  userId: string,
+  patch: { username?: string; password?: string; role?: string; status?: string },
+  options: AtlasCallOptions = {},
+): Promise<AtlasUserRow> {
+  const body: Record<string, unknown> = {};
+  if (patch.username !== undefined) body.username = patch.username;
+  if (patch.password !== undefined) body.password = patch.password;
+  if (patch.role !== undefined) body.role = patch.role;
+  if (patch.status !== undefined) body.status = patch.status;
+
+  const payload = await atlasRequest({
+    method: "PUT",
+    path: `/api/users/${encodeURIComponent(userId)}`,
+    token,
+    body,
+    ...options,
+  });
+
+  return expectShape<{ user: AtlasUserRow }>(payload, (value) => isAtlasRowEnvelope(value, "user"))
+    .user;
+}
+
+/**
+ * `DELETE /api/users/{id}` — 200, admin only. Cascades the user's API tokens
+ * (`api_tokens.user_id … ON DELETE CASCADE`, `atlas/db.py:180`), so the caller must say so
+ * before confirming.
+ */
+export async function atlasDeleteUser(
+  token: string,
+  userId: string,
+  options: AtlasCallOptions = {},
+): Promise<void> {
+  const payload = await atlasRequest({
+    method: "DELETE",
+    path: `/api/users/${encodeURIComponent(userId)}`,
+    token,
+    ...options,
+  });
+
+  expectShape<{ deleted: true }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      (value as Record<string, unknown>).deleted === true,
+  );
+}
+
+/** `GET /api/tokens?user_id=` — admin only. Metadata rows only; never a token value. */
+export async function atlasListApiTokens(
+  token: string,
+  params: { userId?: string } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasApiToken[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/tokens",
+    token,
+    query: { user_id: params.userId || undefined },
+    ...options,
+  });
+
+  return expectShape<{ tokens: AtlasApiToken[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "tokens"),
+  ).tokens;
+}
+
+/**
+ * `POST /api/tokens` — 201, admin only.
+ *
+ * The response's `api_token` is the raw bearer, returned **once** — Atlas stores only a hash,
+ * so no later call can recover it. The caller hands it to the admin exactly once and must keep
+ * it out of every cache, store, URL, and log.
+ */
+export async function atlasCreateApiToken(
+  token: string,
+  params: { userId: string; name: string },
+  options: AtlasCallOptions = {},
+): Promise<AtlasTokenCreated> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/tokens",
+    token,
+    body: { user_id: params.userId, name: params.name },
+    ...options,
+  });
+
+  return expectShape<AtlasTokenCreated>(
+    payload,
+    (value) =>
+      isAtlasRowEnvelope(value, "token") &&
+      typeof (value as Record<string, unknown>).api_token === "string" &&
+      ((value as Record<string, unknown>).api_token as string).length > 0,
+  );
+}
+
+/** `PUT /api/tokens/{id}` — 200, admin only. Renames; the only field the route persists. */
+export async function atlasRenameApiToken(
+  token: string,
+  tokenId: string,
+  name: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasApiToken> {
+  const payload = await atlasRequest({
+    method: "PUT",
+    path: `/api/tokens/${encodeURIComponent(tokenId)}`,
+    token,
+    body: { name },
+    ...options,
+  });
+
+  return expectShape<{ token: AtlasApiToken }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "token"),
+  ).token;
+}
+
+/**
+ * `DELETE /api/tokens/{id}` — 200 `{"revoked": true}`, admin only.
+ *
+ * Atlas also exposes `POST /api/tokens/{id}/revoke` as an additive alias for the same
+ * revocation; this client deliberately uses only the DELETE form — one fixed operation per
+ * effect. Revocation is a soft delete (`revoked_at` is stamped), so the row stays listed.
+ */
+export async function atlasRevokeApiToken(
+  token: string,
+  tokenId: string,
+  options: AtlasCallOptions = {},
+): Promise<void> {
+  const payload = await atlasRequest({
+    method: "DELETE",
+    path: `/api/tokens/${encodeURIComponent(tokenId)}`,
+    token,
+    ...options,
+  });
+
+  expectShape<{ revoked: true }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      (value as Record<string, unknown>).revoked === true,
+  );
+}
+
+/** Query params Atlas accepts on `GET /api/audit`; `from`/`to` are inclusive ISO-8601 bounds. */
+export interface AtlasAuditParams {
+  limit?: number;
+  from?: string;
+  to?: string;
+}
+
+/**
+ * `GET /api/audit?limit=&from=&to=` — newest first, admin/auditor only (`audit.read`).
+ *
+ * The guard is bespoke because audit rows carry an integer autoincrement `id`, which the
+ * string-id row-envelope guards reject.
+ */
+export async function atlasListAudit(
+  token: string,
+  params: AtlasAuditParams = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasAuditEntry[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/audit",
+    token,
+    query: {
+      limit: clampAtlasLimit(params.limit),
+      from: params.from || undefined,
+      to: params.to || undefined,
+    },
+    ...options,
+  });
+
+  return expectShape<{ audit: AtlasAuditEntry[] }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      Array.isArray((value as Record<string, unknown>).audit),
+  ).audit;
+}
+
+/** Query params Atlas accepts on `GET /api/usage`. There is no `limit` on this route at all. */
+export interface AtlasUsageParams {
+  from?: string;
+  to?: string;
+}
+
+/**
+ * `GET /api/usage?from=&to=` — the usage ledger for the range plus period totals,
+ * admin/auditor only (`audit.read`).
+ *
+ * Unbounded by design on Atlas's side: the range is the only size control, so the timeout is
+ * wider than the default and callers bound what they *render*, not what Atlas sends.
+ */
+export async function atlasGetUsage(
+  token: string,
+  params: AtlasUsageParams = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasUsageResponse> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/usage",
+    token,
+    query: { from: params.from || undefined, to: params.to || undefined },
+    timeoutMs: options.timeoutMs ?? 30_000,
+    signal: options.signal,
+  });
+
+  return expectShape<AtlasUsageResponse>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      Array.isArray((value as Record<string, unknown>).usage) &&
+      typeof (value as Record<string, unknown>).totals === "object" &&
+      (value as Record<string, unknown>).totals !== null,
+  );
+}
+
+/**
+ * Shared fetch for the two `format=csv` exports — the only Atlas routes besides artifact
+ * content and SSE that do not answer JSON. Private, like `atlasRequest`: the two exported
+ * wrappers below fix the path and the permitted query keys.
+ */
+async function atlasCsvRequest(
+  path: `/api/${string}`,
+  query: Record<string, string | number | undefined>,
+  token: string,
+  options: AtlasCallOptions,
+): Promise<string> {
+  const { atlasApiOrigin } = getServerEnv();
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  params.set("format", "csv");
+
+  let response: Response;
+  try {
+    response = await fetch(`${atlasApiOrigin}${path}?${params.toString()}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${token}`, accept: "text/csv" },
+      signal,
+      redirect: "error",
+    });
+  } catch (cause) {
+    if (timeoutSignal.aborted) {
+      throw new AtlasError("timeout", defaultMessageForKind("timeout"), { cause });
+    }
+    if (options.signal?.aborted) throw cause;
+    throw new AtlasError("network", defaultMessageForKind("network"), { cause });
+  }
+
+  if (!response.ok) {
+    // Failures on these routes still answer with Atlas's JSON error envelope.
+    const kind = atlasErrorKindForStatus(response.status);
+    let atlasMessage: string | undefined;
+    try {
+      atlasMessage = readAtlasErrorMessage(await response.json());
+    } catch {
+      atlasMessage = undefined;
+    }
+    throw new AtlasError(kind, atlasMessage ?? defaultMessageForKind(kind), {
+      status: response.status,
+      fromAtlas: atlasMessage !== undefined,
+    });
+  }
+
+  const contentType = (response.headers.get("content-type") ?? "").split(";")[0]!.trim();
+  if (contentType.toLowerCase() !== "text/csv") {
+    throw new AtlasError("protocol", defaultMessageForKind("protocol"), {
+      status: response.status,
+    });
+  }
+  return response.text();
+}
+
+/**
+ * `GET /api/audit?format=csv` — the same bounded window as the JSON route, as CSV.
+ *
+ * Atlas's own `Content-Disposition` on this route names the file `atlas-usage.csv` (its `_csv`
+ * helper hardcodes that name for both exports, `atlas/app.py:1133-1141`); the same-origin
+ * export route sets a correct filename of its own when relaying.
+ */
+export async function atlasExportAuditCsv(
+  token: string,
+  params: AtlasAuditParams = {},
+  options: AtlasCallOptions = {},
+): Promise<string> {
+  return atlasCsvRequest(
+    "/api/audit",
+    {
+      limit: clampAtlasLimit(params.limit),
+      from: params.from || undefined,
+      to: params.to || undefined,
+    },
+    token,
+    options,
+  );
+}
+
+/** `GET /api/usage?format=csv` — one row per raw usage event in the range. */
+export async function atlasExportUsageCsv(
+  token: string,
+  params: AtlasUsageParams = {},
+  options: AtlasCallOptions = {},
+): Promise<string> {
+  return atlasCsvRequest(
+    "/api/usage",
+    { from: params.from || undefined, to: params.to || undefined },
+    token,
+    options,
+  );
 }

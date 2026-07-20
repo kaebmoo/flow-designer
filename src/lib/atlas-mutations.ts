@@ -16,10 +16,14 @@ import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-quer
 
 import {
   cancelJobFn,
+  createApiTokenFn,
+  createConversationFn,
   createTriggerFn,
+  createUserFn,
   createWorkflowFn,
   decideApprovalFn,
   deleteTriggerFn,
+  deleteUserFn,
   deleteWorkerFn,
   deleteWorkflowFn,
   deleteWorkspaceFn,
@@ -27,12 +31,15 @@ import {
   fireTriggerFn,
   pollAllWorkersFn,
   pollWorkerFn,
+  renameApiTokenFn,
   retryDeliveryFn,
+  revokeApiTokenFn,
   runActionFn,
   saveWorkflowFn,
   setTriggerEnabledFn,
   startRunFn,
   updateTriggerFn,
+  updateUserFn,
   upsertWorkerFn,
   upsertWorkspaceFn,
   validateWorkflowFn,
@@ -40,7 +47,7 @@ import {
   type SaveResult,
 } from "./atlas-mutations.functions";
 import type { AtlasResult } from "./atlas-reads.functions";
-import type { ClientAtlasError } from "./atlas-mappers";
+import type { ApiTokenView, ClientAtlasError } from "./atlas-mappers";
 import { queryKeys } from "./query-keys";
 
 /**
@@ -92,6 +99,9 @@ const FAMILIES = {
   approvals: () => queryKeys.approvals(),
   deliveries: () => queryKeys.deliveries(),
   triggers: () => queryKeys.triggers(),
+  conversations: () => queryKeys.conversations(),
+  users: () => queryKeys.users(),
+  tokens: () => queryKeys.tokens(),
 } as const;
 
 export type MutationFamily = keyof typeof FAMILIES;
@@ -352,4 +362,83 @@ export function useCancelJob() {
     (data: { jobId: string }) => cancelJobFn({ data }),
     ["jobs", "runs", "metrics"],
   );
+}
+
+// ---------------------------------------------------------------------------
+// Operational pages (Phase 5)
+// ---------------------------------------------------------------------------
+
+export function useCreateConversation() {
+  return useAtlasMutation(
+    (data: { title: string; workspaceKey?: string; company?: string }) =>
+      createConversationFn({ data }),
+    ["conversations"],
+  );
+}
+
+/** Tokens are invalidated too: the user list renders each user's live token count. */
+export function useCreateUser() {
+  return useAtlasMutation(
+    (data: { username: string; password: string; role: string; status: string }) =>
+      createUserFn({ data }),
+    ["users"],
+  );
+}
+
+export function useUpdateUser() {
+  return useAtlasMutation(
+    (data: {
+      userId: string;
+      username?: string;
+      password?: string;
+      role?: string;
+      status?: string;
+    }) => updateUserFn({ data }),
+    ["users", "tokens"],
+  );
+}
+
+/** Deleting a user cascades their API tokens in Atlas, so the token list moves too. */
+export function useDeleteUser() {
+  return useAtlasMutation(
+    (data: { userId: string }) => deleteUserFn({ data }),
+    ["users", "tokens"],
+  );
+}
+
+export function useRenameApiToken() {
+  return useAtlasMutation(
+    (data: { tokenId: string; name: string }) => renameApiTokenFn({ data }),
+    ["tokens"],
+  );
+}
+
+/** Revocation changes the row's state and the owning user's live token count. */
+export function useRevokeApiToken() {
+  return useAtlasMutation(
+    (data: { tokenId: string }) => revokeApiTokenFn({ data }),
+    ["tokens", "users"],
+  );
+}
+
+/**
+ * Minting a token is deliberately **not** a `useMutation`.
+ *
+ * TanStack's mutation cache retains the last result, and this result carries the raw
+ * `api_token` — the one value that must never sit in any TanStack cache. So the RPC is called
+ * directly, the raw token goes straight to the caller (who holds it in transient dialog state
+ * and discards it on close), and the affected query families are invalidated by hand.
+ */
+export function useMintApiToken() {
+  const queryClient = useQueryClient();
+  return async (data: {
+    userId: string;
+    name: string;
+  }): Promise<{ token: ApiTokenView; apiToken: string }> => {
+    const result = unwrapMutation(await createApiTokenFn({ data }));
+    await Promise.all(
+      keysFor(["tokens", "users"]).map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+    );
+    return result;
+  };
 }

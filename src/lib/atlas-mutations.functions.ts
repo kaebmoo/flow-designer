@@ -26,9 +26,13 @@ import { createServerFn } from "@tanstack/react-start";
 
 import {
   atlasCancelJob,
+  atlasCreateApiToken,
+  atlasCreateConversation,
+  atlasCreateUser,
   atlasCreateWorkflow,
   atlasCreateWorkflowTrigger,
   atlasDecideApproval,
+  atlasDeleteUser,
   atlasDeleteWorkflow,
   atlasDeleteWorkflowTrigger,
   atlasDeleteWorker,
@@ -43,9 +47,12 @@ import {
   atlasListWorkflowTriggers,
   atlasPollAllWorkers,
   atlasPollWorker,
+  atlasRenameApiToken,
   atlasRetryDelivery,
+  atlasRevokeApiToken,
   atlasRunAction,
   atlasStartWorkflowRun,
+  atlasUpdateUser,
   atlasUpdateWorkflow,
   atlasUpdateWorkflowTrigger,
   atlasUpsertWorker,
@@ -56,9 +63,11 @@ import {
 } from "./atlas-api.server";
 import { clampAtlasLimit } from "./atlas-limits";
 import {
+  toApiTokenView,
   toApprovalView,
   toArtifactView,
   toClientAtlasError,
+  toConversationView,
   toDeliveryView,
   toRunEventView,
   toRunView,
@@ -68,9 +77,11 @@ import {
   toWorkflowView,
   toWorkspaceView,
   TRIGGER_TYPES,
+  type ApiTokenView,
   type ApprovalView,
   type ClientAtlasError,
   type ArtifactView,
+  type ConversationView,
   type DeliveryView,
   type RunEventView,
   type RunView,
@@ -80,6 +91,7 @@ import {
   type WorkflowView,
   type WorkspaceView,
 } from "./atlas-mappers";
+import { ATLAS_ROLES, ATLAS_USER_STATUSES } from "./atlas-types";
 import { clearSession, requireAtlasToken } from "./auth.server";
 import type { AtlasResult } from "./atlas-reads.functions";
 import {
@@ -817,4 +829,178 @@ export const cancelJobFn = createServerFn({ method: "POST" })
   .handler(
     async ({ data: jobId }): Promise<AtlasResult<{ state: string }>> =>
       mutate(async (token) => ({ state: (await atlasCancelJob(token, jobId)).state })),
+  );
+
+// ---------------------------------------------------------------------------
+// Operational-page mutations (Phase 5).
+//
+// Atlas alone authorises these: conversations need `resources.manage`, users and tokens need
+// `admin`. The UI hides the buttons for other roles as a UX courtesy, but a direct call still
+// lands here, goes to Atlas, and comes back 403.
+// ---------------------------------------------------------------------------
+
+/** `POST /api/conversations` — 201. Requires `resources.manage` (admin/operator). */
+export const createConversationFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({
+    title: requiredName(data, "title"),
+    workspaceKey: optionalText(data, "workspaceKey", MAX_NAME_LENGTH),
+    company: optionalText(data, "company", MAX_NAME_LENGTH),
+  }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<ConversationView>> =>
+      mutate(async (token) =>
+        toConversationView(
+          await atlasCreateConversation(token, {
+            title: data.title,
+            workspace_key: data.workspaceKey,
+            company: data.company,
+          }),
+        ),
+      ),
+  );
+
+/** Validates a role/status pair against Atlas's closed sets before anything leaves. */
+function requiredRole(data: unknown): string {
+  const value = field(data, "role");
+  if (typeof value !== "string" || !(ATLAS_ROLES as readonly string[]).includes(value)) {
+    throw new Error(`role must be one of: ${ATLAS_ROLES.join(", ")}.`);
+  }
+  return value;
+}
+
+function requiredUserStatus(data: unknown): string {
+  const value = field(data, "status");
+  if (typeof value !== "string" || !(ATLAS_USER_STATUSES as readonly string[]).includes(value)) {
+    throw new Error(`status must be one of: ${ATLAS_USER_STATUSES.join(", ")}.`);
+  }
+  return value;
+}
+
+/**
+ * Password input: required or optional, bounded, and never echoed.
+ *
+ * The error text names the rule only — a password must never appear in a thrown message, a
+ * log, or a serialised response.
+ */
+const MAX_PASSWORD_LENGTH = 1024;
+
+function requiredPassword(data: unknown): string {
+  const value = field(data, "password");
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error("password is required.");
+  }
+  if (value.length > MAX_PASSWORD_LENGTH) throw new Error("password is too long.");
+  return value;
+}
+
+function optionalPassword(data: unknown): string | undefined {
+  const value = field(data, "password");
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") throw new Error("password must be a string.");
+  if (value.length > MAX_PASSWORD_LENGTH) throw new Error("password is too long.");
+  return value;
+}
+
+/** `POST /api/users` — 201, admin only. "Create user": Atlas has no invitation contract. */
+export const createUserFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({
+    username: requiredName(data, "username"),
+    password: requiredPassword(data),
+    role: requiredRole(data),
+    status: requiredUserStatus(data),
+  }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<{ id: string; username: string }>> =>
+      mutate(async (token) => {
+        const user = await atlasCreateUser(token, data);
+        return { id: user.id, username: user.username };
+      }),
+  );
+
+/**
+ * `PUT /api/users/{id}` — a partial update, admin only. Only the fields the caller supplied
+ * are sent, matching Atlas's own partial-PUT semantics.
+ */
+export const updateUserFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => {
+    const patch: {
+      userId: string;
+      username?: string;
+      password?: string;
+      role?: string;
+      status?: string;
+    } = { userId: requiredId(data, "userId") };
+    if (field(data, "username") !== undefined) patch.username = requiredName(data, "username");
+    const password = optionalPassword(data);
+    if (password !== undefined) patch.password = password;
+    if (field(data, "role") !== undefined) patch.role = requiredRole(data);
+    if (field(data, "status") !== undefined) patch.status = requiredUserStatus(data);
+    return patch;
+  })
+  .handler(
+    async ({ data }): Promise<AtlasResult<{ id: string; username: string }>> =>
+      mutate(async (token) => {
+        const { userId, ...patch } = data;
+        const user = await atlasUpdateUser(token, userId, patch);
+        return { id: user.id, username: user.username };
+      }),
+  );
+
+/** `DELETE /api/users/{id}` — admin only. Cascades the user's API tokens; the UI says so. */
+export const deleteUserFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => requiredId(data, "userId"))
+  .handler(
+    async ({ data: userId }): Promise<AtlasResult<{ deleted: true }>> =>
+      mutate(async (token) => {
+        await atlasDeleteUser(token, userId);
+        return { deleted: true as const };
+      }),
+  );
+
+/**
+ * `POST /api/tokens` — 201, admin only. Returns the metadata view **and** the raw token.
+ *
+ * The raw value is allowed to reach the browser here, and only here, as the direct result of
+ * an explicit admin action — Atlas can never show it again. The client keeps it in transient
+ * dialog state only: this function's result must not be fed into a TanStack Query or mutation
+ * cache, storage, a URL, or anything persisted (see `useMintApiToken` in `atlas-mutations.ts`).
+ */
+export const createApiTokenFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({
+    userId: requiredId(data, "userId"),
+    name: requiredName(data, "name"),
+  }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<{ token: ApiTokenView; apiToken: string }>> =>
+      mutate(async (token) => {
+        const created = await atlasCreateApiToken(token, data);
+        return { token: toApiTokenView(created.token), apiToken: created.api_token };
+      }),
+  );
+
+/** `PUT /api/tokens/{id}` — rename, admin only. */
+export const renameApiTokenFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({
+    tokenId: requiredId(data, "tokenId"),
+    name: requiredName(data, "name"),
+  }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<ApiTokenView>> =>
+      mutate(async (token) =>
+        toApiTokenView(await atlasRenameApiToken(token, data.tokenId, data.name)),
+      ),
+  );
+
+/**
+ * `DELETE /api/tokens/{id}` — revoke, admin only. The one fixed revocation operation this
+ * client uses; Atlas's `POST …/revoke` alias is deliberately not wired.
+ */
+export const revokeApiTokenFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => requiredId(data, "tokenId"))
+  .handler(
+    async ({ data: tokenId }): Promise<AtlasResult<{ revoked: true }>> =>
+      mutate(async (token) => {
+        await atlasRevokeApiToken(token, tokenId);
+        return { revoked: true as const };
+      }),
   );
