@@ -1,6 +1,6 @@
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
 import { getIdentityFn, loginFn } from "@/lib/auth.functions";
@@ -30,18 +30,43 @@ function AuthPage() {
   const { error: loaderError } = Route.useLoaderData();
   const router = useRouter();
 
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ClientAtlasError | null>(loaderError);
 
+  /**
+   * Marks the form once React has taken over, exposed as `data-hydrated` on the form element.
+   *
+   * Until this flips, a submit is handled natively by the browser rather than by `onSubmit`,
+   * so it POSTs and reloads instead of signing in. Browser tests wait on this attribute to
+   * drive the form deterministically; without it they race hydration and fail intermittently.
+   */
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+
+  /**
+   * The fields are deliberately uncontrolled, and the values are read from the DOM at submit
+   * time via FormData.
+   *
+   * This page is server-rendered, so the inputs exist and accept typing before React hydrates.
+   * With React-controlled inputs, hydration takes ownership and resets each field to its state
+   * value — silently discarding whatever the operator had already typed, most visibly the
+   * autofocused username. Uncontrolled inputs let that early input survive.
+   *
+   * It also means the password never enters React state at all: it lives only in the DOM node
+   * until submit, and the form is reset immediately afterwards.
+   */
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
 
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const username = String(formData.get("username") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
+
     // Caught here so an empty field reads as "fill this in" rather than falling through to
     // the server validator, whose thrown error would surface as a misleading network failure.
-    if (username.trim().length === 0 || password.length === 0) {
+    if (username.length === 0 || password.length === 0) {
       setError({ kind: "validation", message: "Enter both a username and a password." });
       return;
     }
@@ -54,8 +79,8 @@ function AuthPage() {
         setError(result.error);
         return;
       }
-      // Drop the password from memory as soon as it is no longer needed.
-      setPassword("");
+      // Drop the credentials from the DOM as soon as they are no longer needed.
+      form.reset();
       await router.invalidate();
       await router.navigate({ to: "/dashboard" });
     } catch {
@@ -103,6 +128,7 @@ function AuthPage() {
         */}
         <form
           method="post"
+          data-hydrated={hydrated ? "true" : undefined}
           onSubmit={onSubmit}
           className="rounded-lg border border-border bg-card p-6 shadow-lg"
           noValidate
@@ -122,8 +148,6 @@ function AuthPage() {
                 autoComplete="username"
                 autoFocus
                 required
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
                 disabled={submitting}
                 aria-invalid={message !== null}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60"
@@ -143,8 +167,6 @@ function AuthPage() {
                 type="password"
                 autoComplete="current-password"
                 required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
                 disabled={submitting}
                 aria-invalid={message !== null}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60"

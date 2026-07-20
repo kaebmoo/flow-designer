@@ -11,8 +11,25 @@ import { ADMIN_CREDENTIALS, VIEWER_CREDENTIALS } from "../contract/atlas-instanc
  * its absence.
  */
 
-async function signIn(page: import("@playwright/test").Page, creds: typeof ADMIN_CREDENTIALS) {
+/**
+ * Opens /auth and waits until React has hydrated before touching the form.
+ *
+ * /auth is server-rendered, so the inputs and the submit button are interactive before
+ * `onSubmit` is attached. Driving them in that window makes the browser submit natively,
+ * which reloads the page instead of signing in — an intermittent failure that has nothing to
+ * do with what these tests are checking. The form publishes `data-hydrated` once React owns
+ * it, so waiting on that is deterministic rather than a sleep.
+ *
+ * The pre-hydration window is deliberately still covered, by the JavaScript-disabled test
+ * below; it must not be waited away there.
+ */
+async function gotoAuthHydrated(page: import("@playwright/test").Page) {
   await page.goto("/auth");
+  await page.locator('form[data-hydrated="true"]').waitFor({ state: "attached" });
+}
+
+async function signIn(page: import("@playwright/test").Page, creds: typeof ADMIN_CREDENTIALS) {
+  await gotoAuthHydrated(page);
   await page.getByLabel("Username").fill(creds.username);
   await page.getByLabel("Password").fill(creds.password);
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -35,7 +52,7 @@ test("signing in reaches the dashboard and shows the Atlas identity", async ({ p
 });
 
 test("bad credentials render an inline error and do not sign the user in", async ({ page }) => {
-  await page.goto("/auth");
+  await gotoAuthHydrated(page);
   await page.getByLabel("Username").fill(ADMIN_CREDENTIALS.username);
   await page.getByLabel("Password").fill("definitely-the-wrong-password");
   await page.getByRole("button", { name: "Sign in" }).click();
