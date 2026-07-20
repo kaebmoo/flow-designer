@@ -153,7 +153,7 @@ Backend follow-up (**required before production release**):
 
 Atlas advertises HTTP/1.1 with keep-alive (`protocol_version = "HTTP/1.1"`, `atlas/app.py:156`) but rejects unauthorized and forbidden requests **before reading the request body** (`atlas/app.py:237-242`). The undrained body stays in the socket, so the next request reused on that connection is parsed starting at the leftover bytes. Its request line becomes something like `{}POST /api/auth/login`, and Python's `BaseHTTPRequestHandler` answers **501 "Unsupported method"** with an **HTML** body — no `{"error": ...}` envelope.
 
-The damage lands on the *wrong* request: the rejected POST returns a correct 401, and an unrelated later request on the pooled connection fails instead. Observed rate in a plain sequence of `POST /api/auth/logout` (401) followed by `POST /api/auth/login`: roughly two failures in five iterations under Node's default connection pooling.
+The damage lands on the _wrong_ request: the rejected POST returns a correct 401, and an unrelated later request on the pooled connection fails instead. Observed rate in a plain sequence of `POST /api/auth/logout` (401) followed by `POST /api/auth/login`: roughly two failures in five iterations under Node's default connection pooling.
 
 Related: because `do_PATCH`/`do_HEAD` are not defined either, any `PATCH` or `HEAD` to `/api/*` also returns a 501 HTML body rather than the JSON error envelope.
 

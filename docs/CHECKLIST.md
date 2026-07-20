@@ -13,7 +13,7 @@ Use this checklist with the phase gate in `docs/IMPLEMENTATION_PLAN.md`. Check i
 - [x] Each private server function validates the flow-designer session and calls a typed, fixed Atlas operation; Atlas alone authorizes it (a route `beforeLoad` is UI-only).
 - [x] The Atlas bearer token is never in browser code, `localStorage`, or a URL query string. (Client bundle scanned with positive controls; browser test asserts empty `localStorage`/`sessionStorage`, an httpOnly cookie, and no token in any request URL.)
 - [ ] Thin stream route glue contains no domain logic or secrets. — _not applicable in Phase 1; no stream glue exists until Phase 4._
-- [x] Design tokens are used; no new hardcoded color classes. (All Phase 1 files scanned; zero hex literals or `bg-white`/`bg-black` utilities added.)
+- [ ] Design tokens are used; no new hardcoded color classes. — **Phase 1 added none** (all Phase 1 files scanned: zero hex literals, zero `bg-white`/`bg-black`). The repository as a whole still fails this rule from the pre-Phase-1 baseline; see "Scope carried over" below. Left unticked because the rule is repo-wide.
 - [x] Loader routes have `errorComponent` and `notFoundComponent`. (`/auth` and `/_app` are the only loader routes; both have each.)
 - [x] Existing user changes and Lovable history are preserved. (Commit `e509e79` left intact; no rebase, amend, or force-push.)
 
@@ -43,23 +43,50 @@ Use this checklist with the phase gate in `docs/IMPLEMENTATION_PLAN.md`. Check i
 - [x] Atlas/worker credentials are absent from browser output (no bearer in bundle, `localStorage`, or query string).
 - [ ] **Gate:** user confirms Phase 2 start.
 
-### Phase 1 verification evidence (2026-07-20)
+### Phase 1 verification evidence (2026-07-20, after gate-rejection remediation)
 
-Atlas commit tested: `595ef62`. Frontend: this branch. Instance: isolated temp database on an ephemeral port — no developer or production Atlas data touched.
+Atlas commit tested: `595ef62`. Baseline before Phase 1: **`e509e79`**. Instance: isolated temp database on an ephemeral port — no developer or production Atlas data touched.
 
-| Check | Result |
-| --- | --- |
-| `bun run typecheck` | Phase 1 code clean; 3 **pre-existing** errors remain in `src/components/atlas/workflow-editor.tsx` (present at `e509e79`, before Phase 1) |
-| `bun run test` | 81 passed |
-| `bun run test:contract` | 12 passed against a real Atlas |
-| `bun run test:stream` | 0 tests, passes by design (SSE is Phase 4) |
-| `bun run test:e2e` | 8 passed in Chromium against a real Atlas |
-| `bun run lint` | 0 problems in Phase 1 files; repo-wide 221 → 216 pre-existing |
-| `bun run format:check` | Phase 1 files clean; repo-wide pre-existing 26 → 24 files |
-| `bun run build` | succeeded |
-| `git diff --check` | clean |
+Every row below is a whole-repository result and an actual process exit code. An earlier revision of this table reported some rows scoped to "Phase 1 files only" while the repo-wide command still exited non-zero, which read as acceptance; the gate was correctly rejected for it.
 
-**Why "403 renders a forbidden state" is not ticked.** The pieces are implemented and unit-tested — Atlas 403 normalises to `kind: "forbidden"`, `currentIdentity` rethrows it instead of downgrading it to a sign-out, and `AtlasErrorState` routes it to a distinct `ForbiddenState` that is never confused with not-found or signed-out. A real 403 is also confirmed end-to-end against Atlas (a `viewer` calling `GET /api/users`). What is *not* verified is a rendered 403 screen, because no Phase 1 route can produce one: `GET /api/me` never returns 403 for a valid session. This becomes genuinely exercisable in Phase 2, when role-restricted reads exist.
+| Check                   | Exit | Result                                                           |
+| ----------------------- | ---- | ---------------------------------------------------------------- |
+| `bun run typecheck`     | 0    | 0 errors repo-wide                                               |
+| `bun run lint`          | 0    | 0 errors; 6 pre-existing `react-refresh` warnings (non-blocking) |
+| `bun run format:check`  | 0    | all files formatted                                              |
+| `bun run test`          | 0    | 83 passed                                                        |
+| `bun run test:contract` | 0    | 13 passed against a real isolated Atlas                          |
+| `bun run test:stream`   | 0    | 0 tests, passes by design (SSE is Phase 4)                       |
+| `bun run test:e2e`      | 0    | 9 passed; also 3x full-suite and 15x single-test repeat runs     |
+| `bun run build`         | 0    | succeeded                                                        |
+| `git diff --check`      | 0    | clean                                                            |
+
+Three gate failures were fixed rather than explained away:
+
+- **`typecheck` failed repo-wide.** `workflow-editor.tsx` cast to the optional `AtlasNodeData["runState"]`, so `Object.fromEntries` produced `... | undefined` values that do not satisfy `WorkflowRun["node_states"]`. Fixed by typing the map as `WorkflowRun["node_states"]` with `NonNullable<...>` elements. The errors did originate at `e509e79`, but they were invisible only because no `typecheck` script existed before Phase 1 — shipping a `typecheck` script that never passes is not a delivered script.
+- **`test:e2e` was intermittent, not passing.** `/auth` is server-rendered, so the form is interactive before hydration; driving it in that window submits natively and reloads instead of signing in. Reproduced at roughly 1 failure in 6. Fields are now uncontrolled (React-controlled inputs also silently discarded anything typed before hydration), and the form publishes `data-hydrated` so browser tests wait on a real signal instead of racing.
+- **`lint` and `format:check` failed repo-wide** (210 Prettier errors across 26 files). The repository is now fully formatted and both commands exit 0.
+
+**Why "403 renders a forbidden state" is not ticked.** The pieces are implemented and unit-tested — Atlas 403 normalises to `kind: "forbidden"`, `currentIdentity` rethrows it instead of downgrading it to a sign-out, and `AtlasErrorState` routes it to a distinct `ForbiddenState` that is never confused with not-found or signed-out. A real 403 is also confirmed end-to-end against Atlas (a `viewer` calling `GET /api/users`). What is _not_ verified is a rendered 403 screen, because no Phase 1 route can produce one: `GET /api/me` never returns 403 for a valid session. This becomes genuinely exercisable in Phase 2, when role-restricted reads exist.
+
+### Scope carried over from the pre-Phase-1 baseline (`e509e79`)
+
+Two rules are violated by code that Phase 1 neither wrote nor modified. Both are measured
+against `e509e79`, and both already have an owning phase in `IMPLEMENTATION_PLAN.md`. They are
+recorded here as open, not as accepted.
+
+| Item                                                                                                      | State at `e509e79`             | State now                                                              | Owning phase                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hardcoded colours in `workflow-editor.tsx`                                                                | 51 hex/arbitrary-colour usages | 51 — unchanged by Phase 1                                              | Phase 6 ("fix hardcoded color classes")                                                                                                                                      |
+| Hardcoded colours in `workflow-node.tsx`                                                                  | 11 usages                      | 11 — unchanged by Phase 1                                              | Phase 6                                                                                                                                                                      |
+| `NodeKind` in `atlas-store.ts` still has `trigger`, `condition`, `decision`, `loop`, `fanout`, `approval` | present                        | identical; `git diff e509e79..HEAD -- src/lib/atlas-store.ts` is empty | Phase 3 (palette restricted to `worker`/`manager`/`join`/`human_gate`; `approval` → `human_gate`; trigger/condition/fan-out/loop become resource, edge, and graph semantics) |
+
+The mock workflow editor and its 9-kind palette are scaffold that Phase 3 replaces wholesale.
+Phase 1 deliberately did not touch them: the plan sequences the palette change _after_ the
+read-only migration, and rewriting the editor here would have mixed an unreviewed editor
+rewrite into an auth change. The consequence is that current HEAD does **not** yet satisfy the
+Atlas-native graph model — it is scaffold awaiting Phase 3, not an implementation that
+disagrees with the architecture.
 
 **Known production blocker, unchanged:** the Atlas auth-token lifecycle (non-expiring tokens, orphan `"dashboard login"` accumulation, no login rate limiting) remains open in `ATLAS_LIMITATIONS.md`. Phase 1 mitigates it only by revoking on logout and bounding the session cookie to 8 hours.
 
