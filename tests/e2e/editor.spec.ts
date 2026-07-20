@@ -71,6 +71,36 @@ test.describe("workflow editor", () => {
     }
   });
 
+  test("the canvas zoom controls keep enough icon contrast to be readable", async ({ page }) => {
+    await createWorkflow(page);
+
+    for (const name of ["Zoom in", "Zoom out", "Fit view"]) {
+      const button = page.getByRole("button", { name });
+      await expect(button).toBeVisible();
+
+      const colors = await button.evaluate((element) => {
+        const themeProbe = document.createElement("span");
+        themeProbe.style.backgroundColor = "var(--color-card)";
+        themeProbe.style.color = "var(--color-foreground)";
+        document.body.append(themeProbe);
+        const buttonStyle = window.getComputedStyle(element);
+        const iconStyle = window.getComputedStyle(element.querySelector("svg")!);
+        const themeStyle = window.getComputedStyle(themeProbe);
+        const result = {
+          background: buttonStyle.backgroundColor,
+          icon: iconStyle.fill,
+          expectedBackground: themeStyle.backgroundColor,
+          expectedIcon: themeStyle.color,
+        };
+        themeProbe.remove();
+        return result;
+      });
+
+      expect(colors.background, `${name} button background`).toBe(colors.expectedBackground);
+      expect(colors.icon, `${name} icon color`).toBe(colors.expectedIcon);
+    }
+  });
+
   test("a saved graph survives a full reload, and the layout is kept separately", async ({
     page,
   }) => {

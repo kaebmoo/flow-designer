@@ -233,18 +233,15 @@
   border: 2px solid var(--color-background);
 }
 .react-flow__controls {
+  --xy-controls-button-background-color: var(--color-card);
+  --xy-controls-button-background-color-hover: var(--color-secondary);
+  --xy-controls-button-color: var(--color-foreground);
+  --xy-controls-button-color-hover: var(--color-foreground);
+  --xy-controls-button-border-color: var(--color-border);
   background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
-}
-.react-flow__controls-button {
-  background: var(--color-card);
-  color: var(--color-foreground);
-  border-bottom: 1px solid var(--color-border);
-}
-.react-flow__controls-button:hover {
-  background: var(--color-secondary);
 }
 .react-flow__minimap {
   background: var(--color-card) !important;
