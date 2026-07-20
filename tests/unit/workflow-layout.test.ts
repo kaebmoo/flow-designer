@@ -4,9 +4,11 @@ import {
   autoLayout,
   clearLayout,
   readLayout,
+  readViewport,
   renameInLayout,
   resolveLayout,
   writeLayout,
+  writeViewport,
 } from "@/components/atlas/workflow-layout";
 import {
   layoutStorageKey,
@@ -47,6 +49,21 @@ describe("layout storage", () => {
     writeLayout("wf_1", 2, { a: { x: 10, y: 20 } });
     expect(store.has(layoutStorageKey("wf_1", 2))).toBe(true);
     expect(readLayout("wf_1", 2)).toEqual({ a: { x: 10, y: 20 } });
+  });
+
+  it("stores the viewport alongside positions without either write clobbering the other", () => {
+    writeLayout("wf_1", 2, { a: { x: 10, y: 20 } });
+    writeViewport("wf_1", 2, { x: 30, y: 40, zoom: 1.5 });
+    writeLayout("wf_1", 2, { a: { x: 50, y: 60 } });
+
+    expect(readLayout("wf_1", 2)).toEqual({ a: { x: 50, y: 60 } });
+    expect(readViewport("wf_1", 2)).toEqual({ x: 30, y: 40, zoom: 1.5 });
+  });
+
+  it("reads the former position-only layout shape so existing arrangements survive the upgrade", () => {
+    store.set(layoutStorageKey("wf_1", 2), JSON.stringify({ a: { x: 10, y: 20 } }));
+    expect(readLayout("wf_1", 2)).toEqual({ a: { x: 10, y: 20 } });
+    expect(readViewport("wf_1", 2)).toBeUndefined();
   });
 
   it("does not serve one workflow's layout to another, or one version's to the next", () => {

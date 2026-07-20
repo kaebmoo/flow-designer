@@ -4,8 +4,11 @@ import {
   CONDITION_TYPES,
   MANAGER_SCHEMA,
   describeCondition,
+  edgeIsInCycle,
+  edgesRemovedWithNode,
   hasCycle,
   hasLoopGuard,
+  isConnectionAllowed,
   layoutStorageKey,
   parseWorkflowGraph,
   parseWorkflowPolicy,
@@ -325,6 +328,15 @@ describe("validation", () => {
       ),
     };
     expect(validateWorkflow(unguarded, { max_iterations: 3 })).toEqual([]);
+  });
+
+  it("identifies the edge that closes a cycle, so its inspector can ask for a guard", () => {
+    const guardedBackEdge = graph.edges.findIndex(
+      (edge) => edge.condition.type === "max_iterations_below",
+    );
+    expect(edgeIsInCycle(graph, guardedBackEdge)).toBe(true);
+    expect(edgeIsInCycle(graph, 6)).toBe(false);
+    expect(edgeIsInCycle(graph, -1)).toBe(false);
   });
 
   it("requires manager_selected on every edge leaving a manager", () => {
@@ -669,13 +681,44 @@ describe("rename", () => {
 });
 
 describe("removeNode", () => {
-  it("drops every edge touching the removed node and repoints start", () => {
+  it("never silently changes the workflow entry point", () => {
     const graph = parsed(ALL_KINDS_GRAPH);
     const after = removeNode(graph, "ingest");
-    expect(after.nodes.some((node) => node.id === "ingest")).toBe(false);
-    expect(after.edges.some((edge) => edge.from === "ingest" || edge.to === "ingest")).toBe(false);
-    expect(after.start).not.toBe("ingest");
-    expect(after.nodes.some((node) => node.id === after.start)).toBe(true);
+    expect(after).toBe(graph);
+  });
+
+  it("drops incident and condition-referencing edges with a non-start node", () => {
+    const graph: WorkflowGraph = {
+      start: "a",
+      nodes: [
+        { id: "a", type: "worker" },
+        { id: "b", type: "worker" },
+        { id: "counter", type: "worker" },
+      ],
+      edges: [
+        {
+          from: "a",
+          to: "b",
+          condition: { type: "max_iterations_below", node: "counter", max: 3 },
+        },
+        { from: "counter", to: "a", condition: { type: "always" } },
+      ],
+    };
+
+    expect(edgesRemovedWithNode(graph, "counter")).toHaveLength(2);
+    const after = removeNode(graph, "counter");
+    expect(after.start).toBe("a");
+    expect(after.nodes.map((node) => node.id)).toEqual(["a", "b"]);
+    expect(after.edges).toEqual([]);
+  });
+});
+
+describe("connection guard", () => {
+  it("blocks self-loops and duplicate freshly-drawn edges", () => {
+    const graph = parsed(ALL_KINDS_GRAPH);
+    expect(isConnectionAllowed(graph, "ingest", "ingest")).toBe(false);
+    expect(isConnectionAllowed(graph, "ingest", "triage")).toBe(false);
+    expect(isConnectionAllowed(graph, "publish", "ingest")).toBe(true);
   });
 });
 

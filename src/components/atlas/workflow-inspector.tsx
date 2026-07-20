@@ -26,6 +26,8 @@ import {
   JOIN_MODES,
   POLICY_LIMITS,
   describeCondition,
+  edgeIsInCycle,
+  hasLoopGuard,
   isIdentifier,
   type ConditionType,
   type GraphCondition,
@@ -135,6 +137,7 @@ export interface NodeInspectorProps {
   onRename: (nextId: string) => { ok: boolean; reason?: string };
   onSetStart: () => void;
   onDelete: () => void;
+  deleteDisabled?: boolean;
 }
 
 export function NodeInspector({
@@ -145,6 +148,7 @@ export function NodeInspector({
   onRename,
   onSetStart,
   onDelete,
+  deleteDisabled = false,
 }: NodeInspectorProps) {
   const presentation = NODE_PRESENTATION[node.type];
   const [draftId, setDraftId] = useState(node.id);
@@ -442,11 +446,25 @@ export function NodeInspector({
       {node.type === "human_gate" ? <HumanGateFields node={node} onChange={onChange} /> : null}
 
       <Section title="Danger">
-        <Button type="button" variant="destructive" size="sm" className="w-full" onClick={onDelete}>
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          className="w-full"
+          disabled={deleteDisabled}
+          title={
+            deleteDisabled
+              ? "Choose a different start node before deleting this one."
+              : "Delete this node and its related edges."
+          }
+          onClick={onDelete}
+        >
           Delete node
         </Button>
         <p className="text-[11px] text-muted-foreground">
-          Every edge touching this node is removed with it.
+          {deleteDisabled
+            ? "This is the start node. Make another node the start before deleting it."
+            : "Every touching edge, and any loop guard that counts this node, is removed with it."}
         </p>
       </Section>
     </div>
@@ -630,6 +648,7 @@ export interface EdgeInspectorProps {
 
 export function EdgeInspector({
   edge,
+  edgeIndex,
   graph,
   policy,
   issues,
@@ -640,6 +659,7 @@ export function EdgeInspector({
   const sourceChoices = source?.type === "human_gate" ? (source.choices ?? []) : [];
   const allowed = allowedConditions(source, sourceChoices.length > 0);
   const condition = edge.condition;
+  const needsLoopGuard = edgeIsInCycle(graph, edgeIndex) && !hasLoopGuard(graph, policy);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -663,6 +683,16 @@ export function EdgeInspector({
               </li>
             ))}
           </ul>
+        </Section>
+      ) : null}
+
+      {needsLoopGuard ? (
+        <Section title="Loop guard required">
+          <p role="alert" className="text-xs leading-relaxed text-warning">
+            This connection closes a cycle. Atlas will reject it until you either set{" "}
+            <code className="font-mono">policy.max_iterations</code> or change this edge&apos;s
+            condition to <code className="font-mono">max_iterations_below</code>.
+          </p>
         </Section>
       ) : null}
 
@@ -820,11 +850,16 @@ export function EdgeInspector({
       <Section title="File handoff">
         <Field
           label="Push files"
-          hint="Comma-separated artifact-key globs copied into the target worker before its job."
+          hint={
+            policy.file_handoff === true
+              ? "Comma-separated artifact-key globs copied into the target worker before its job."
+              : "Enable file_handoff in workflow settings before configuring files for this edge."
+          }
         >
           <Input
             value={listToText(edge.push_files)}
             spellCheck={false}
+            disabled={policy.file_handoff !== true}
             onChange={(event) => {
               const files = textToList(event.target.value);
               onChange({ ...edge, push_files: files.length > 0 ? files : undefined });

@@ -1,33 +1,24 @@
 # Testing and QA strategy
 
-## Proposed test runners and scripts (Phase 0 planning only)
+Status: implemented through Phase 3 and reconciled on 2026-07-20.
 
-No test tooling is installed yet, and Phase 0 installs nothing and changes no application code. This section fixes the intended choices so Phase 1+ can add them in one reviewed step.
+## Runners and scripts
 
-- **Adapter / unit / contract / stream tests → Vitest.** This is already a Vite project (`vite`, `@vitejs/plugin-react`), so Vitest reuses the existing config and TS paths with near-zero setup and runs `*.functions.ts`/mapper/adapter logic natively. No competing runner is justified.
-- **Browser / end-to-end tests → Playwright.** Drives real login, SSE reconnect, canvas, and two-tab flows against a running frontend + local Atlas.
+- **Unit, contract, and future stream tests:** Vitest.
+- **Browser acceptance:** Playwright against an isolated local Atlas instance.
 
-Intended `package.json` scripts (to be added in Phase 1, not now):
+| Script                  | Purpose                                                           |
+| ----------------------- | ----------------------------------------------------------------- |
+| `bun run typecheck`     | TypeScript (`tsc --noEmit`)                                       |
+| `bun run lint`          | ESLint                                                            |
+| `bun run format:check`  | Prettier                                                          |
+| `bun run test`          | Unit tests                                                        |
+| `bun run test:contract` | Contract tests against real isolated Atlas                        |
+| `bun run test:stream`   | Reserved for Phase 4; passes with no tests until streaming exists |
+| `bun run test:e2e`      | Playwright acceptance suite                                       |
 
-| Script          | Purpose                                | Tool       |
-| --------------- | -------------------------------------- | ---------- |
-| `typecheck`     | `tsc --noEmit`                         | TypeScript |
-| `test`          | adapter/unit tests                     | Vitest     |
-| `test:contract` | contract tests vs a real/fixture Atlas | Vitest     |
-| `test:stream`   | SSE replay/dedupe/reconnect            | Vitest     |
-| `test:e2e`      | browser acceptance                     | Playwright |
-| `format:check`  | `prettier --check .`                   | Prettier   |
-
-`lint` and `build`/`dev` already exist in `package.json` and are unchanged.
-
-### Runtime note — package manager vs production runtime
-
-These are separate choices (see `CONFIGURATION.md` §1):
-
-- **Package manager: Bun 1.3.14 (pinned).** `bun.lock` exists and `package.json` records `"packageManager": "bun@1.3.14"`. The Bun binary is **not installed on this machine** (only Node `v25.2.1` is present) — do not install it without approval.
-- **Production runtime: Node 24 LTS** for Node-based deployments. As of July 2026, Node 24 is Active LTS; Node 20 is EOL and Node 25 is a short-lived non-LTS line — target neither. Cloudflare Workers, if chosen, is a separate runtime.
-
-Pin both so contributors and CI match; the `test`/`test:*` scripts run under the pinned package manager regardless of production runtime.
+The package manager is Bun 1.3.14, as pinned by `package.json` and `bun.lock`. Production
+runtime selection remains a deployment decision in `CONFIGURATION.md`.
 
 ## Test layers
 
@@ -66,7 +57,7 @@ Run against a real Atlas instance or a fixture server generated from the Atlas O
 
 Mock-only tests are not sufficient for the release gate.
 
-### Stream tests
+### Stream tests (Phase 4)
 
 - initial event replay
 - text and terminal events
@@ -86,7 +77,7 @@ Mock-only tests are not sufficient for the release gate.
 - worker offline/degraded states
 - workflow create/save/reload
 - workflow validation errors
-- manual run and live canvas progress
+- manual run and persisted-state canvas progress
 - pause/resume/cancel
 - approval decision
 - artifact download
@@ -114,3 +105,11 @@ Record the following for each release:
 - stream behavior result
 - known Atlas limitations exercised
 - build/lint/test output
+
+## Phase 3 audit evidence (2026-07-20)
+
+The editor audit re-ran typecheck, lint, formatting, focused graph/layout units, the full unit
+suite, real-Atlas contract suite, and the browser suite. The browser suite completed **63 passed**
+tests, including unsaved-navigation blocking, start-node deletion protection, confirmed node
+deletion, semantic save/reload, and the real Atlas validation/run paths. The full command results
+are recorded in `CHECKLIST.md`.

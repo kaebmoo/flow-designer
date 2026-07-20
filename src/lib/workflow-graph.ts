@@ -853,6 +853,53 @@ export function hasLoopGuard(graph: WorkflowGraph, policy: WorkflowPolicy): bool
   return graph.edges.some((edge) => edge.condition.type === "max_iterations_below");
 }
 
+/**
+ * Whether one particular edge closes a path back to its source.
+ *
+ * A graph can have more than one cycle. Naming the edge that participates in one lets the
+ * inspector give an actionable guard prompt immediately after a connection is drawn, instead of
+ * leaving the user with only the graph-level save error later.
+ */
+export function edgeIsInCycle(graph: WorkflowGraph, edgeIndex: number): boolean {
+  const edge = graph.edges[edgeIndex];
+  if (!edge) return false;
+  if (edge.from === edge.to) return true;
+
+  const outgoing = new Map<string, string[]>();
+  for (const node of graph.nodes) outgoing.set(node.id, []);
+  for (const [index, candidate] of graph.edges.entries()) {
+    if (index !== edgeIndex) outgoing.get(candidate.from)?.push(candidate.to);
+  }
+
+  const seen = new Set<string>();
+  const stack = [edge.to];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current === edge.from) return true;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    for (const next of outgoing.get(current) ?? []) stack.push(next);
+  }
+  return false;
+}
+
+/**
+ * Reject connections that can never be useful before React Flow adds them.
+ *
+ * Atlas permits several semantic conditions between a pair of nodes, but two freshly drawn
+ * edges would begin with the same condition and make the target run twice. The editor therefore
+ * blocks accidental duplicate and self-loop connections at drag time; existing Atlas graphs with
+ * parallel semantic edges still load and remain editable.
+ */
+export function isConnectionAllowed(
+  graph: WorkflowGraph,
+  source: string | null | undefined,
+  target: string | null | undefined,
+): boolean {
+  if (!source || !target || source === target) return false;
+  return !graph.edges.some((edge) => edge.from === source && edge.to === target);
+}
+
 /** Nodes with no path from `graph.start`. Atlas tolerates them; the editor warns. */
 export function unreachableNodeIds(graph: WorkflowGraph): string[] {
   const outgoing = new Map<string, string[]>();
@@ -1290,12 +1337,36 @@ export function renameNodeId(graph: WorkflowGraph, fromId: string, toId: string)
   };
 }
 
-/** Removes a node and every edge touching it. `graph.start` is repointed to the first survivor. */
+/**
+ * The edges that must go with a node.
+ *
+ * In addition to its visible incident edges, a guarded edge can name a node in its condition.
+ * Keeping that edge after deleting the counted node would leave a graph Atlas rejects, so it is
+ * part of the same explicit cascade.
+ */
+export function edgesRemovedWithNode(graph: WorkflowGraph, nodeId: string): GraphEdge[] {
+  return graph.edges.filter(
+    (edge) =>
+      edge.from === nodeId ||
+      edge.to === nodeId ||
+      (edge.condition.type === "manager_selected" && edge.condition.target === nodeId) ||
+      (edge.condition.type === "max_iterations_below" && edge.condition.node === nodeId),
+  );
+}
+
+/**
+ * Removes a non-start node and every edge that refers to it.
+ *
+ * A start node is an execution invariant, not a convenient default. Silently picking the first
+ * survivor changes where a workflow runs, so the caller must make the operator choose a new
+ * start node first. Returning the original graph makes this guard safe even for non-UI callers.
+ */
 export function removeNode(graph: WorkflowGraph, nodeId: string): WorkflowGraph {
+  if (graph.start === nodeId) return graph;
   const nodes = graph.nodes.filter((node) => node.id !== nodeId);
-  const edges = graph.edges.filter((edge) => edge.from !== nodeId && edge.to !== nodeId);
-  const start = graph.start === nodeId ? (nodes[0]?.id ?? "") : graph.start;
-  return { start, nodes, edges };
+  const removed = new Set(edgesRemovedWithNode(graph, nodeId));
+  const edges = graph.edges.filter((edge) => !removed.has(edge));
+  return { start: graph.start, nodes, edges };
 }
 
 /** A human-readable caption for an edge, derived from its condition and stored nowhere. */

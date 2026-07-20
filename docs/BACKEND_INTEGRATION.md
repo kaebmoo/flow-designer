@@ -1,8 +1,8 @@
 # Atlas backend integration contract
 
-Status: Phase 0 baseline
+Status: contract verified and implemented through Phase 3
 
-Date inspected: 2026-07-19
+Date inspected: 2026-07-20
 
 Atlas checkout: `/Users/seal/Documents/GitHub/atlas-control-plane`
 
@@ -22,7 +22,8 @@ Primary backend references:
 
 ## Current frontend baseline
 
-_Updated at the end of Phase 2 (2026-07-20). The original Phase 0 description of this section is preserved in git history at `c3d57b1`._
+_Reconciled after the Phase 3 audit (2026-07-20). The original Phase 0 description of this
+section is preserved in git history at `c3d57b1`._
 
 Read paths that now come from Atlas:
 
@@ -128,7 +129,10 @@ Ground truth: `atlas/workflows.py` (`validate_workflow_graph` line 173, run loop
 
 **The canvas palette exposes only the four native node types.** There are no `condition`/`loop`/`fanout`/`trigger` pseudo-nodes and no round-trip machinery to convert them: conditions are authored in the edge inspector, fan-out is multiple outgoing edges, loops are guarded back-edges, and triggers live in a separate trigger panel outside `graph.nodes`.
 
-The current mock scaffold still contains `kind: "approval"`. Phase 3 performs a **one-time scaffold migration** to the internal `human_gate` kind before the Atlas adapter replaces mock domain state. `approval` is not a permanent API alias or a round-trip mapping.
+The mock scaffold and its `kind: "approval"` value were deleted before the Atlas editor was
+introduced. The current model uses `human_gate` directly; “Approval” is display copy only.
+There is no `approval` API alias, round-trip mapping, or migration because there was no
+persisted legacy client data to convert.
 
 **Round-trip fixtures were the entry requirement for Phase 3, and they exist.** `tests/fixtures/workflow-graphs.ts` holds one graph that uses all four native kinds and all six condition types together — deliberately one graph rather than four, because the interesting rules are the ones that relate kinds to each other. `tests/unit/workflow-graph.test.ts` asserts `parse → serialize` is identity for it, for each kind alone, for each condition alone, and for every policy key at its maximum; `tests/contract/mutations.contract.test.ts` posts the same fixtures to a real Atlas and reads them back.
 

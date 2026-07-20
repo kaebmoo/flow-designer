@@ -79,6 +79,7 @@ function WorkflowEditorRoute() {
   const remove = useDeleteWorkflow();
 
   const [validation, setValidation] = useState<{ ok: boolean; message: string } | null>(null);
+  const [atlasValidationIssues, setAtlasValidationIssues] = useState<ValidationIssue[]>([]);
   /**
    * Counts saves that landed, which is the signal the editor re-baselines on.
    *
@@ -100,13 +101,19 @@ function WorkflowEditorRoute() {
   // a fresh array on every render would defeat all of them and reconcile the whole canvas on
   // every keystroke in an inspector field.
   const serverIssues: ValidationIssue[] = useMemo(() => {
-    if (!save.error) return [];
-    if (save.error.rejection) return save.error.rejection.issues;
-    return save.error.kind === "validation" ? [mapAtlasValidationMessage(save.error.message)] : [];
-  }, [save.error]);
+    const saveIssues = !save.error
+      ? []
+      : save.error.rejection
+        ? save.error.rejection.issues
+        : save.error.kind === "validation"
+          ? [mapAtlasValidationMessage(save.error.message)]
+          : [];
+    return [...saveIssues, ...atlasValidationIssues];
+  }, [save.error, atlasValidationIssues]);
 
   const onSave = (draft: WorkflowDraft) => {
     setValidation(null);
+    setAtlasValidationIssues([]);
     save.mutate(
       {
         workflowId: id,
@@ -132,7 +139,8 @@ function WorkflowEditorRoute() {
           subtitle={workflow.description || "No description."}
           meta={
             <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              {workflow.id} · v{workflow.version} · updated {workflow.updatedAtLabel}
+              {workflow.id} · {workflow.status} · v{workflow.version} · updated{" "}
+              {workflow.updatedAtLabel}
             </span>
           }
           actions={
@@ -177,7 +185,8 @@ function WorkflowEditorRoute() {
         subtitle={workflow.description || "No description."}
         meta={
           <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            {workflow.id} · v{workflow.version} · updated {workflow.updatedAtLabel}
+            {workflow.id} · {workflow.status} · v{workflow.version} · updated{" "}
+            {workflow.updatedAtLabel}
           </span>
         }
         actions={
@@ -251,6 +260,7 @@ function WorkflowEditorRoute() {
         atlasValidation={validation}
         onValidateWithAtlas={(draft) => {
           setValidation(null);
+          setAtlasValidationIssues([]);
           validate.mutate(
             { workflowId: id, graph: draft.graph, policy: draft.policy },
             {
@@ -260,7 +270,12 @@ function WorkflowEditorRoute() {
                   message:
                     "Atlas accepted this graph, including its worker and workspace references.",
                 }),
-              onError: (error) => setValidation({ ok: false, message: error.message }),
+              onError: (error) => {
+                setValidation({ ok: false, message: error.message });
+                if (error.kind === "validation") {
+                  setAtlasValidationIssues([mapAtlasValidationMessage(error.message)]);
+                }
+              },
             },
           );
         }}

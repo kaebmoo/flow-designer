@@ -349,7 +349,14 @@ test.describe("run detail", () => {
     await expect(confirm).toContainText("Cancel this run?");
     await confirm.getByRole("button", { name: "Cancel the run" }).click();
 
-    const after = await untilRun(request, runId, "cancelled", (d) => d.run.state === "cancelled");
+    const after = await untilRun(
+      request,
+      runId,
+      "cancelled with its approval resolved",
+      (d) =>
+        d.run.state === "cancelled" &&
+        d.approvals.every((approval) => approval.state !== "pending"),
+    );
     expect(after.run.state).toBe("cancelled");
     // Cancelling closes the approval it was parked on, so nothing is left pending.
     expect(after.approvals[0]!.state).not.toBe("pending");

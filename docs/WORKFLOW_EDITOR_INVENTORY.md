@@ -1,7 +1,7 @@
-# Workflow editor inventory — what Phase 3 must rebuild
+# Workflow editor inventory — what Phase 3 rebuilt
 
-Status: complete. Produced before Phase 3 begins, so that "is the editor back and complete?"
-has an answer that was agreed in advance rather than argued about afterwards.
+Status: reconciled after the Phase 3 implementation audit. Sections 1–5 are the preserved
+pre-Phase-3 baseline; the acceptance checklist below records the current verified state.
 
 Date: 2026-07-20
 flow-designer baseline: `5215c7f` (end of Phase 2)
@@ -9,15 +9,13 @@ Atlas commit read: `595ef62` at `/Users/seal/Documents/GitHub/atlas-control-plan
 
 ## Why this document exists
 
-Phase 2 stopped rendering the workflow canvas: `/workflows/$id` is now a read-only view of the
-graph Atlas has stored. The editor itself was **not deleted** — all five files are still in the
-tree and differ from the pre-Phase-2 baseline `c3d57b1` by exactly one line each (an import
-path). Nothing is lost, and `git show c3d57b1:src/routes/_app/workflows.$id.tsx` restores the old
-route verbatim.
+At the end of Phase 2, `/workflows/$id` was a read-only Atlas view. The following inventory was
+captured before the editor rewrite, so its “Today” and source-line references deliberately
+describe that baseline rather than the current files.
 
-What is _not_ true is that Phase 3 will simply switch it back on. Phase 3 rewrites the editor
-against Atlas, and Atlas cannot express a large part of what this scaffold let a user draw. This
-document is the line-by-line account of which part is which.
+Phase 3 did not simply switch the scaffold back on. It rewrote the editor against Atlas, which
+cannot express a large part of what the scaffold let a user draw. This document remains the
+line-by-line record of that decision; the reconciliation at §6 records what was delivered.
 
 ## How to read it
 
@@ -329,60 +327,60 @@ decided against something written down before the work started.
 
 ### Palette and graph model
 
-- [ ] Palette exposes exactly four kinds: `worker`, `manager`, `join`, `human_gate`.
-- [ ] `trigger`, `condition`, `decision`, `loop`, `fanout` are gone from the palette, the types, and the presentation map.
-- [ ] The internal kind is `human_gate`; "Approval" survives only as a display label, with no `approval` API alias and no round-trip mapping.
-- [ ] "Ask to choose" and "Approval" both emit `type: "human_gate"` — with and without `choices`.
-- [ ] A `manager` node always emits `schema: "manager_decision_v1"`.
-- [ ] A `join` node always emits `mode`; `quorum` is a positive integer not exceeding the distinct incoming-edge count.
-- [ ] `graph.start` is selectable on a node ("Set as start") and shown as a badge — no pseudo-node.
-- [ ] An unknown node or condition type coming back from Atlas **fails closed** in the UI and is never sent back.
+- [x] Palette exposes exactly four kinds: `worker`, `manager`, `join`, `human_gate`.
+- [x] `trigger`, `condition`, `decision`, `loop`, `fanout` are gone from the palette, the types, and the presentation map.
+- [x] The internal kind is `human_gate`; "Approval" survives only as a display label, with no `approval` API alias and no round-trip mapping.
+- [x] "Ask to choose" and "Approval" both emit `type: "human_gate"` — with and without `choices`.
+- [x] A `manager` node always emits `schema: "manager_decision_v1"`.
+- [x] A `join` node always emits `mode`; `quorum` is a positive integer not exceeding the distinct incoming-edge count.
+- [x] `graph.start` is selectable on a node ("Set as start"), shown as a badge, and cannot be deleted until another start is selected.
+- [x] An unknown node or condition type coming back from Atlas **fails closed** in the UI and is never sent back.
 
 ### Edges
 
-- [ ] An edge inspector exists and can author all six condition types: `always`, `artifact_equals`, `artifact_in`, `manager_selected`, `human_selected`, `max_iterations_below`.
-- [ ] Every saved edge carries a `condition`; the UI default is `{"type": "always"}`.
-- [ ] The edge label is a **render of the condition**, never a stored free-text string that can drift.
-- [ ] A `manager` source node's outgoing edges are forced to `manager_selected` with `target` equal to the edge's `to`.
-- [ ] A `human_gate` with `choices` requires `human_selected` outgoing edges.
-- [ ] Creating a cycle prompts for its guard (`policy.max_iterations` or edge `max_iterations_below`) and blocks save without one.
+- [x] An edge inspector exists and can author all six condition types: `always`, `artifact_equals`, `artifact_in`, `manager_selected`, `human_selected`, `max_iterations_below`.
+- [x] Every saved edge carries a `condition`; the UI default is `{"type": "always"}`.
+- [x] The edge label is a **render of the condition**, never a stored free-text string that can drift.
+- [x] A `manager` source node's outgoing edges are forced to `manager_selected` with `target` equal to the edge's `to`.
+- [x] A `human_gate` with `choices` requires `human_selected` outgoing edges.
+- [x] Creating a cycle selects the new edge and prompts for its guard (`policy.max_iterations` or edge `max_iterations_below`); save remains blocked without one.
 
 ### Persistence and layout
 
-- [ ] Save calls Atlas (`POST`/`PUT /api/workflows`) and sends **semantic JSON only** — no `x`, `y`, viewport, colours, or unknown keys.
-- [ ] Node positions and viewport are stored **locally** (localStorage), keyed by workflow id + graph version, with an auto-layout fallback when absent.
-- [ ] Moving a node never changes the semantic JSON, and therefore never marks the workflow dirty on the server.
-- [ ] Workflow name, description, and status are editable and saved.
-- [ ] A policy panel exists for the Atlas policy fields and enforces their limits.
-- [ ] Renaming a node id atomically updates `graph.start`, every edge `from`/`to`, every `manager_selected.target`, and every `max_iterations_below.node`.
+- [x] Save calls Atlas (`POST`/`PUT /api/workflows`) and sends **semantic JSON only** — no `x`, `y`, viewport, colours, or unknown keys.
+- [x] Node positions and viewport are stored **locally** (localStorage), keyed by workflow id + graph version, with an auto-layout fallback when absent.
+- [x] Moving a node never changes the semantic JSON, and therefore never marks the workflow dirty on the server.
+- [x] Workflow name and description are editable and saved. Status is displayed read-only: the Phase 3 client write contract intentionally sends only name, description, graph, and policy; version is read for the local lost-update guard, not edited.
+- [x] A policy panel exists for the Atlas policy fields and enforces their limits.
+- [x] Renaming a node id atomically updates `graph.start`, every edge `from`/`to`, every `manager_selected.target`, and every `max_iterations_below.node`.
 
 ### Validation
 
-- [ ] Validation runs before save, enable, and run.
-- [ ] Atlas validation errors are shown at the offending node, edge, or field — not as one banner.
-- [ ] Round-trip fixtures pass for all four native kinds (serialize → Atlas → parse back), as required by `IMPLEMENTATION_PLAN.md` before save/run is wired.
+- [x] Validation runs before save, enable, and run.
+- [x] Atlas validation errors are shown at the offending node, edge, or field — not as one banner.
+- [x] Round-trip fixtures pass for all four native kinds (serialize → Atlas → parse back), as required by `IMPLEMENTATION_PLAN.md` before save/run is wired.
 
 ### Run
 
-- [ ] Run calls `POST /api/workflow-runs` and yields a real Atlas run id.
-- [ ] No `setTimeout`/`setInterval` drives node state anywhere.
-- [ ] Canvas highlighting comes from Atlas runtime node state, not from local timers.
-- [ ] Pause, resume, and cancel are wired; `recovery_required` shows its warning and requires explicit retry authorization.
-- [ ] Approval decisions (approve / reject / choose) call `/api/approvals/{id}/…`.
-- [ ] The log view is bounded and virtualized or incrementally rendered — the scaffold's was unbounded.
+- [x] Run calls `POST /api/workflow-runs` and yields a real Atlas run id.
+- [x] No `setTimeout`/`setInterval` drives node state anywhere.
+- [x] Canvas highlighting comes from Atlas runtime node state, not from local timers.
+- [x] Pause, resume, and cancel are wired; `recovery_required` shows its warning and requires explicit retry authorization.
+- [x] Approval decisions (approve / reject / choose) call `/api/approvals/{id}/…`.
+- [x] The persisted log view is bounded and incrementally rendered; live per-job streaming remains Phase 4.
 
 ### Triggers
 
-- [ ] Triggers are managed in a separate panel against `/api/workflow-triggers`, never inside `graph.nodes`.
-- [ ] All Atlas trigger types are offered: `manual`, `schedule`, `webhook`, `workflow_run_completed`, `artifact_created`, `worker_status_changed`.
-- [ ] A schedule trigger takes **either** `interval_minutes` **or** `daily_time` (`HH:MM`), never a free-text path or time.
-- [ ] Each trigger has a name and an enabled toggle.
+- [x] Triggers are managed in a separate panel against `/api/workflow-triggers`, never inside `graph.nodes`.
+- [x] All Atlas trigger types are offered: `manual`, `schedule`, `webhook`, `workflow_run_completed`, `artifact_created`, `worker_status_changed`.
+- [x] A schedule trigger takes **either** `interval_minutes` **or** `daily_time` (`HH:MM`), never a free-text path or time.
+- [x] Each trigger has a name and an enabled toggle.
 
 ### Not-regressions
 
-- [ ] No control in the editor is present but non-functional (the scaffold shipped a dead "Check" button).
-- [ ] Navigating away with unsaved changes warns (the scaffold silently discarded them).
-- [ ] Deleting a node via the keyboard marks the editor dirty and clears the inspector (the scaffold did neither).
+- [x] No control in the editor is present but non-functional (the scaffold shipped a dead "Check" button).
+- [x] Navigating away with unsaved changes warns (the scaffold silently discarded them).
+- [x] Deleting a non-start node via the keyboard requires confirmation; after confirmation it marks the editor dirty and clears the inspector. Start-node deletion is blocked.
 
 ---
 
@@ -402,15 +400,12 @@ Sources read for the Atlas side:
 - `docs/specs/workflow-trigger.schema.json`
 - `docs/specs/workflow-visual-builder-spec-en.md`
 
-**Caveat on the "Phase 3" column.** Where a row says what Phase 3 should do, that is a
-_recommendation_ derived from Atlas's constraints and `IMPLEMENTATION_PLAN.md` — not a decision
-already taken. Anything that changes the Atlas contract, the auth boundary, data ownership, or
-the security model still needs confirmation before it is built.
+**Reconciliation notes (2026-07-20).** The Phase 3 recommendations above are now implemented
+where the Atlas contract permits. The two earlier document contradictions are settled:
 
-**Two known contradictions to settle at the Phase 3 gate**, both already recorded in
-`CHECKLIST.md`:
+1. Triggers belong to Phase 3; the remaining static domain pages belong to Phase 5.
+2. The mock store was deleted, so the editor uses `human_gate` directly and has no legacy
+   `approval` migration.
 
-1. The plan assigns eight domain pages to both Phase 2 and Phase 5.
-2. `IMPLEMENTATION_PLAN.md` line 95 says to rename `approval` → `human_gate` "before replacing
-   mock domain state" — but Phase 2 has already replaced the mock domain state on every route.
-   The rename is now a Phase 3 step inside the editor rewrite, not a separate migration.
+Per-job SSE remains an explicit Phase 4 item. It is not marked complete merely because Phase 3
+polls/refetches persisted run state.

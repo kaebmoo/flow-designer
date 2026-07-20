@@ -22,6 +22,19 @@ export interface NodePosition {
 
 export type WorkflowLayout = Record<string, NodePosition>;
 
+/** React Flow's viewport shape, kept local for the same reason as node positions. */
+export interface WorkflowViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+interface StoredWorkflowLayout {
+  layout_version: 1;
+  nodes: WorkflowLayout;
+  viewport?: WorkflowViewport;
+}
+
 /** Node box size, used by the auto-layout to space columns and rows without overlap. */
 const NODE_WIDTH = 240;
 const NODE_HEIGHT = 96;
@@ -37,6 +50,66 @@ function isPosition(value: unknown): value is NodePosition {
   );
 }
 
+function isViewport(value: unknown): value is WorkflowViewport {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    Number.isFinite((value as WorkflowViewport).x) &&
+    Number.isFinite((value as WorkflowViewport).y) &&
+    Number.isFinite((value as WorkflowViewport).zoom) &&
+    (value as WorkflowViewport).zoom > 0
+  );
+}
+
+function positionsFrom(value: unknown): WorkflowLayout {
+  if (value === null || typeof value !== "object") return {};
+  const layout: WorkflowLayout = {};
+  for (const [id, position] of Object.entries(value as Record<string, unknown>)) {
+    if (isPosition(position)) layout[id] = { x: position.x, y: position.y };
+  }
+  return layout;
+}
+
+/** Reads the current envelope and the pre-viewport position-only format from older browsers. */
+function readStored(workflowId: string, graphVersion: number): StoredWorkflowLayout | undefined {
+  if (typeof window === "undefined") return undefined;
+  let raw: string | null;
+  try {
+    raw = window.localStorage.getItem(layoutStorageKey(workflowId, graphVersion));
+  } catch {
+    return undefined;
+  }
+  if (!raw) return undefined;
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object") return undefined;
+    const envelope = parsed as Partial<StoredWorkflowLayout>;
+    if (envelope.layout_version === 1 && envelope.nodes !== undefined) {
+      return {
+        layout_version: 1,
+        nodes: positionsFrom(envelope.nodes),
+        viewport: isViewport(envelope.viewport) ? envelope.viewport : undefined,
+      };
+    }
+    // Phase 3 initially persisted only a bare node-position map. Preserve it when the new
+    // viewport writer lands so arranging an existing workflow is not lost during the upgrade.
+    return { layout_version: 1, nodes: positionsFrom(parsed) };
+  } catch {
+    return undefined;
+  }
+}
+
+function writeStored(workflowId: string, graphVersion: number, stored: StoredWorkflowLayout): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(layoutStorageKey(workflowId, graphVersion), JSON.stringify(stored));
+  } catch {
+    // A full or blocked quota must not take the editor down with it: the layout is a
+    // convenience, and the graph — the thing that matters — is safe in Atlas either way.
+  }
+}
+
 /**
  * Reads a stored layout, ignoring anything that is not a usable position.
  *
@@ -44,27 +117,15 @@ function isPosition(value: unknown): value is NodePosition {
  * treated as untrusted input rather than as something this code wrote.
  */
 export function readLayout(workflowId: string, graphVersion: number): WorkflowLayout {
-  if (typeof window === "undefined") return {};
-  let raw: string | null;
-  try {
-    raw = window.localStorage.getItem(layoutStorageKey(workflowId, graphVersion));
-  } catch {
-    // Private-browsing modes and blocked storage throw on access rather than returning null.
-    return {};
-  }
-  if (!raw) return {};
+  return readStored(workflowId, graphVersion)?.nodes ?? {};
+}
 
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== "object") return {};
-    const layout: WorkflowLayout = {};
-    for (const [id, position] of Object.entries(parsed as Record<string, unknown>)) {
-      if (isPosition(position)) layout[id] = { x: position.x, y: position.y };
-    }
-    return layout;
-  } catch {
-    return {};
-  }
+/** Returns the last local pan/zoom, if the browser has one for this workflow version. */
+export function readViewport(
+  workflowId: string,
+  graphVersion: number,
+): WorkflowViewport | undefined {
+  return readStored(workflowId, graphVersion)?.viewport;
 }
 
 export function writeLayout(
@@ -72,13 +133,26 @@ export function writeLayout(
   graphVersion: number,
   layout: WorkflowLayout,
 ): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(layoutStorageKey(workflowId, graphVersion), JSON.stringify(layout));
-  } catch {
-    // A full or blocked quota must not take the editor down with it: the layout is a
-    // convenience, and the graph — the thing that matters — is safe in Atlas either way.
-  }
+  const previous = readStored(workflowId, graphVersion);
+  writeStored(workflowId, graphVersion, {
+    layout_version: 1,
+    nodes: layout,
+    viewport: previous?.viewport,
+  });
+}
+
+/** Persists pan/zoom without clobbering the node arrangement. */
+export function writeViewport(
+  workflowId: string,
+  graphVersion: number,
+  viewport: WorkflowViewport,
+): void {
+  const previous = readStored(workflowId, graphVersion);
+  writeStored(workflowId, graphVersion, {
+    layout_version: 1,
+    nodes: previous?.nodes ?? {},
+    viewport,
+  });
 }
 
 export function clearLayout(workflowId: string, graphVersion: number): void {

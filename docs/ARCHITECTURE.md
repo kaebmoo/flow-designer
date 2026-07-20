@@ -1,8 +1,8 @@
 # Flow Designer architecture
 
-Status: proposed implementation architecture
+Status: implemented through Phase 3; streaming and remaining domain pages are planned
 
-Date: 2026-07-19
+Date: 2026-07-20
 
 ## Decision
 

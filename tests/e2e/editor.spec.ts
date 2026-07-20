@@ -112,16 +112,18 @@ test.describe("workflow editor", () => {
           candidate.startsWith("flow-designer:layout:"),
         );
         return key
-          ? (JSON.parse(window.localStorage.getItem(key)!) as Record<
-              string,
-              { x: number; y: number }
-            >)
+          ? (JSON.parse(window.localStorage.getItem(key)!) as {
+              layout_version: number;
+              nodes: Record<string, { x: number; y: number }>;
+              viewport?: { x: number; y: number; zoom: number };
+            })
           : null;
       });
 
     const beforeReload = await readStoredLayout();
     expect(beforeReload).not.toBeNull();
-    const movedNodeId = Object.keys(beforeReload!).find((id) => id.startsWith("manager_"))!;
+    expect(beforeReload!.layout_version).toBe(1);
+    const movedNodeId = Object.keys(beforeReload!.nodes).find((id) => id.startsWith("manager_"))!;
     expect(movedNodeId).toBeTruthy();
 
     await page.reload();
@@ -136,7 +138,7 @@ test.describe("workflow editor", () => {
     // Layout came back from this browser, not from Atlas — the same coordinates, unchanged by a
     // round trip that only ever carried semantics.
     const afterReload = await readStoredLayout();
-    expect(afterReload![movedNodeId]).toEqual(beforeReload![movedNodeId]);
+    expect(afterReload!.nodes[movedNodeId]).toEqual(beforeReload!.nodes[movedNodeId]);
   });
 
   test("layout is local: clearing it falls back to auto-layout and the graph is untouched", async ({
@@ -169,11 +171,48 @@ test.describe("workflow editor", () => {
     await expect(page.getByLabel("Node id")).toHaveValue(/join_/);
 
     await canvas(page).press("Delete");
+    const confirmation = page.getByRole("alertdialog");
+    await expect(confirmation).toContainText(/removes .* related edge/);
+    await confirmation.getByRole("button", { name: "Delete node", exact: true }).click();
+    await expect(confirmation).toHaveCount(0);
 
     await expect(canvas(page).locator('[data-node-kind="join"]')).toHaveCount(0);
     // The scaffold's bug: a keyboard delete left the flag clean and the inspector stranded.
     await expect(dirtyState(page)).toHaveText("Unsaved changes");
     await expect(page.getByLabel("Node id")).toHaveCount(0);
+  });
+
+  test("the start node cannot be deleted until another entry point is selected", async ({
+    page,
+  }) => {
+    await createWorkflow(page);
+
+    await canvas(page).locator('[data-node-kind="worker"]').click();
+    const deleteNode = page.getByRole("button", { name: "Delete node", exact: true });
+    await expect(deleteNode).toBeDisabled();
+    await expect(deleteNode).toHaveAttribute("title", /Choose a different start node/);
+
+    await canvas(page).press("Delete");
+    await expect(canvas(page).locator('[data-node-kind="worker"]')).toHaveCount(1);
+    await expect(dirtyState(page)).toHaveText("Saved");
+  });
+
+  test("warns before leaving a semantic draft and lets the operator keep editing", async ({
+    page,
+  }) => {
+    await createWorkflow(page);
+    await page.getByRole("button", { name: /^Join/ }).click();
+
+    const workflows = page.getByRole("link", { name: "Workflows", exact: true });
+    await workflows.click();
+    const warning = page.getByRole("alertdialog");
+    await expect(warning).toContainText(/Discard unsaved workflow changes/);
+    await warning.getByRole("button", { name: "Keep editing" }).click();
+    await expect(page).toHaveURL(/\/workflows\/wfd_[a-z0-9]+$/);
+
+    await workflows.click();
+    await warning.getByRole("button", { name: "Discard changes" }).click();
+    await expect(page).toHaveURL(/\/workflows\?limit=100$/);
   });
 
   test("local validation blocks the save and each problem selects what it is about", async ({

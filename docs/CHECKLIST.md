@@ -13,7 +13,7 @@ Use this checklist with the phase gate in `docs/IMPLEMENTATION_PLAN.md`. Check i
 - [x] Each private server function validates the flow-designer session and calls a typed, fixed Atlas operation; Atlas alone authorizes it (a route `beforeLoad` is UI-only).
 - [x] The Atlas bearer token is never in browser code, `localStorage`, or a URL query string. (Client bundle scanned with positive controls; browser test asserts empty `localStorage`/`sessionStorage`, an httpOnly cookie, and no token in any request URL.)
 - [ ] Thin stream route glue contains no domain logic or secrets. — _not applicable through Phase 2; no stream glue exists until Phase 4._
-- [ ] Design tokens are used; no new hardcoded color classes. — **Phases 1 and 2 added none**; Phase 2 also replaced the `bg-white/…` hovers in the six routes it migrated (every file changed in either phase scanned: zero hex literals, zero `bg-white`/`bg-black`/`bg-black`). The repository as a whole still fails this rule from the pre-Phase-1 baseline — all remaining violations are in `workflow-editor.tsx` and `workflow-node.tsx`, which Phase 2 changed by import path only. Left unticked because the rule is repo-wide; Phase 6 owns the cleanup.
+- [ ] Design tokens are used; no new hardcoded color classes. — The Phase 3 audit found none in `workflow-editor.tsx` or `workflow-node.tsx`; the repo-wide cleanup remains a Phase 6 responsibility, so this global rule stays unticked.
 - [x] Loader routes have `errorComponent` and `notFoundComponent`. (`/auth`, `/_app`, and the two Phase 2 detail routes `/workflows/$id` and `/runs/$id`; all four have both.)
 - [x] Existing user changes and Lovable history are preserved. (Commit `e509e79` left intact; no rebase, amend, squash, or force-push in either phase. The untracked `graphify-out/` directory was left alone and not committed.)
 
@@ -237,9 +237,9 @@ All recorded in `ATLAS_LIMITATIONS.md` with source citations, none worked around
 - [x] Worker/workspace mutations call Atlas. (`POST /api/workers` and `POST /api/workspaces` are upserts, not creates — the UI says which existing row an upsert will edit before submitting, and a worker delete lists the workspaces it will cascade.)
 - [x] Round-trip fixtures exist for the four native node types (serialize → Atlas → parse back) before wiring save/run. (`tests/fixtures/workflow-graphs.ts`; asserted in unit tests and posted to a real Atlas in `mutations.contract.test.ts`.)
 - [x] Palette exposes only `worker`/`manager`/`join`/`human_gate`; conditions are edited on edges, fan-out is multiple edges, loops are guarded back-edges, triggers live outside `graph.nodes`. No `condition`/`loop`/`fanout`/`trigger` pseudo-nodes. (A browser test asserts the four are offered and the other four are absent.)
-- [x] The internal node kind is `human_gate` (display label “Approval”); legacy mock `approval` values receive a one-time scaffold migration only. `join.mode`/`quorum` and `manager.schema` are always emitted. (No migration was needed: the mock store was deleted rather than converted, so no `approval` value ever reached the new model.)
+- [x] The internal node kind is `human_gate` (display label “Approval”); there is no `approval` API alias or migration because the mock store was deleted rather than converted. `join.mode`/`quorum` and `manager.schema` are always emitted.
 - [x] Any unknown Atlas node/condition type fails closed in the UI (not sent to Atlas). (Enforced in the parser _and_ again server-side in the RPC handler, which is the last code before the request leaves — a crafted direct POST cannot bypass it.)
-- [x] Node layout is stored locally (keyed by workflow id + graph version) with auto-layout fallback; only semantic JSON goes to Atlas. (A browser test wipes `localStorage` and asserts the graph still arrives, arranged by the auto-layout.)
+- [x] Node positions **and viewport** are stored locally (keyed by workflow id + graph version) with auto-layout fallback; only semantic JSON goes to Atlas. (A browser test wipes `localStorage` and asserts the graph still arrives, arranged by the auto-layout.)
 - [x] Validation runs before save/enable/run. (Locally on every keystroke, so all problems appear at once anchored to their node/edge/field; Atlas's own reference checks are a separate action that requires a saved workflow.)
 - [x] Save/reload preserves graph semantics and UI layout separately. (Browser test: a moved node keeps its stored coordinates across a reload, and the graph comes back from Atlas.)
 - [x] Run calls Atlas and returns a real run ID. (Browser test asserts the URL carries an Atlas `wfr_…` id; the scaffold minted `run_000NN` from an array length.)
@@ -256,10 +256,10 @@ Atlas commit tested: `595ef62`. Baseline before Phase 3: **`ecc0b4b`**. Instance
 | `bun run typecheck`     | 0    | 0 errors repo-wide                                                         |
 | `bun run lint`          | 0    | 0 errors; 6 pre-existing `react-refresh` warnings, unchanged since Phase 1 |
 | `bun run format:check`  | 0    | all files formatted                                                        |
-| `bun run test`          | 0    | 293 passed (200 at Phase 2)                                                |
+| `bun run test`          | 0    | 298 passed (current Phase 3 audit)                                         |
 | `bun run test:contract` | 0    | 106 passed, 3 skipped, against a real isolated Atlas (34 at Phase 2)       |
 | `bun run test:stream`   | 0    | 0 tests, passes by design (SSE is Phase 4)                                 |
-| `bun run test:e2e`      | 0    | 61 passed (28 at Phase 2)                                                  |
+| `bun run test:e2e`      | 0    | 63 passed (current Phase 3 audit; 28 at Phase 2)                           |
 | `bun run build`         | 0    | succeeded                                                                  |
 | `git diff --check`      | 0    | clean                                                                      |
 
@@ -278,20 +278,24 @@ Additional checks against the tree at this commit:
 
 The diff was reviewed by independent agents against the Atlas source, then the fixes were re-verified by a second pass. The reviews found 22 defects; all were fixed. The ones that mattered most:
 
-| Defect                                                                                   | Why it mattered                                                                                           |
-| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Graph re-validation ran in `createServerFn`'s `validator`, not its handler               | A validator throw becomes a framework 500, so the anchored per-node rejection path was dead code entirely |
-| The inspector wrote `output_format: "json"` as a side effect of setting the artifact key | Atlas then `json.loads` the worker's reply unguarded — a worker answering in prose fails at run time      |
-| Saving discarded any edit made while the save was in flight                              | The route remounted the editor on the server timestamp, silently destroying work                          |
-| The parser refused artifact keys Atlas legally stores                                    | A pack-imported workflow became permanently uneditable by the only tool that can fix it                   |
-| `collect_files` and the loop guard's `max` had no local validation                       | Both are save-blocking rules in Atlas, so the UI said "ready to save" and Atlas answered 400              |
-| React Flow node objects were rebuilt every render                                        | v12 stores measurements on them and hides an unmeasured node — the canvas rendered an invisible graph     |
-| Every disabled control stated its reason only in a `title`                               | `disabled:pointer-events-none` means that tooltip never renders; the reasons were invisible               |
-| Mutation failures rendered Atlas's raw `"forbidden"`                                     | A permission problem was indistinguishable from a generic failure                                         |
-| A `blocked` delivery could not be retried                                                | Atlas never re-drives it either, so the row was stuck with the UI claiming Atlas would handle it          |
-| Editing a worker offered to "overwrite" another worker at the same base URL              | Atlas's two-row upsert match either 500s on a unique constraint or rewrites the wrong row silently        |
-| Auto-arrange could push nodes outside the pane with no re-fit                            | The graph appeared to vanish                                                                              |
-| Form labels were not associated with their controls                                      | Screen readers announced unlabelled fields; clicking a caption focused nothing                            |
+| Defect                                                                                   | Why it mattered                                                                                                    |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Graph re-validation ran in `createServerFn`'s `validator`, not its handler               | A validator throw becomes a framework 500, so the anchored per-node rejection path was dead code entirely          |
+| The inspector wrote `output_format: "json"` as a side effect of setting the artifact key | Atlas then `json.loads` the worker's reply unguarded — a worker answering in prose fails at run time               |
+| Saving discarded any edit made while the save was in flight                              | The route remounted the editor on the server timestamp, silently destroying work                                   |
+| The parser refused artifact keys Atlas legally stores                                    | A pack-imported workflow became permanently uneditable by the only tool that can fix it                            |
+| `collect_files` and the loop guard's `max` had no local validation                       | Both are save-blocking rules in Atlas, so the UI said "ready to save" and Atlas answered 400                       |
+| React Flow node objects were rebuilt every render                                        | v12 stores measurements on them and hides an unmeasured node — the canvas rendered an invisible graph              |
+| Every disabled control stated its reason only in a `title`                               | `disabled:pointer-events-none` means that tooltip never renders; the reasons were invisible                        |
+| Mutation failures rendered Atlas's raw `"forbidden"`                                     | A permission problem was indistinguishable from a generic failure                                                  |
+| A `blocked` delivery could not be retried                                                | Atlas never re-drives it either, so the row was stuck with the UI claiming Atlas would handle it                   |
+| Editing a worker offered to "overwrite" another worker at the same base URL              | Atlas's two-row upsert match either 500s on a unique constraint or rewrites the wrong row silently                 |
+| Auto-arrange could push nodes outside the pane with no re-fit                            | The graph appeared to vanish                                                                                       |
+| Form labels were not associated with their controls                                      | Screen readers announced unlabelled fields; clicking a caption focused nothing                                     |
+| Start-node deletion silently repointed `graph.start`                                     | A destructive edit could change where a workflow executes; deletion is now blocked until another start is selected |
+| Layout persisted positions but not viewport                                              | Pan/zoom reset on reload; the local layout envelope now stores both node positions and viewport                    |
+| A newly drawn cycle only failed at save time                                             | Its selected edge now prompts for a policy or edge loop guard immediately                                          |
+| Navigating away dropped a semantic draft                                                 | TanStack navigation and browser unload now require an explicit discard decision                                    |
 
 ### What Phase 3 deliberately did not do
 

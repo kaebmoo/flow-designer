@@ -1,8 +1,8 @@
 # Atlas Control Plane Web UI completion plan
 
-Status: rewritten for Atlas-as-source-of-truth architecture
+Status: implemented through Phase 3; Phase 4–6 remain planned
 
-Date: 2026-07-19
+Date: 2026-07-20
 
 ## Objective
 
@@ -67,8 +67,9 @@ Replace mock reads in this order:
 2. Workflows list and workflow detail
 3. Runs list and run detail
 4. Jobs
-5. Conversations, Artifacts, Triggers, Deliveries
-6. Usage, Audit, Users, Settings
+5. Mark Conversations, Artifacts, Deliveries, Usage, Audit, Users, and Settings explicitly
+   unavailable until their Phase 5 integrations land.
+6. Defer trigger CRUD to Phase 3, which owns its mutation contract and dedicated UI.
 
 Use TanStack Query for caching, pagination, stale state, retry policy, and invalidation. Remove workers/jobs/workflows/runs from the Zustand domain store. Keep only UI-local state if required.
 
@@ -92,7 +93,9 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 - **Entry requirement:** land round-trip graph fixtures (serialize → Atlas → parse back) for each of the four native node kinds before wiring save/run (see the compatibility matrix in `BACKEND_INTEGRATION.md`).
 - Fleet add/edit/poll actions call Atlas.
 - Workflow create/update/delete calls Atlas.
-- Rename the mock scaffold's internal `approval` kind to `human_gate` once, before replacing mock domain state. Keep “Approval” only as its display label; do not retain an `approval` API alias.
+- Replace the legacy mock scaffold with the `human_gate` graph model. Keep “Approval” only as
+  its display label and do not retain an `approval` API alias. No data migration is required:
+  Phase 2 deleted the mock store before any persisted legacy value could reach Atlas.
 - Canvas palette exposes **only** the four Atlas-native node types (`worker`, `manager`, `join`, `human_gate`). Conditions are edited in the **edge inspector**; fan-out is **multiple outgoing edges**; loops are **guarded back-edges**; triggers are managed in a **separate trigger panel**, never in `graph.nodes`. Do not introduce `condition`/`loop`/`fanout`/`trigger` pseudo-nodes or round-trip machinery to convert them.
 - Validate before save/enable/run.
 - Implement trigger enable/disable with Atlas trigger/workflow APIs.
@@ -139,7 +142,8 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 
 ### Work
 
-- Replace all static arrays in Artifacts, Triggers, Deliveries, Conversations, Usage, Audit, and Users.
+- Replace all static arrays in Artifacts, Deliveries, Conversations, Usage, Audit, and Users.
+  Trigger CRUD was completed in Phase 3.
 - Add pagination, filters, empty states, loading states, and permission-aware actions.
 - Use Atlas metrics for dashboard aggregates rather than counting only the current page.
 - Add downloads and exports through Atlas endpoints.

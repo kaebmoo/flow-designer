@@ -31,14 +31,27 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { useBlocker } from "@tanstack/react-router";
 import { AlertTriangle, Check, Play, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   describeCondition,
+  edgesRemovedWithNode,
+  isConnectionAllowed,
   removeNode,
   renameNodeId,
   serializeWorkflowGraph,
@@ -57,9 +70,11 @@ import {
   autoLayout,
   clearLayout,
   readLayout,
+  readViewport,
   renameInLayout,
   resolveLayout,
   writeLayout,
+  writeViewport,
   type WorkflowLayout,
 } from "./workflow-layout";
 import { NODE_PRESENTATION, PALETTE_ORDER } from "./workflow-node-presentation";
@@ -233,7 +248,8 @@ function EditorSurface({
   const [policy, setPolicy] = useState<WorkflowPolicy>(initialPolicy);
   const [selection, setSelection] = useState<Selection>(null);
   const [layout, setLayout] = useState<WorkflowLayout>({});
-  const { fitView } = useReactFlow();
+  const [pendingNodeDeletion, setPendingNodeDeletion] = useState<string | null>(null);
+  const { fitView, setViewport } = useReactFlow();
 
   const current = useMemo(
     () => ({
@@ -262,6 +278,12 @@ function EditorSurface({
     }),
   );
   const dirty = JSON.stringify(current) !== baseline;
+  const navigationBlocker = useBlocker({
+    shouldBlockFn: () => dirty,
+    enableBeforeUnload: dirty,
+    disabled: !dirty,
+    withResolver: true,
+  });
 
   /**
    * What this editor believes Atlas holds, and what it last sent.
@@ -335,12 +357,17 @@ function EditorSurface({
   const fitSoon = useCallback(() => setFitRequest((request) => request + 1), []);
 
   useEffect(() => {
+    const viewport = readViewport(layoutKeyId, graphVersion);
     setLayout(resolveLayout(initialGraphRef.current, readLayout(layoutKeyId, graphVersion)));
     // React Flow's `fitView` prop only runs on mount, and on mount every node is still at the
-    // origin because the layout has not been read yet. Fitting once it has is what makes the
-    // graph visible without the user having to pan to find it.
+    // origin because the layout has not been read yet. A saved viewport wins; otherwise fitting
+    // after the layout commits is what makes the graph visible without manual panning.
+    if (viewport) {
+      const frame = window.requestAnimationFrame(() => void setViewport(viewport));
+      return () => window.cancelAnimationFrame(frame);
+    }
     fitSoon();
-  }, [layoutKeyId, graphVersion, fitSoon]);
+  }, [layoutKeyId, graphVersion, fitSoon, setViewport]);
 
   /**
    * Applies a layout, writing it through to storage.
@@ -483,7 +510,7 @@ function EditorSurface({
     [graph, layout, applyLayout, fitSoon],
   );
 
-  const deleteSelection = useCallback(() => {
+  const removeSelection = useCallback(() => {
     if (selection?.kind === "node") {
       setGraph((previous) => removeNode(previous, selection.id));
     } else if (selection?.kind === "edge") {
@@ -499,6 +526,30 @@ function EditorSurface({
     setSelection(null);
   }, [selection]);
 
+  const requestDeleteSelection = useCallback(() => {
+    if (selection?.kind === "node") {
+      // Do not choose a replacement by array order: changing graph.start changes execution.
+      if (selection.id === graph.start) return;
+      setPendingNodeDeletion(selection.id);
+      return;
+    }
+    if (selection?.kind === "edge") removeSelection();
+  }, [selection, graph.start, removeSelection]);
+
+  const confirmNodeDeletion = useCallback(() => {
+    if (!pendingNodeDeletion) return;
+    setGraph((previous) => removeNode(previous, pendingNodeDeletion));
+    setSelection(null);
+    setPendingNodeDeletion(null);
+  }, [pendingNodeDeletion]);
+
+  const pendingDeletionNode = pendingNodeDeletion
+    ? graph.nodes.find((node) => node.id === pendingNodeDeletion)
+    : undefined;
+  const pendingDeletionEdges = pendingNodeDeletion
+    ? edgesRemovedWithNode(graph, pendingNodeDeletion)
+    : [];
+
   /**
    * Keyboard delete, bound on the canvas rather than the document so it cannot fire while the
    * user is deleting characters in an inspector field.
@@ -510,15 +561,16 @@ function EditorSurface({
       if (target?.closest("input, textarea, select, [contenteditable]")) return;
       if (selection?.kind !== "node" && selection?.kind !== "edge") return;
       event.preventDefault();
-      deleteSelection();
+      requestDeleteSelection();
     },
-    [selection, deleteSelection],
+    [selection, requestDeleteSelection],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
       const { source, target } = connection;
       if (!source || !target) return;
+      if (!isConnectionAllowed(graph, source, target)) return;
       const from = graph.nodes.find((node) => node.id === source);
       // Seed the condition Atlas requires for this source, so a freshly drawn edge is valid
       // rather than immediately reported as a problem the user then has to go and fix.
@@ -562,6 +614,53 @@ function EditorSurface({
 
   return (
     <div className="flex min-h-0 flex-1">
+      <AlertDialog open={navigationBlocker.status === "blocked"}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved workflow changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The graph, its policy, name, and description have changes that are not in Atlas. Node
+              positions and zoom are already stored only in this browser.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button type="button" variant="outline" onClick={() => navigationBlocker.reset?.()}>
+              Keep editing
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => navigationBlocker.proceed?.()}
+            >
+              Discard changes
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingDeletionNode !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setPendingNodeDeletion(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{pendingDeletionNode?.id}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes {pendingDeletionEdges.length} related{" "}
+              {pendingDeletionEdges.length === 1 ? "edge" : "edges"}, including any loop guard that
+              counts this node. Choose another start node first if this node should be the execution
+              entry point.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep node</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmNodeDeletion}>Delete node</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-card">
         <div className="border-b border-border px-4 py-4">
           <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -827,6 +926,10 @@ function EditorSurface({
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onConnect={onConnect}
+            isValidConnection={(connection) =>
+              isConnectionAllowed(graph, connection.source, connection.target)
+            }
+            onMoveEnd={(_, viewport) => writeViewport(layoutKeyId, graphVersion, viewport)}
             onNodeClick={(_, node) => setSelection({ kind: "node", id: node.id })}
             onEdgeClick={(_, edge) => {
               const index = flowEdges.findIndex((candidate) => candidate.id === edge.id);
@@ -861,7 +964,8 @@ function EditorSurface({
             onChange={updateNode}
             onRename={(nextId) => rename(selectedNode.id, nextId)}
             onSetStart={() => setGraph((previous) => ({ ...previous, start: selectedNode.id }))}
-            onDelete={deleteSelection}
+            onDelete={requestDeleteSelection}
+            deleteDisabled={selectedNode.id === graph.start}
           />
         ) : selectedEdge && selection?.kind === "edge" ? (
           <EdgeInspector
@@ -878,7 +982,7 @@ function EditorSurface({
                 ),
               }))
             }
-            onDelete={deleteSelection}
+            onDelete={requestDeleteSelection}
           />
         ) : selection?.kind === "policy" ? (
           <PolicyPanel
@@ -912,7 +1016,7 @@ function EditorSurface({
                 type="button"
                 onClick={() => {
                   clearLayout(layoutKeyId, graphVersion);
-                  setLayout(autoLayout(graph));
+                  applyLayout(autoLayout(graph));
                   fitSoon();
                 }}
                 className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
