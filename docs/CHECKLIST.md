@@ -99,7 +99,7 @@ disagrees with the architecture.
 - [x] Workspaces reads Atlas workspaces. (`GET /api/workspaces`, including the joined worker name/status.)
 - [x] Workflows and runs survive reload. (Both detail routes load through the route loader, so SSR renders real Atlas data; asserted by browser tests that reload the page.)
 - [x] Jobs reads real job state. (`GET /api/jobs` for the table, `GET /api/jobs/{id}` for the detail pane.)
-- [ ] Static arrays are removed or explicitly documented as unavailable. — **partial.** True for the six migrated pages. Artifacts, Triggers, Deliveries, Conversations, Usage, Audit, Users, and Settings still render static arrays and are _not_ marked as placeholder. `IMPLEMENTATION_PLAN.md` assigns them to both Phase 2 (line 70–71) and Phase 5 (line 142); see "Open scope question for the gate" below. Left unticked rather than reinterpreted.
+- [x] Static arrays are removed or explicitly documented as unavailable. — Removed on the six migrated pages. Artifacts, Triggers, Deliveries, Conversations, Usage, Audit, Users, and Settings still render static arrays, but each now carries a `PlaceholderNotice` saying the page is not connected to Atlas, that its actions do nothing, and which Atlas endpoint will serve it. Ticked on the "explicitly documented as unavailable" branch, not the "removed" one — Phase 5 still owns wiring them. `IMPLEMENTATION_PLAN.md` assigns those pages to both Phase 2 (lines 70–71) and Phase 5 (line 142); see "Open scope question for the gate" below.
 - [x] Pagination/filter state is URL-safe where appropriate. (`limit` on workflows/runs/jobs, the runs' `workflow` filter, the run/job `state` filter, and the open job pane are all URL search parameters, parsed defensively and clamped to Atlas's range.)
 - [x] Lists are treated as a bounded `limit` window (no assumed offset/cursor/total). (`WindowNotice` states the window on every list; a full window is reported as "may have more", which is the only — and genuinely ambiguous — signal Atlas provides.)
 - [ ] **Gate:** user confirms Phase 3 start.
@@ -115,10 +115,10 @@ Every row is a whole-repository result and an actual process exit code.
 | `bun run typecheck`     | 0    | 0 errors repo-wide                                                        |
 | `bun run lint`          | 0    | 0 errors; 6 pre-existing `react-refresh` warnings, unchanged from Phase 1 |
 | `bun run format:check`  | 0    | all files formatted                                                       |
-| `bun run test`          | 0    | 195 passed (83 at Phase 1)                                                |
+| `bun run test`          | 0    | 200 passed (83 at Phase 1)                                                |
 | `bun run test:contract` | 0    | 34 passed against a real isolated Atlas (13 at Phase 1)                   |
 | `bun run test:stream`   | 0    | 0 tests, passes by design (SSE is Phase 4)                                |
-| `bun run test:e2e`      | 0    | 27 passed (9 at Phase 1)                                                  |
+| `bun run test:e2e`      | 0    | 28 passed (9 at Phase 1)                                                  |
 | `bun run build`         | 0    | succeeded                                                                 |
 | `git diff --check`      | 0    | clean                                                                     |
 
@@ -183,6 +183,24 @@ Confirmed but deliberately **not** fixed here, with the reason:
 | Those same pages have no loading/empty/error/not-found state                         | Same pages, same phase                                                                                                                                                   |
 | `test:contract` reports green with zero assertions when the Atlas checkout is absent | Pre-existing at `e509e79`, and a deliberate Phase 1 design (it warns loudly and skips). Changing it to fail hard is a CI-policy decision for the user, not a silent edit |
 | `.env.example` pins `NODE_ENV=development`                                           | Pre-existing configuration, owned by `CONFIGURATION.md`; changing a committed template's build semantics is not a read-migration change                                  |
+
+### Pre-ship review by the user (2026-07-20)
+
+A review after the gate evidence was written found four defects that the whole test suite had
+passed over. All four are fixed in `d18f679`, with the coverage that was missing.
+
+| Severity | Defect                                                                                                                                                                                                                                                                              | Fix                                                                                                                                                                          |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1       | A session that died mid-visit left a signed-in shell: `read()` turned a 401 into an error without clearing the cookie, sign-in cleared no cache, and the QueryClient outlives the document — so a later sign-in in the same tab could read the previous identity's cached responses | `read()` clears the session on 401; a single `QueryCache.onError` replaces the document with `/auth` on any `unauthorized`; sign-in clears the cache as sign-out already did |
+| P1       | Eight pages rendered the original mock-up's arrays with no indication, sitting in the nav beside pages that now read Atlas, with buttons that do nothing                                                                                                                            | Each carries a `PlaceholderNotice` naming the state, the dead actions, and the Atlas endpoint that will serve it                                                             |
+| P2       | "New Workflow" on the dashboard only linked to the workflow list                                                                                                                                                                                                                    | Relabelled "View Workflows"; creation is a Phase 3 mutation                                                                                                                  |
+| P2       | The logout guard accepted any object, so an empty body recorded `atlasRevoked: true` for a live bearer                                                                                                                                                                              | The guard requires `logged_out: true`, which is what Atlas actually sends (`atlas/app.py:282`)                                                                               |
+
+**Why the suite missed the P1 session case.** A route loader hides it: changing a search
+parameter re-runs a page's query _without_ re-running the layout loader, so the 401 arrives at
+the query layer alone and no loader redirect fires. The new browser test drives exactly that
+path, and was confirmed to **fail** with the handler disabled — the user stays on
+`/jobs?limit=500` with a broken page — before being confirmed to pass with it.
 
 ### Open scope question for the gate
 
