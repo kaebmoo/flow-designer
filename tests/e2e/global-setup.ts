@@ -1,9 +1,29 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-import { startIsolatedAtlas, type AtlasInstance } from "../contract/atlas-instance";
+import {
+  ADMIN_CREDENTIALS,
+  startIsolatedAtlas,
+  type AtlasInstance,
+} from "../contract/atlas-instance";
+import { seedAtlas, type SeededAtlas } from "../contract/atlas-seed";
 
 export const APP_PORT = 3111;
 export const APP_ORIGIN = `http://127.0.0.1:${APP_PORT}`;
+
+/**
+ * Where the seeded Atlas ids are handed to the test workers.
+ *
+ * Playwright runs `globalSetup` in its own process, so an environment variable set here would
+ * not reach the workers. A file is the boring, reliable channel. `test-results/` is already
+ * gitignored, so nothing seeded ends up committed.
+ */
+export const SEED_FILE = "test-results/e2e-seed.json";
+
+export function readSeed(): SeededAtlas {
+  return JSON.parse(readFileSync(SEED_FILE, "utf-8")) as SeededAtlas;
+}
 
 let atlas: AtlasInstance | undefined;
 let devServer: ChildProcess | undefined;
@@ -27,6 +47,25 @@ async function waitForApp(deadlineMs = 120_000) {
 
 export default async function globalSetup() {
   atlas = await startIsolatedAtlas();
+
+  /**
+   * Seed through Atlas's own API with an admin bearer.
+   *
+   * The browser tests then read whatever Atlas actually stores. Stubbing a network response in
+   * the page instead would prove only that the UI can render a fixture — not that the
+   * production read path from the browser through the RPC boundary to Atlas works.
+   */
+  const login = await fetch(`${atlas.origin}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json", connection: "close" },
+    body: JSON.stringify(ADMIN_CREDENTIALS),
+  });
+  if (!login.ok) throw new Error(`e2e seed login failed: ${login.status}`);
+  const { token } = (await login.json()) as { token: string };
+
+  const seeded = await seedAtlas(atlas.origin, token);
+  mkdirSync(dirname(SEED_FILE), { recursive: true });
+  writeFileSync(SEED_FILE, JSON.stringify(seeded, null, 2));
 
   devServer = spawn(
     "./node_modules/.bin/vite",
