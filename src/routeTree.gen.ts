@@ -28,6 +28,7 @@ import { Route as AppWorkflowsIndexRouteImport } from './routes/_app/workflows.i
 import { Route as AppRunsIndexRouteImport } from './routes/_app/runs.index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/_app/workflows.$id'
 import { Route as AppRunsIdRouteImport } from './routes/_app/runs.$id'
+import { Route as ApiJobsIdEventsRouteImport } from './routes/api.jobs.$id.events'
 import { Route as ApiArtifactsIdContentRouteImport } from './routes/api.artifacts.$id.content'
 
 const AuthRoute = AuthRouteImport.update({
@@ -124,6 +125,11 @@ const AppRunsIdRoute = AppRunsIdRouteImport.update({
   path: '/runs/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiJobsIdEventsRoute = ApiJobsIdEventsRouteImport.update({
+  id: '/api/jobs/$id/events',
+  path: '/api/jobs/$id/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiArtifactsIdContentRoute = ApiArtifactsIdContentRouteImport.update({
   id: '/api/artifacts/$id/content',
   path: '/api/artifacts/$id/content',
@@ -150,6 +156,7 @@ export interface FileRoutesByFullPath {
   '/runs/': typeof AppRunsIndexRoute
   '/workflows/': typeof AppWorkflowsIndexRoute
   '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
+  '/api/jobs/$id/events': typeof ApiJobsIdEventsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -171,6 +178,7 @@ export interface FileRoutesByTo {
   '/runs': typeof AppRunsIndexRoute
   '/workflows': typeof AppWorkflowsIndexRoute
   '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
+  '/api/jobs/$id/events': typeof ApiJobsIdEventsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -194,6 +202,7 @@ export interface FileRoutesById {
   '/_app/runs/': typeof AppRunsIndexRoute
   '/_app/workflows/': typeof AppWorkflowsIndexRoute
   '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
+  '/api/jobs/$id/events': typeof ApiJobsIdEventsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -217,6 +226,7 @@ export interface FileRouteTypes {
     | '/runs/'
     | '/workflows/'
     | '/api/artifacts/$id/content'
+    | '/api/jobs/$id/events'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -238,6 +248,7 @@ export interface FileRouteTypes {
     | '/runs'
     | '/workflows'
     | '/api/artifacts/$id/content'
+    | '/api/jobs/$id/events'
   id:
     | '__root__'
     | '/'
@@ -260,6 +271,7 @@ export interface FileRouteTypes {
     | '/_app/runs/'
     | '/_app/workflows/'
     | '/api/artifacts/$id/content'
+    | '/api/jobs/$id/events'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -267,6 +279,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
   ApiArtifactsIdContentRoute: typeof ApiArtifactsIdContentRoute
+  ApiJobsIdEventsRoute: typeof ApiJobsIdEventsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -404,6 +417,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRunsIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/jobs/$id/events': {
+      id: '/api/jobs/$id/events'
+      path: '/api/jobs/$id/events'
+      fullPath: '/api/jobs/$id/events'
+      preLoaderRoute: typeof ApiJobsIdEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/artifacts/$id/content': {
       id: '/api/artifacts/$id/content'
       path: '/api/artifacts/$id/content'
@@ -459,6 +479,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
   ApiArtifactsIdContentRoute: ApiArtifactsIdContentRoute,
+  ApiJobsIdEventsRoute: ApiJobsIdEventsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

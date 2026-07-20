@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --project unit",
     "test:contract": "vitest run --project contract",
-    "test:stream": "vitest run --project stream --passWithNoTests",
+    "test:stream": "vitest run --project stream",
     "test:e2e": "playwright test"
   },
   "dependencies": {

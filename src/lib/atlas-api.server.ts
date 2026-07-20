@@ -1369,3 +1369,75 @@ export async function atlasDownloadArtifact(
     contentType: response.headers.get("content-type") ?? "application/octet-stream",
   };
 }
+
+/**
+ * `GET /api/jobs/{job_id}/events?after=<seq>` — the per-job SSE stream (Phase 4).
+ *
+ * A typed, fixed operation like every other export: the path and the single query parameter
+ * Atlas accepts are decided here, not by the caller. It bypasses `atlasRequest` because the
+ * response is a long-lived `text/event-stream`, not JSON, and it must not carry an overall
+ * timeout — a healthy stream is *supposed* to stay open. The timeout below bounds only the
+ * connect phase (dial + status + headers) and is disarmed the moment headers arrive; from
+ * then on the caller's `signal` (the browser client going away) is the only thing that ends
+ * the request from our side. Atlas itself sends `Connection: close` on this route.
+ */
+export async function atlasOpenJobEventStream(
+  token: string,
+  jobId: string,
+  after: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const { atlasApiOrigin } = getServerEnv();
+
+  const controller = new AbortController();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    // The listener stays for the stream's lifetime: a client disconnect must cancel the
+    // upstream Atlas read, or every abandoned tab would hold an Atlas thread open.
+    signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+  const connectTimer = setTimeout(() => controller.abort(), DEFAULT_ATLAS_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${atlasApiOrigin}/api/jobs/${encodeURIComponent(jobId)}/events?after=${after}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${token}`, accept: "text/event-stream" },
+        signal: controller.signal,
+        redirect: "error",
+      },
+    );
+  } catch (cause) {
+    clearTimeout(connectTimer);
+    if (signal?.aborted) throw cause;
+    if (controller.signal.aborted) {
+      throw new AtlasError("timeout", defaultMessageForKind("timeout"), { cause });
+    }
+    throw new AtlasError("network", defaultMessageForKind("network"), { cause });
+  }
+  clearTimeout(connectTimer);
+
+  if (!response.ok) {
+    const kind = atlasErrorKindForStatus(response.status);
+    let atlasMessage: string | undefined;
+    try {
+      atlasMessage = readAtlasErrorMessage(await response.json());
+    } catch {
+      atlasMessage = undefined;
+    }
+    throw new AtlasError(kind, atlasMessage ?? defaultMessageForKind(kind), {
+      status: response.status,
+      fromAtlas: atlasMessage !== undefined,
+    });
+  }
+
+  const contentType = (response.headers.get("content-type") ?? "").split(";")[0]!.trim();
+  if (contentType.toLowerCase() !== "text/event-stream") {
+    throw new AtlasError("protocol", defaultMessageForKind("protocol"), {
+      status: response.status,
+    });
+  }
+  return response;
+}

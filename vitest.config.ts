@@ -47,7 +47,7 @@ export default defineConfig({
         test: {
           name: "stream",
           environment: "node",
-          // SSE arrives in Phase 4; the project exists so the script is wired now.
+          // Phase 4's SSE adapter and transport tests: synthetic frames plus a fake clock.
           include: ["tests/stream/**/*.test.ts"],
         },
       },

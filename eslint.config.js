@@ -57,6 +57,7 @@ export default tseslint.config(
       "src/**/*.server.ts",
       "src/**/*.functions.ts",
       "src/routes/api.artifacts.$id.content.ts",
+      "src/routes/api.jobs.$id.events.ts",
     ],
     rules: {
       "no-restricted-imports": [
