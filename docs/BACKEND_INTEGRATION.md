@@ -22,14 +22,20 @@ Primary backend references:
 
 ## Current frontend baseline
 
-The current UI is scaffolded and mock-backed:
+_Updated at the end of Phase 2 (2026-07-20). The original Phase 0 description of this section is preserved in git history at `c3d57b1`._
 
-- `src/lib/atlas-store.ts` owns in-memory workers, jobs, workflows, and runs.
-- `src/routes/_app/dashboard.tsx`, `fleet.tsx`, `workspaces.tsx`, `workflows.index.tsx`, `workflows.$id.tsx`, `runs.index.tsx`, `runs.$id.tsx`, and `jobs.tsx` read from Zustand.
-- `artifacts.tsx`, `triggers.tsx`, `deliveries.tsx`, `conversations.tsx`, `usage.tsx`, `audit.tsx`, and `users.tsx` contain local static arrays.
-- `workflow-editor.tsx` saves into Zustand and simulates execution with `setInterval`; it does not call Atlas.
-- `src/routes/__root.tsx` already provides `QueryClientProvider`, but no Atlas query is wired yet.
-- There is no authenticated route layout yet.
+Read paths that now come from Atlas:
+
+- `src/lib/atlas-api.server.ts` holds the typed, fixed Atlas operations; `src/lib/atlas-reads.functions.ts` is the `createServerFn` RPC boundary; `src/lib/atlas-mappers.ts` maps every response into a view model server-side.
+- `dashboard.tsx`, `fleet.tsx`, `workspaces.tsx`, `workflows.index.tsx`, `workflows.$id.tsx`, `runs.index.tsx`, `runs.$id.tsx`, and `jobs.tsx` read Atlas through TanStack Query. None reads a mock collection.
+- `/workflows/$id` and `/runs/$id` resolve through a route loader (SSR + a real Atlas 404); both define `errorComponent` and `notFoundComponent`.
+- `src/routes/_app.tsx` is the authenticated layout and verifies the live Atlas identity on every navigation.
+
+Still scaffold, with an owning phase:
+
+- `artifacts.tsx`, `triggers.tsx`, `deliveries.tsx`, `conversations.tsx`, `usage.tsx`, `audit.tsx`, and `users.tsx` contain local static arrays — **Phase 5**.
+- `workflow-editor.tsx` saves into Zustand and simulates execution with `setInterval`; it does not call Atlas, and no route renders it. Its mock store now lives beside it at `src/components/atlas/workflow-scaffold-store.ts` — **Phase 3**.
+- Mutations, SSE, trigger execution, and artifact download are unimplemented — **Phases 3 and 4**.
 
 ## Backend capabilities confirmed
 

@@ -198,6 +198,71 @@ Backend follow-up:
 
 - Add a consistent pagination contract (cursor or offset + total) across list endpoints.
 
+### P1 — No time-windowed aggregate is reachable by a `read` role
+
+Found while wiring the Phase 2 dashboard. `/api/metrics` is the only aggregate endpoint the `read` permission reaches (`atlas/app.py:1195`), and every figure in it is a lifetime `COUNT(*)`/`SUM` over the whole table (`atlas/db.py:753-786`) — there is no "last 24 hours" variant, no per-workflow success rate, and no `runs_24h` on a workflow definition. The only time-bounded aggregate is `GET /api/usage?from=&to=`, which requires `audit.read` (`atlas/app.py:1189-1190`) and is therefore unavailable to `operator` and `viewer` — the two roles most likely to be watching a dashboard.
+
+Frontend mitigation:
+
+- Show lifetime totals and label them as such. The scaffold's hardcoded "98.1% success · 24h" card was removed rather than re-derived, and the dashboard states that Atlas provides no 24-hour aggregate to this role.
+- Never compute a headline rate from the rows a bounded list request happened to return; that is a page total presented as a fleet total.
+
+Backend follow-up:
+
+- Add windowed run/job aggregates (success rate, throughput, p50/p95 duration) to `/api/metrics`, reachable with `read`.
+- Consider per-definition counters on `GET /api/workflows` so a workflow list can show activity without N extra requests.
+
+### P1 — List endpoints have no state or entity filters
+
+Confirmed: `GET /api/jobs` accepts `limit` and nothing else (`atlas/db.py:2605-2618`), and `GET /api/workflow-runs` accepts `limit` plus `workflow_definition_id` only (`atlas/db.py:1176-1185`). There is no `state`, `worker_id`, `workspace_id`, `conversation_id`, or time-range filter on either.
+
+Consequence: any state filter is necessarily applied to the window already returned. "No failed jobs" then means "none in the newest N", which is a materially different claim.
+
+Frontend mitigation:
+
+- Apply state filters client-side over the fetched window and say so in the UI, so an empty table is not read as "no such rows exist".
+- Push `workflow_definition_id` down to Atlas, since that one filter is real.
+
+Backend follow-up:
+
+- Add `state` and time-range filters to the job and run list endpoints, and a total or `has_more` so a filtered empty result is unambiguous.
+
+### P1 — Run list rows carry the whole graph snapshot
+
+Confirmed: `list_workflow_runs` is `SELECT *` (`atlas/db.py:1178`, `1181`), and migration 004 added `graph_snapshot`/`policy_snapshot` to the row (`atlas/db.py:504-511`). Every list row therefore carries a full copy of the workflow graph the run started on — fields the Atlas OpenAPI `WorkflowRun` schema does not even list. A 500-row window can be several megabytes of graph JSON for a table that renders none of it.
+
+Frontend mitigation:
+
+- Map runs server-side and drop both snapshots before the response crosses to the browser (`toRunView`). The run detail page reads the snapshot-free view too; nothing in Phase 2 needs the snapshot.
+
+Backend follow-up:
+
+- Select explicit columns for the list route, or gate the snapshots behind an opt-in query parameter.
+
+### P2 — Run detail truncates approvals silently at 100
+
+Confirmed: `GET /api/workflow-runs/{id}` calls `list_approvals(run_id=…)` positionally, so the default `limit=100` applies (`atlas/app.py:671`, `atlas/db.py:1396-1413`). A run with more than 100 approvals returns only the newest 100, with no total and no truncation flag. The embedded `nodes` and `edges` have no limit at all, so the inconsistency is easy to miss.
+
+Frontend mitigation:
+
+- Treat exactly 100 approvals as "may be truncated" and say so; it is the only signal available, and it is genuinely ambiguous.
+
+Backend follow-up:
+
+- Accept a `limit` on the run detail route, or return a total alongside the embedded list.
+
+### P2 — By-id and list responses have different shapes for the same entity
+
+Confirmed for two entities: `GET /api/workspaces` joins `workers.name`/`workers.status` onto each row (`atlas/db.py:2202-2212`) while `GET /api/workspaces/{id}` is a plain `SELECT *` (`atlas/db.py:2197-2200`); `GET /api/jobs` joins `worker_name`/`workspace_key` (`atlas/db.py:2605-2618`) while `GET /api/jobs/{id}` does not (`atlas/db.py:2600-2603`). The Atlas OpenAPI document models each entity with a single schema, so the asymmetry is invisible from the spec alone.
+
+Frontend mitigation:
+
+- Type the two shapes separately and map them separately. The job detail pane reports a null worker name rather than borrowing one from a stale list row, which would display data Atlas never sent.
+
+Backend follow-up:
+
+- Make the by-id routes return the same joined shape as their list counterparts, or document the difference in the OpenAPI schema.
+
 ### P1 — Artifact storage and retention
 
 Confirmed: artifact content is stored inline in the SQLite `artifacts.content` column for text/json/markdown/summary/decision kinds; only `file_ref` artifacts point to bytes in a flat local upload directory (`atlas/db.py`; `atlas/app.py` upload path). There is no S3/object storage (stdlib-only, no dependency manifest). Retention exists only as a manual operator CLI, `atlas admin purge-artifacts --older-than-days N` — no automatic/scheduled policy, compaction, or size cap.

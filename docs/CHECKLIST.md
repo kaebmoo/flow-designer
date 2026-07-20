@@ -12,10 +12,10 @@ Use this checklist with the phase gate in `docs/IMPLEMENTATION_PLAN.md`. Check i
 - [x] Server-only Atlas clients, session helpers, and secrets are in `*.server.ts`; `createServerFn` RPC wrappers are in `*.functions.ts`.
 - [x] Each private server function validates the flow-designer session and calls a typed, fixed Atlas operation; Atlas alone authorizes it (a route `beforeLoad` is UI-only).
 - [x] The Atlas bearer token is never in browser code, `localStorage`, or a URL query string. (Client bundle scanned with positive controls; browser test asserts empty `localStorage`/`sessionStorage`, an httpOnly cookie, and no token in any request URL.)
-- [ ] Thin stream route glue contains no domain logic or secrets. — _not applicable in Phase 1; no stream glue exists until Phase 4._
-- [ ] Design tokens are used; no new hardcoded color classes. — **Phase 1 added none** (all Phase 1 files scanned: zero hex literals, zero `bg-white`/`bg-black`). The repository as a whole still fails this rule from the pre-Phase-1 baseline; see "Scope carried over" below. Left unticked because the rule is repo-wide.
-- [x] Loader routes have `errorComponent` and `notFoundComponent`. (`/auth` and `/_app` are the only loader routes; both have each.)
-- [x] Existing user changes and Lovable history are preserved. (Commit `e509e79` left intact; no rebase, amend, or force-push.)
+- [ ] Thin stream route glue contains no domain logic or secrets. — _not applicable through Phase 2; no stream glue exists until Phase 4._
+- [ ] Design tokens are used; no new hardcoded color classes. — **Phases 1 and 2 added none**; Phase 2 also replaced the `bg-white/…` hovers in the six routes it migrated (every file changed in either phase scanned: zero hex literals, zero `bg-white`/`bg-black`/`bg-black`). The repository as a whole still fails this rule from the pre-Phase-1 baseline — all remaining violations are in `workflow-editor.tsx` and `workflow-node.tsx`, which Phase 2 changed by import path only. Left unticked because the rule is repo-wide; Phase 6 owns the cleanup.
+- [x] Loader routes have `errorComponent` and `notFoundComponent`. (`/auth`, `/_app`, and the two Phase 2 detail routes `/workflows/$id` and `/runs/$id`; all four have both.)
+- [x] Existing user changes and Lovable history are preserved. (Commit `e509e79` left intact; no rebase, amend, squash, or force-push in either phase. The untracked `graphify-out/` directory was left alone and not committed.)
 
 ## Phase 0 — Contract
 
@@ -94,15 +94,75 @@ disagrees with the architecture.
 
 ## Phase 2 — Read-only UI
 
-- [ ] Dashboard reads Atlas metrics/resources.
-- [ ] Fleet reads Atlas workers and capabilities.
-- [ ] Workspaces reads Atlas workspaces.
-- [ ] Workflows and runs survive reload.
-- [ ] Jobs reads real job state.
-- [ ] Static arrays are removed or explicitly documented as unavailable.
-- [ ] Pagination/filter state is URL-safe where appropriate.
-- [ ] Lists are treated as a bounded `limit` window (no assumed offset/cursor/total).
+- [x] Dashboard reads Atlas metrics/resources. (`GET /api/metrics` for every headline card; the previews use bounded list windows and are never counted into a total.)
+- [x] Fleet reads Atlas workers and capabilities. (`GET /api/workers`; agent version comes from the poll-owned `agent_info` and is null when Atlas has never polled.)
+- [x] Workspaces reads Atlas workspaces. (`GET /api/workspaces`, including the joined worker name/status.)
+- [x] Workflows and runs survive reload. (Both detail routes load through the route loader, so SSR renders real Atlas data; asserted by browser tests that reload the page.)
+- [x] Jobs reads real job state. (`GET /api/jobs` for the table, `GET /api/jobs/{id}` for the detail pane.)
+- [x] Static arrays are removed or explicitly documented as unavailable. (Scope note below: this covers the six migrated pages. Artifacts/Triggers/Deliveries/Conversations/Usage/Audit/Users still hold static arrays and are Phase 5 in `IMPLEMENTATION_PLAN.md`.)
+- [x] Pagination/filter state is URL-safe where appropriate. (`limit` on workflows/runs/jobs, the runs' `workflow` filter, the run/job `state` filter, and the open job pane are all URL search parameters, parsed defensively and clamped to Atlas's range.)
+- [x] Lists are treated as a bounded `limit` window (no assumed offset/cursor/total). (`WindowNotice` states the window on every list; a full window is reported as "may have more", which is the only — and genuinely ambiguous — signal Atlas provides.)
 - [ ] **Gate:** user confirms Phase 3 start.
+
+### Phase 2 verification evidence (2026-07-20)
+
+Atlas commit tested: `595ef62`. Baseline before Phase 2: **`c3d57b1`**. Instance: isolated temp database on an ephemeral port, seeded through Atlas's own API — no developer or production Atlas data touched.
+
+Every row is a whole-repository result and an actual process exit code.
+
+| Check                   | Exit | Result                                                                    |
+| ----------------------- | ---- | ------------------------------------------------------------------------- |
+| `bun run typecheck`     | 0    | 0 errors repo-wide                                                        |
+| `bun run lint`          | 0    | 0 errors; 6 pre-existing `react-refresh` warnings, unchanged from Phase 1 |
+| `bun run format:check`  | 0    | all files formatted                                                       |
+| `bun run test`          | 0    | 190 passed (83 at Phase 1)                                                |
+| `bun run test:contract` | 0    | 34 passed against a real isolated Atlas (13 at Phase 1)                   |
+| `bun run test:stream`   | 0    | 0 tests, passes by design (SSE is Phase 4)                                |
+| `bun run test:e2e`      | 0    | 25 passed (9 at Phase 1)                                                  |
+| `bun run build`         | 0    | succeeded                                                                 |
+| `git diff --check`      | 0    | clean                                                                     |
+
+Additional checks, each run against the tree at this commit:
+
+| Check                                          | Result                                                                                               |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Client imports of `*.server.ts`                | none — only `*.server.ts` and `*.functions.ts` reference them; also enforced by the ESLint rule      |
+| Dynamic import of a server function            | none                                                                                                 |
+| Atlas token in the client bundle               | none — `.output/public` scanned for `SESSION_SECRET`, `ATLAS_API_ORIGIN`, `atlasToken`, `fd_session` |
+| Atlas token in `localStorage`/`sessionStorage` | none — browser test asserts empty `localStorage` and nothing credential-shaped in `sessionStorage`   |
+| Atlas token in a URL                           | none — every request URL on a data page is asserted free of `token=` and `Bearer`                    |
+| Mock domain collection on a migrated route     | none — a browser test sweeps all six routes for strings that only ever existed in the mock store     |
+| `src/routeTree.gen.ts` edited                  | untouched — `git diff c3d57b1..HEAD -- src/routeTree.gen.ts` is empty                                |
+| New hardcoded colours                          | none outside the Phase-3-owned editor scaffold, which changed by import path only (4 lines)          |
+
+### What Phase 2 deliberately did not do
+
+- **No mutation, stream, executor, or trigger execution.** Phase 2 removed the scaffold's non-functional New Workflow / Add Worker / Re-poll / Delete / Export / Replay controls rather than leaving buttons that do nothing.
+- **`/workflows/$id` is a read-only view of the stored graph, not the canvas editor.** The editor still speaks the pre-Atlas nine-kind node vocabulary and simulates runs with `setInterval`; Phase 3 replaces it wholesale. Confirmed with the user before implementing.
+- **The mock store moved rather than being deleted.** `src/lib/atlas-store.ts` is now `src/components/atlas/workflow-scaffold-store.ts`. No route imports it; only the Phase-3 editor scaffold does. Confirmed with the user.
+- **Pages owned by Phase 5 were not touched:** Artifacts, Triggers, Deliveries, Conversations, Usage, Audit, Users, Settings still render static arrays.
+
+### Why "403 renders a forbidden state" still cannot be shown on a rendered screen
+
+Phase 1 left this unticked and expected Phase 2 to make it exercisable. It did not, and the reason is a property of Atlas rather than a gap here: **every read Phase 2 uses requires only the `read` permission**, and all four roles (`admin`, `operator`, `viewer`, `auditor`) hold it (`atlas/app.py` `ROLE_PERMISSIONS`, and the GET short-circuit at `atlas/app.py:1195`). No Phase 2 screen can produce a 403.
+
+What is verified instead:
+
+- A contract test against real Atlas confirms a `viewer` calling an admin-only read (`GET /api/users`) gets 403 while an unauthenticated caller gets 401, and that the client maps them to distinct kinds.
+- Unit tests confirm `403 → kind: "forbidden"` and that `AtlasErrorState` routes `forbidden` to `ForbiddenState`, never to not-found or signed-out.
+- A browser test asserts the inverse property that actually matters today: a `viewer` sees the same Atlas data on every migrated page and is **not** blocked by a frontend that invented its own authorization.
+
+A rendered 403 becomes reachable in Phase 5, when the Users and Audit pages (which require `admin` and `audit.read`) are wired up.
+
+### New Atlas limitations found during Phase 2
+
+All recorded in `ATLAS_LIMITATIONS.md` with source citations, none worked around by inventing data:
+
+- No time-windowed aggregate reachable by a `read` role — hence no 24-hour success rate on the dashboard.
+- No `state` filter on the job or run list endpoints — hence client-side filtering of the fetched window, stated in the UI.
+- Run list rows carry the full `graph_snapshot`/`policy_snapshot` — dropped server-side in the mapper.
+- Run detail truncates embedded approvals at 100 with no total or flag.
+- By-id and list responses differ in shape for workspaces and jobs.
 
 ## Phase 3 — Mutations/editor
 
