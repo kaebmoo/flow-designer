@@ -9,14 +9,14 @@ No test tooling is installed yet, and Phase 0 installs nothing and changes no ap
 
 Intended `package.json` scripts (to be added in Phase 1, not now):
 
-| Script | Purpose | Tool |
-| --- | --- | --- |
-| `typecheck` | `tsc --noEmit` | TypeScript |
-| `test` | adapter/unit tests | Vitest |
-| `test:contract` | contract tests vs a real/fixture Atlas | Vitest |
-| `test:stream` | SSE replay/dedupe/reconnect | Vitest |
-| `test:e2e` | browser acceptance | Playwright |
-| `format:check` | `prettier --check .` | Prettier |
+| Script          | Purpose                                | Tool       |
+| --------------- | -------------------------------------- | ---------- |
+| `typecheck`     | `tsc --noEmit`                         | TypeScript |
+| `test`          | adapter/unit tests                     | Vitest     |
+| `test:contract` | contract tests vs a real/fixture Atlas | Vitest     |
+| `test:stream`   | SSE replay/dedupe/reconnect            | Vitest     |
+| `test:e2e`      | browser acceptance                     | Playwright |
+| `format:check`  | `prettier --check .`                   | Prettier   |
 
 `lint` and `build`/`dev` already exist in `package.json` and are unchanged.
 

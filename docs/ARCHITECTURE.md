@@ -22,20 +22,20 @@ The transport layer is allowed to exist for secure cookies, SSR, CORS isolation,
 
 ## Ownership table
 
-| Concern | Owner | Frontend responsibility |
-| --- | --- | --- |
-| Authentication and current identity | Atlas `/api/auth/*`, `/api/me` | Login UI, secure session transport, 401/403 states |
-| Roles and permissions | Atlas | Hide/disable actions based on identity, but always rely on Atlas for enforcement |
-| Worker inventory and credentials | Atlas | Forms, polling controls, display health/capabilities |
-| Workspace mappings | Atlas | Lists and mutations |
-| Jobs and conversations | Atlas | Query, filters, details, actions, live output |
-| Workflow definitions | Atlas | Canvas editing, serialization adapter, validation UI |
-| Workflow execution | Atlas | Start/pause/resume/cancel/replay controls and progress display |
-| Run/job events | Atlas | SSE connection, replay, dedupe, bounded rendering |
-| Artifacts and deliveries | Atlas | Metadata, download/open/retry UI |
-| Triggers | Atlas | CRUD and fire controls |
-| Audit and usage | Atlas | Filtering, pagination, export actions |
-| Persistence and migrations | Atlas | None |
+| Concern                             | Owner                          | Frontend responsibility                                                          |
+| ----------------------------------- | ------------------------------ | -------------------------------------------------------------------------------- |
+| Authentication and current identity | Atlas `/api/auth/*`, `/api/me` | Login UI, secure session transport, 401/403 states                               |
+| Roles and permissions               | Atlas                          | Hide/disable actions based on identity, but always rely on Atlas for enforcement |
+| Worker inventory and credentials    | Atlas                          | Forms, polling controls, display health/capabilities                             |
+| Workspace mappings                  | Atlas                          | Lists and mutations                                                              |
+| Jobs and conversations              | Atlas                          | Query, filters, details, actions, live output                                    |
+| Workflow definitions                | Atlas                          | Canvas editing, serialization adapter, validation UI                             |
+| Workflow execution                  | Atlas                          | Start/pause/resume/cancel/replay controls and progress display                   |
+| Run/job events                      | Atlas                          | SSE connection, replay, dedupe, bounded rendering                                |
+| Artifacts and deliveries            | Atlas                          | Metadata, download/open/retry UI                                                 |
+| Triggers                            | Atlas                          | CRUD and fire controls                                                           |
+| Audit and usage                     | Atlas                          | Filtering, pagination, export actions                                            |
+| Persistence and migrations          | Atlas                          | None                                                                             |
 
 ## Data flow rules
 
@@ -68,12 +68,12 @@ Job events stream from Atlas at `GET /api/jobs/{job_id}/events?after=<seq>` (see
 
 ## State layers
 
-| Layer | Allowed state |
-| --- | --- |
-| Atlas | Durable domain state and execution state |
-| TanStack Query | Server cache, request lifecycle, invalidation |
+| Layer                       | Allowed state                                                                      |
+| --------------------------- | ---------------------------------------------------------------------------------- |
+| Atlas                       | Durable domain state and execution state                                           |
+| TanStack Query              | Server cache, request lifecycle, invalidation                                      |
 | React/local component state | Dialogs, filters, selected node, draft canvas before save, stream connection state |
-| Zustand | Temporary UI-only state only, if still needed; never workers/jobs/workflows/runs |
+| Zustand                     | Temporary UI-only state only, if still needed; never workers/jobs/workflows/runs   |
 
 ## Non-goals
 

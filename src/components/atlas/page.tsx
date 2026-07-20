@@ -1,8 +1,16 @@
 import type { ReactNode } from "react";
 
 export function PageHeader({
-  title, subtitle, actions, meta,
-}: { title: string; subtitle?: string; actions?: ReactNode; meta?: ReactNode }) {
+  title,
+  subtitle,
+  actions,
+  meta,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+  meta?: ReactNode;
+}) {
   return (
     <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border bg-background/60 px-8 py-5 backdrop-blur">
       <div className="min-w-0">
@@ -16,11 +24,16 @@ export function PageHeader({
 }
 
 export function StatusPill({
-  tone = "muted", children,
-}: { tone?: "primary" | "success" | "warning" | "danger" | "muted"; children: ReactNode }) {
+  tone = "muted",
+  children,
+}: {
+  tone?: "primary" | "success" | "warning" | "danger" | "muted";
+  children: ReactNode;
+}) {
   const tones: Record<string, string> = {
     primary: "bg-primary/10 text-primary border-primary/25",
-    success: "bg-[var(--color-success)]/10 text-[var(--color-success)] border-[var(--color-success)]/30",
+    success:
+      "bg-[var(--color-success)]/10 text-[var(--color-success)] border-[var(--color-success)]/30",
     warning: "bg-accent/10 text-accent border-accent/30",
     danger: "bg-destructive/10 text-destructive border-destructive/30",
     muted: "bg-white/5 text-muted-foreground border-white/10",
@@ -29,16 +42,27 @@ export function StatusPill({
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${tones[tone]}`}
     >
-      <span className={`size-1.5 rounded-full ${tone === "primary" ? "bg-primary animate-pulse" : tone === "success" ? "bg-[var(--color-success)]" : tone === "warning" ? "bg-accent" : tone === "danger" ? "bg-destructive" : "bg-muted-foreground"}`} />
+      <span
+        className={`size-1.5 rounded-full ${tone === "primary" ? "bg-primary animate-pulse" : tone === "success" ? "bg-[var(--color-success)]" : tone === "warning" ? "bg-accent" : tone === "danger" ? "bg-destructive" : "bg-muted-foreground"}`}
+      />
       {children}
     </span>
   );
 }
 
 export function DataTable<T>({
-  columns, rows, rowKey, onRowClick, empty,
+  columns,
+  rows,
+  rowKey,
+  onRowClick,
+  empty,
 }: {
-  columns: { key: keyof T | string; header: string; className?: string; render?: (row: T) => ReactNode }[];
+  columns: {
+    key: keyof T | string;
+    header: string;
+    className?: string;
+    render?: (row: T) => ReactNode;
+  }[];
   rows: T[];
   rowKey: (row: T) => string;
   onRowClick?: (row: T) => void;
@@ -62,7 +86,10 @@ export function DataTable<T>({
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={columns.length} className="px-4 py-10 text-center text-sm text-muted-foreground">
+              <td
+                colSpan={columns.length}
+                className="px-4 py-10 text-center text-sm text-muted-foreground"
+              >
                 {empty ?? "No entries yet."}
               </td>
             </tr>
@@ -75,7 +102,9 @@ export function DataTable<T>({
             >
               {columns.map((c) => (
                 <td key={String(c.key)} className={`px-4 py-3 align-middle ${c.className ?? ""}`}>
-                  {c.render ? c.render(row) : String((row as Record<string, unknown>)[c.key as string] ?? "")}
+                  {c.render
+                    ? c.render(row)
+                    : String((row as Record<string, unknown>)[c.key as string] ?? "")}
                 </td>
               ))}
             </tr>

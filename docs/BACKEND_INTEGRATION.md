@@ -49,30 +49,30 @@ The thClaws worker contract used by Atlas includes `GET /healthz`, `GET /v1/agen
 
 ## UI-to-Atlas endpoint map
 
-| UI surface | Atlas endpoint(s) | Notes |
-| --- | --- | --- |
-| Auth | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me` | Atlas owns credentials and bearer issuance |
-| Users | `GET/POST /api/users`, `GET/PUT/DELETE /api/users/{id}` | Admin-only mutations |
-| API tokens | `GET/POST /api/tokens`, token update/revoke endpoints | Raw token is returned once |
-| Dashboard | `/api/metrics`, `/api/workers`, `/api/workflows`, `/api/workflow-runs` | Prefer aggregate metrics for headline cards |
-| Fleet | `/api/workers`, `/api/workers/poll`, `/api/workers/{id}/poll` | Worker tokens never reach the browser |
-| Workspaces | `/api/workspaces`, `/api/workspaces/{id}` | Workspace directory is on the worker machine |
-| Conversations | `/api/conversations` | Session binding is Atlas-owned |
-| Jobs | `/api/jobs`, `/api/jobs/{id}`, `/api/jobs/{id}/cancel` | Job response may include worker/workspace projections |
-| Job stream | `GET /api/jobs/{job_id}/events?after=<seq>` | SSE (`text/event-stream`). Resume with `after=<last seq>`; dedupe by `id`/`seq`; a normal stream ends with `event: close`. No `Last-Event-ID`, no heartbeat. See "Job event SSE contract" below |
-| Workflows | `/api/workflows`, `/api/workflow-templates`, `/api/workflows/{id}` | Use the graph serializer below |
-| Workflow validation | `/api/workflows/{id}/validate` | Validate before enabling/running |
-| Workflow run | `POST /api/workflow-runs` | Returns `202` for async start |
-| Run detail | `GET /api/workflow-runs/{id}` | Includes run, runtime nodes, edges, approvals |
-| Run actions | `/pause`, `/resume`, `/cancel`, `/deliver` | Mutations must reconcile query state |
-| Run events | `GET /api/workflow-runs/{run_id}/events` | Persisted JSON history `{ events: [...] }` (per-run `seq`, `limit` only, default 500). Not SSE, no `after` cursor. Poll/refetch; combine with per-job SSE for live progress |
-| Approvals | `/api/approvals`, `/api/approvals/{id}/approve`, `/reject`, `/choose` | Required for human gates |
-| Run artifacts | `/api/workflow-runs/{id}/artifacts`, `/files`, `/api/artifacts/{id}/content` | Download through Atlas authorization |
-| Triggers | `/api/workflow-triggers`, `/{id}`, `/{id}/fire`, `/{id}/events` | Atlas owns schedule/webhook/internal trigger logic |
-| Deliveries | `/api/deliveries`, `/api/deliveries/{id}/retry` | Return-path delivery ledger |
-| Audit | `/api/audit` | Filter and paginate; do not synthesize audit rows in UI |
-| Usage | `/api/usage` | Use server-provided aggregates and export actions |
-| Settings | No complete generic settings endpoint confirmed | Keep deployment information read-only until Atlas exposes a safe contract |
+| UI surface          | Atlas endpoint(s)                                                            | Notes                                                                                                                                                                                           |
+| ------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth                | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me`               | Atlas owns credentials and bearer issuance                                                                                                                                                      |
+| Users               | `GET/POST /api/users`, `GET/PUT/DELETE /api/users/{id}`                      | Admin-only mutations                                                                                                                                                                            |
+| API tokens          | `GET/POST /api/tokens`, token update/revoke endpoints                        | Raw token is returned once                                                                                                                                                                      |
+| Dashboard           | `/api/metrics`, `/api/workers`, `/api/workflows`, `/api/workflow-runs`       | Prefer aggregate metrics for headline cards                                                                                                                                                     |
+| Fleet               | `/api/workers`, `/api/workers/poll`, `/api/workers/{id}/poll`                | Worker tokens never reach the browser                                                                                                                                                           |
+| Workspaces          | `/api/workspaces`, `/api/workspaces/{id}`                                    | Workspace directory is on the worker machine                                                                                                                                                    |
+| Conversations       | `/api/conversations`                                                         | Session binding is Atlas-owned                                                                                                                                                                  |
+| Jobs                | `/api/jobs`, `/api/jobs/{id}`, `/api/jobs/{id}/cancel`                       | Job response may include worker/workspace projections                                                                                                                                           |
+| Job stream          | `GET /api/jobs/{job_id}/events?after=<seq>`                                  | SSE (`text/event-stream`). Resume with `after=<last seq>`; dedupe by `id`/`seq`; a normal stream ends with `event: close`. No `Last-Event-ID`, no heartbeat. See "Job event SSE contract" below |
+| Workflows           | `/api/workflows`, `/api/workflow-templates`, `/api/workflows/{id}`           | Use the graph serializer below                                                                                                                                                                  |
+| Workflow validation | `/api/workflows/{id}/validate`                                               | Validate before enabling/running                                                                                                                                                                |
+| Workflow run        | `POST /api/workflow-runs`                                                    | Returns `202` for async start                                                                                                                                                                   |
+| Run detail          | `GET /api/workflow-runs/{id}`                                                | Includes run, runtime nodes, edges, approvals                                                                                                                                                   |
+| Run actions         | `/pause`, `/resume`, `/cancel`, `/deliver`                                   | Mutations must reconcile query state                                                                                                                                                            |
+| Run events          | `GET /api/workflow-runs/{run_id}/events`                                     | Persisted JSON history `{ events: [...] }` (per-run `seq`, `limit` only, default 500). Not SSE, no `after` cursor. Poll/refetch; combine with per-job SSE for live progress                     |
+| Approvals           | `/api/approvals`, `/api/approvals/{id}/approve`, `/reject`, `/choose`        | Required for human gates                                                                                                                                                                        |
+| Run artifacts       | `/api/workflow-runs/{id}/artifacts`, `/files`, `/api/artifacts/{id}/content` | Download through Atlas authorization                                                                                                                                                            |
+| Triggers            | `/api/workflow-triggers`, `/{id}`, `/{id}/fire`, `/{id}/events`              | Atlas owns schedule/webhook/internal trigger logic                                                                                                                                              |
+| Deliveries          | `/api/deliveries`, `/api/deliveries/{id}/retry`                              | Return-path delivery ledger                                                                                                                                                                     |
+| Audit               | `/api/audit`                                                                 | Filter and paginate; do not synthesize audit rows in UI                                                                                                                                         |
+| Usage               | `/api/usage`                                                                 | Use server-provided aggregates and export actions                                                                                                                                               |
+| Settings            | No complete generic settings endpoint confirmed                              | Keep deployment information read-only until Atlas exposes a safe contract                                                                                                                       |
 
 ## Data model adapters
 
@@ -102,16 +102,16 @@ Atlas's executor accepts **exactly four** node `type` strings — `worker`, `man
 
 Ground truth: `atlas/workflows.py` (`validate_workflow_graph` line 173, run loop lines 947–1090), `docs/specs/workflow-definition.schema.json` (`$defs/node`, `$defs/condition`), `docs/specs/workflow-visual-builder-spec-en.md` (§4.2, §9), and `docs/specs/workflow-trigger.schema.json`. Atlas commit `595ef62`.
 
-| Editor concept | Atlas representation | Status | Request fields (Atlas) | Round-trip | Validation (Atlas) | UI when unsupported |
-| --- | --- | --- | --- | --- | --- | --- |
-| `worker` | node `type: "worker"` | **Supported** | `prompt`, `worker_id`, `workspace_id`/`workspace_key`, `company`, `model`, `role`, `tags`, `outputs` (exactly 1 artifact key), `output_format:"json"`, `budget_units`, `execution:"stream"\|"callback"`, `collect_files` | 1:1 node | required `id`,`type`; `outputs` exactly 1; `execution` enum | — |
-| `manager` | node `type: "manager"` | **Supported** | worker fields **plus required** `schema:"manager_decision_v1"`; output drives `manager_selected` edges | 1:1 node | `schema` const `manager_decision_v1`; outgoing edges must be `manager_selected` | — |
-| `join` | node `type: "join"` | **Supported** | `mode:"all"\|"any"\|"quorum"`, `quorum` (int, when quorum) | 1:1 node | `mode` required by schema; `quorum` ≤ distinct incoming edges | — |
-| `human_gate` (display label “Approval”) | node `type: "human_gate"` | **Supported** | `label`, `reason`, `choices[]` (each unique `id`+`label`) | 1:1 node with the same internal type | gate with `choices` requires outgoing `human_selected` edges | — |
-| `condition` | **edge** `condition` object, not a node | **Unsupported as a node** | edge `condition.type` ∈ `always`, `artifact_equals`, `artifact_in`, `manager_selected`, `human_selected`, `max_iterations_below` | Authored in the **edge inspector**; never a node, so nothing to round-trip as a node | any other `condition.type` rejected | Edit conditions on edges; there is no `condition` palette node |
-| `loop` | **guarded graph cycle**, not a node | **Unsupported as a node** | cycle guarded by `policy.max_iterations` (>0) or an edge `max_iterations_below` `{ node, max }` | Model as a cycle + guard; no `loop` node survives round-trip | an unguarded cycle is rejected | Express as a back-edge with a guard; do not emit a `loop` node |
-| `fanout` | **emergent** (multiple matching outgoing edges), not a node | **Unsupported as a node** | none; Atlas schedules every matching outgoing edge | Model as parallel edges (+ `join` to reconverge) | no `fanout` type in the allowed set | Represent as parallel edges; do not emit a `fanout` node |
-| `trigger` | separate **workflow-trigger** resource, not in `graph.nodes` | **Unsupported as a graph node** | trigger `type` ∈ `manual`, `schedule`, `webhook`, `workflow_run_completed`, `artifact_created`, `worker_status_changed`; per `workflow-trigger.schema.json` | Export to the trigger CRUD endpoints / drafts array, never to `graph.nodes`; graph entry is the `start` node id | a `trigger` node in `graph.nodes` is rejected at `workflows.py:173` | Route to the trigger inspector/resource, not the graph payload |
+| Editor concept                          | Atlas representation                                         | Status                          | Request fields (Atlas)                                                                                                                                                                                                   | Round-trip                                                                                                      | Validation (Atlas)                                                              | UI when unsupported                                            |
+| --------------------------------------- | ------------------------------------------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `worker`                                | node `type: "worker"`                                        | **Supported**                   | `prompt`, `worker_id`, `workspace_id`/`workspace_key`, `company`, `model`, `role`, `tags`, `outputs` (exactly 1 artifact key), `output_format:"json"`, `budget_units`, `execution:"stream"\|"callback"`, `collect_files` | 1:1 node                                                                                                        | required `id`,`type`; `outputs` exactly 1; `execution` enum                     | —                                                              |
+| `manager`                               | node `type: "manager"`                                       | **Supported**                   | worker fields **plus required** `schema:"manager_decision_v1"`; output drives `manager_selected` edges                                                                                                                   | 1:1 node                                                                                                        | `schema` const `manager_decision_v1`; outgoing edges must be `manager_selected` | —                                                              |
+| `join`                                  | node `type: "join"`                                          | **Supported**                   | `mode:"all"\|"any"\|"quorum"`, `quorum` (int, when quorum)                                                                                                                                                               | 1:1 node                                                                                                        | `mode` required by schema; `quorum` ≤ distinct incoming edges                   | —                                                              |
+| `human_gate` (display label “Approval”) | node `type: "human_gate"`                                    | **Supported**                   | `label`, `reason`, `choices[]` (each unique `id`+`label`)                                                                                                                                                                | 1:1 node with the same internal type                                                                            | gate with `choices` requires outgoing `human_selected` edges                    | —                                                              |
+| `condition`                             | **edge** `condition` object, not a node                      | **Unsupported as a node**       | edge `condition.type` ∈ `always`, `artifact_equals`, `artifact_in`, `manager_selected`, `human_selected`, `max_iterations_below`                                                                                         | Authored in the **edge inspector**; never a node, so nothing to round-trip as a node                            | any other `condition.type` rejected                                             | Edit conditions on edges; there is no `condition` palette node |
+| `loop`                                  | **guarded graph cycle**, not a node                          | **Unsupported as a node**       | cycle guarded by `policy.max_iterations` (>0) or an edge `max_iterations_below` `{ node, max }`                                                                                                                          | Model as a cycle + guard; no `loop` node survives round-trip                                                    | an unguarded cycle is rejected                                                  | Express as a back-edge with a guard; do not emit a `loop` node |
+| `fanout`                                | **emergent** (multiple matching outgoing edges), not a node  | **Unsupported as a node**       | none; Atlas schedules every matching outgoing edge                                                                                                                                                                       | Model as parallel edges (+ `join` to reconverge)                                                                | no `fanout` type in the allowed set                                             | Represent as parallel edges; do not emit a `fanout` node       |
+| `trigger`                               | separate **workflow-trigger** resource, not in `graph.nodes` | **Unsupported as a graph node** | trigger `type` ∈ `manual`, `schedule`, `webhook`, `workflow_run_completed`, `artifact_created`, `worker_status_changed`; per `workflow-trigger.schema.json`                                                              | Export to the trigger CRUD endpoints / drafts array, never to `graph.nodes`; graph entry is the `start` node id | a `trigger` node in `graph.nodes` is rejected at `workflows.py:173`             | Route to the trigger inspector/resource, not the graph payload |
 
 **The canvas palette exposes only the four native node types.** There are no `condition`/`loop`/`fanout`/`trigger` pseudo-nodes and no round-trip machinery to convert them: conditions are authored in the edge inspector, fan-out is multiple outgoing edges, loops are guarded back-edges, and triggers live in a separate trigger panel outside `graph.nodes`.
 
@@ -142,31 +142,31 @@ Atlas enforces these centrally in `_dispatch`; the frontend mirrors them **only*
 
 Role → permissions:
 
-| Role | Permissions |
-| --- | --- |
-| `admin` | all: `read`, `audit.read`, `jobs.run`, `workflows.run`, `approvals.decide`, `workflows.manage`, `workers.poll`, `resources.manage`, `deliveries.read`, `admin` |
+| Role       | Permissions                                                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin`    | all: `read`, `audit.read`, `jobs.run`, `workflows.run`, `approvals.decide`, `workflows.manage`, `workers.poll`, `resources.manage`, `deliveries.read`, `admin`   |
 | `operator` | `read`, `jobs.run`, `workflows.run`, `approvals.decide`, `workflows.manage`, `workers.poll`, `resources.manage`, `deliveries.read` (no `admin`, no `audit.read`) |
-| `auditor` | `read`, `audit.read`, `deliveries.read` |
-| `viewer` | `read` |
+| `auditor`  | `read`, `audit.read`, `deliveries.read`                                                                                                                          |
+| `viewer`   | `read`                                                                                                                                                           |
 
 Route → required permission (used to decide which UI actions to show):
 
-| Route (method) | Permission |
-| --- | --- |
-| any `GET`, plus `/api/me`, `POST /api/auth/logout` | `read` |
-| `/api/users`, `/api/tokens` | `admin` |
-| `/api/workers` mutations | `admin` |
-| `POST /api/workers/poll`, `POST /api/workers/{id}/poll` | `workers.poll` |
-| `/api/audit`, `/api/usage` | `audit.read` |
-| `/api/jobs` (non-GET), `/api/routes/resolve` | `jobs.run` |
-| `/api/approvals` (non-GET) | `approvals.decide` |
-| `/api/workflows` (non-GET) | `workflows.manage` |
-| `/api/workflow-runs`, `/api/artifacts` (non-GET) | `workflows.run` |
-| `/api/workflow-triggers/{id}/fire` | `workflows.run` |
-| `/api/workflow-triggers` (other non-GET) | `workflows.manage` |
-| `/api/deliveries` (non-GET) | `workflows.run` |
-| `/api/packs` `POST` | `workflows.manage` |
-| everything else (non-GET) | `resources.manage` |
+| Route (method)                                          | Permission         |
+| ------------------------------------------------------- | ------------------ |
+| any `GET`, plus `/api/me`, `POST /api/auth/logout`      | `read`             |
+| `/api/users`, `/api/tokens`                             | `admin`            |
+| `/api/workers` mutations                                | `admin`            |
+| `POST /api/workers/poll`, `POST /api/workers/{id}/poll` | `workers.poll`     |
+| `/api/audit`, `/api/usage`                              | `audit.read`       |
+| `/api/jobs` (non-GET), `/api/routes/resolve`            | `jobs.run`         |
+| `/api/approvals` (non-GET)                              | `approvals.decide` |
+| `/api/workflows` (non-GET)                              | `workflows.manage` |
+| `/api/workflow-runs`, `/api/artifacts` (non-GET)        | `workflows.run`    |
+| `/api/workflow-triggers/{id}/fire`                      | `workflows.run`    |
+| `/api/workflow-triggers` (other non-GET)                | `workflows.manage` |
+| `/api/deliveries` (non-GET)                             | `workflows.run`    |
+| `/api/packs` `POST`                                     | `workflows.manage` |
+| everything else (non-GET)                               | `resources.manage` |
 
 ## Error and auth contract
 

@@ -78,10 +78,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Atlas Control — Orchestrate your worker fleet" },
-      { name: "description", content: "A modern control plane for thClaws workers: build visual workflows, route jobs, watch live runs, and audit every action from one operator console." },
+      {
+        name: "description",
+        content:
+          "A modern control plane for thClaws workers: build visual workflows, route jobs, watch live runs, and audit every action from one operator console.",
+      },
       { name: "author", content: "Atlas" },
       { property: "og:title", content: "Atlas Control — Orchestrate your worker fleet" },
-      { property: "og:description", content: "Visual workflow builder, live run streaming, and full fleet observability for thClaws workers." },
+      {
+        property: "og:description",
+        content:
+          "Visual workflow builder, live run streaming, and full fleet observability for thClaws workers.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

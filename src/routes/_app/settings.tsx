@@ -39,10 +39,22 @@ function SettingsPage() {
   );
 }
 
-function Section({ title, tone, children }: { title: string; tone?: "danger"; children: React.ReactNode }) {
+function Section({
+  title,
+  tone,
+  children,
+}: {
+  title: string;
+  tone?: "danger";
+  children: React.ReactNode;
+}) {
   return (
-    <section className={`rounded-lg border bg-card ${tone === "danger" ? "border-destructive/30" : "border-border"}`}>
-      <header className={`border-b px-5 py-3 font-mono text-[10px] uppercase tracking-widest ${tone === "danger" ? "border-destructive/30 text-destructive" : "border-border text-muted-foreground"}`}>
+    <section
+      className={`rounded-lg border bg-card ${tone === "danger" ? "border-destructive/30" : "border-border"}`}
+    >
+      <header
+        className={`border-b px-5 py-3 font-mono text-[10px] uppercase tracking-widest ${tone === "danger" ? "border-destructive/30 text-destructive" : "border-border text-muted-foreground"}`}
+      >
         {title}
       </header>
       <div className="divide-y divide-border">{children}</div>
