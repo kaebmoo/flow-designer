@@ -1,3 +1,19 @@
+/**
+ * Mock scaffold state for the pre-Atlas workflow editor. NOT a data source.
+ *
+ * This was `src/lib/atlas-store.ts` until Phase 2. It was moved here, next to the only code
+ * that still uses it, because the name and the location both implied it was the app's Atlas
+ * state — and every route now reads Atlas through TanStack Query and `atlas-reads.functions.ts`
+ * instead. Nothing outside this directory imports it.
+ *
+ * What remains is scaffold that Phase 3 replaces wholesale: the nine-kind `NodeKind` palette
+ * (Atlas accepts exactly four node types), the in-memory workflow/run collections the editor
+ * mutates, and the sample fleet its pickers list. None of it reflects Atlas, and none of it is
+ * rendered by a route — `/workflows/$id` is an Atlas-backed read-only page.
+ *
+ * Do not import this from a route, and do not add to it.
+ */
+
 import { create } from "zustand";
 
 export type WorkerStatus = "online" | "offline" | "degraded";

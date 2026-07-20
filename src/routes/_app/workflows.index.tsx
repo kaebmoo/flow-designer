@@ -1,124 +1,116 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import type { SearchSchemaInput } from "@tanstack/react-router";
+
 import { PageHeader, StatusPill } from "@/components/atlas/page";
-import { useAtlas } from "@/lib/atlas-store";
-import { Plus, Trash2, Play, FileText } from "lucide-react";
+import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
+import { WindowNotice } from "@/components/atlas/window";
+import { ATLAS_LIMIT_OPTIONS, parseLimitSearch } from "@/lib/atlas-search";
+import { toClientAtlasError } from "@/lib/atlas-mappers";
+import { workflowsQuery } from "@/lib/atlas-queries";
 
 export const Route = createFileRoute("/_app/workflows/")({
+  /**
+   * `limit` lives in the URL so a shared or reloaded link shows the same window.
+   *
+   * The input type is optional and the output is not: a link may omit the parameter, and the
+   * component always receives a clamped number rather than having to default it again.
+   */
+  validateSearch: (search: { limit?: number } & SearchSchemaInput) => ({
+    limit: parseLimitSearch(search.limit),
+  }),
   component: WorkflowsIndex,
   head: () => ({ meta: [{ title: "Workflows · Atlas Control" }] }),
 });
 
-const templates = [
-  { name: "Research → Writer", desc: "Two-step chain: research worker, then writer." },
-  { name: "Coder → Reviewer", desc: "Coder proposes patch, reviewer signs off." },
-  { name: "Webhook Ingest", desc: "Accept POST, route by payload, fan out to workers." },
-  { name: "Daily Digest (cron)", desc: "Scheduled digest with return-path webhook." },
-];
-
+/**
+ * Workflow definitions, read from `GET /api/workflows?limit=`.
+ *
+ * Create/delete are mutations and land in Phase 3, so the scaffold's "New workflow", template
+ * cards, and per-card delete button are gone rather than left as controls that do nothing.
+ * The scaffold's "runs/24h" and "% ok" figures are also gone: Atlas stores neither on a
+ * workflow definition, and there is no aggregate endpoint that supplies them per workflow.
+ */
 function WorkflowsIndex() {
-  const workflows = useAtlas((s) => s.workflows);
-  const addWorkflow = useAtlas((s) => s.addWorkflow);
-  const removeWorkflow = useAtlas((s) => s.removeWorkflow);
-  const navigate = useNavigate();
-
-  const create = () => {
-    const id = `wf_${Math.random().toString(36).slice(2, 8)}`;
-    addWorkflow({
-      id,
-      name: "Untitled Workflow",
-      description: "New workflow",
-      status: "draft",
-      updated_at: "just now",
-      runs_24h: 0,
-      success_rate: 0,
-      trigger_enabled: false,
-      nodes: [{ id: "n1", kind: "trigger", label: "Manual Trigger", x: 60, y: 200, config: {} }],
-      edges: [],
-    });
-    navigate({ to: "/workflows/$id", params: { id } });
-  };
+  const { limit } = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const workflows = useQuery(workflowsQuery({ limit }));
 
   return (
     <>
       <PageHeader
         title="Workflows"
-        subtitle="Design and orchestrate multi-worker automations."
-        actions={
-          <button
-            onClick={create}
-            className="inline-flex items-center gap-2 rounded bg-primary px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-primary-foreground hover:opacity-90"
-          >
-            <Plus className="size-4" /> New Workflow
-          </button>
-        }
-      />
-      <div className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="mb-8">
-          <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Templates
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {templates.map((t) => (
+        subtitle="Workflow definitions stored in Atlas."
+        meta={
+          <div className="flex items-center gap-1">
+            <span className="mr-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Window
+            </span>
+            {ATLAS_LIMIT_OPTIONS.map((option) => (
               <button
-                key={t.name}
-                onClick={create}
-                className="rounded-lg border border-dashed border-border bg-white/[0.02] p-4 text-left transition hover:border-primary/40 hover:bg-primary/5"
+                key={option}
+                type="button"
+                onClick={() => void navigate({ search: { limit: option } })}
+                className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
+                  limit === option
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
+                }`}
               >
-                <FileText className="size-4 text-primary" />
-                <div className="mt-3 text-sm font-bold">{t.name}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{t.desc}</div>
+                {option}
               </button>
             ))}
           </div>
-        </div>
-
-        <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          Your workflows
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {workflows.map((w) => (
-            <div
-              key={w.id}
-              className="group flex flex-col rounded-lg border border-border bg-card p-5 transition hover:border-primary/40"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <Link to="/workflows/$id" params={{ id: w.id }} className="min-w-0 flex-1">
-                  <div className="truncate text-base font-bold">{w.name}</div>
-                  <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {w.description}
+        }
+      />
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+        {workflows.isPending ? (
+          <LoadingState label="Loading workflows" />
+        ) : workflows.isError ? (
+          <AtlasErrorState
+            error={toClientAtlasError(workflows.error)}
+            onRetry={() => void workflows.refetch()}
+          />
+        ) : workflows.data.items.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-10 text-center text-sm text-muted-foreground">
+            Atlas has no workflow definitions yet.
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {workflows.data.items.map((w) => (
+                <Link
+                  key={w.id}
+                  to="/workflows/$id"
+                  params={{ id: w.id }}
+                  className="group flex flex-col rounded-lg border border-border bg-card p-5 transition hover:border-primary/40"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-base font-bold">{w.name}</div>
+                      <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                        {w.description || "No description."}
+                      </div>
+                    </div>
+                    <StatusPill tone={w.status.tone}>{w.status.label}</StatusPill>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                    <span>{w.nodeCount} nodes</span>
+                    <span>{w.edgeCount} edges</span>
+                    <span>v{w.version}</span>
+                    <span className="w-full">updated {w.updatedAt}</span>
                   </div>
                 </Link>
-                <StatusPill
-                  tone={
-                    w.status === "active" ? "success" : w.status === "draft" ? "muted" : "warning"
-                  }
-                >
-                  {w.status}
-                </StatusPill>
-              </div>
-              <div className="mt-4 flex items-center gap-4 border-t border-border pt-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                <span>{w.nodes.length} nodes</span>
-                <span>{w.runs_24h} runs/24h</span>
-                <span>{w.success_rate.toFixed(1)}% ok</span>
-                <div className="ml-auto flex items-center gap-2 opacity-0 transition group-hover:opacity-100">
-                  <Link
-                    to="/workflows/$id"
-                    params={{ id: w.id }}
-                    className="rounded border border-primary/30 bg-primary/10 px-2 py-1 text-primary"
-                  >
-                    <Play className="size-3" />
-                  </Link>
-                  <button
-                    onClick={() => removeWorkflow(w.id)}
-                    className="rounded border border-border bg-white/5 px-2 py-1 hover:text-destructive"
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                </div>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
+            <WindowNotice
+              count={workflows.data.items.length}
+              limit={workflows.data.limit}
+              mayHaveMore={workflows.data.mayHaveMore}
+              noun="workflows"
+            />
+          </>
+        )}
       </div>
     </>
   );

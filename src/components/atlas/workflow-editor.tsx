@@ -28,7 +28,7 @@ import {
   type WorkflowNode,
   type WorkflowRun,
   type NodeKind,
-} from "@/lib/atlas-store";
+} from "./workflow-scaffold-store";
 import {
   ArrowLeft,
   Braces,

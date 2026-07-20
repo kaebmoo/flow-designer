@@ -1,5 +1,5 @@
 import type { Edge, Node } from "@xyflow/react";
-import type { ChoiceOption } from "@/lib/atlas-store";
+import type { ChoiceOption } from "./workflow-scaffold-store";
 import type { AtlasNodeData } from "./workflow-node";
 
 export type NodeRunState = "queued" | "running" | "waiting" | "success" | "failed" | "skipped";

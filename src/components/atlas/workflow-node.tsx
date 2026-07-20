@@ -1,6 +1,6 @@
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import type { ChoiceOption, NodeKind, WorkflowNodeConfig } from "@/lib/atlas-store";
+import type { ChoiceOption, NodeKind, WorkflowNodeConfig } from "./workflow-scaffold-store";
 import { NODE_PRESENTATION } from "./workflow-node-presentation";
 
 export type AtlasNodeData = {

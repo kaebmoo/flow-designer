@@ -9,7 +9,7 @@ import {
   Split,
   Webhook,
 } from "lucide-react";
-import type { NodeKind } from "@/lib/atlas-store";
+import type { NodeKind } from "./workflow-scaffold-store";
 
 export const NODE_PRESENTATION: Record<
   NodeKind,

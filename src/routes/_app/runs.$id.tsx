@@ -1,178 +1,237 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { PageHeader, StatusPill } from "@/components/atlas/page";
-import { useAtlas } from "@/lib/atlas-store";
-import {
-  CheckCircle2,
-  XCircle,
-  Circle,
-  Loader2,
-  MinusCircle,
-  Download,
-  RotateCcw,
-} from "lucide-react";
+import { useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 
+import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
+import { formatDurationMs, toClientAtlasError } from "@/lib/atlas-mappers";
+import { runQuery } from "@/lib/atlas-queries";
+
+/**
+ * A single workflow run, read from `GET /api/workflow-runs/{id}`.
+ *
+ * Atlas returns the run plus its runtime nodes, runtime edges, and approvals in one response.
+ * There is no `run.log` field and no live run stream: run history is persisted JSON at
+ * `/events`, and live progress needs per-job SSE, which is Phase 4. Nothing here polls, and
+ * nothing here simulates progress with a timer.
+ */
 export const Route = createFileRoute("/_app/runs/$id")({
+  loader: async ({ context, params }) => {
+    try {
+      return await context.queryClient.ensureQueryData(runQuery(params.id));
+    } catch (error) {
+      if (toClientAtlasError(error).kind === "not_found") throw notFound();
+      throw error;
+    }
+  },
   component: RunDetail,
+  pendingComponent: () => <LoadingState label="Loading run" />,
+  errorComponent: ({ error, reset }) => (
+    <AtlasErrorState error={toClientAtlasError(error)} onRetry={reset} />
+  ),
+  notFoundComponent: () => <NotFoundState description="Atlas has no run with that id." />,
   head: ({ params }) => ({ meta: [{ title: `Run ${params.id} · Atlas Control` }] }),
 });
 
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-border bg-background/50 p-2">
+      <div className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+        {label}
+      </div>
+      <div className="font-mono text-xs break-all">{value}</div>
+    </div>
+  );
+}
+
 function RunDetail() {
   const { id } = Route.useParams();
-  const run = useAtlas((s) => s.runs.find((r) => r.id === id));
-  const workflow = useAtlas((s) =>
-    run ? s.workflows.find((w) => w.id === run.workflow_id) : null,
-  );
-
-  if (!run || !workflow) {
-    return (
-      <div className="grid flex-1 place-items-center">
-        <div className="text-center">
-          <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-            Run not found
-          </div>
-          <Link to="/runs" className="mt-3 inline-block text-sm text-primary hover:underline">
-            ← Back to runs
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  const iconFor = (s: string) => {
-    if (s === "success") return <CheckCircle2 className="size-4 text-[var(--color-success)]" />;
-    if (s === "failed") return <XCircle className="size-4 text-destructive" />;
-    if (s === "running") return <Loader2 className="size-4 animate-spin text-primary" />;
-    if (s === "skipped") return <MinusCircle className="size-4 text-muted-foreground" />;
-    return <Circle className="size-4 text-muted-foreground" />;
-  };
+  const { data: detail } = useSuspenseQuery(runQuery(id));
+  const { run, nodes, edges, approvals } = detail;
 
   return (
     <>
       <PageHeader
         title={run.id}
-        subtitle={run.workflow_name}
+        subtitle={run.name}
         meta={
-          <div className="flex items-center gap-3">
-            <StatusPill
-              tone={
-                run.state === "running"
-                  ? "primary"
-                  : run.state === "success"
-                    ? "success"
-                    : run.state === "failed"
-                      ? "danger"
-                      : "warning"
-              }
-            >
-              {run.state}
-            </StatusPill>
+          <div className="flex flex-wrap items-center gap-3">
+            <StatusPill tone={run.state.tone}>{run.state.label}</StatusPill>
             <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              started {run.started_at} · {(run.duration_ms / 1000).toFixed(1)}s · by{" "}
-              {run.triggered_by}
+              created {run.createdAt} · started {run.startedAt} · {formatDurationMs(run.durationMs)}
             </span>
           </div>
         }
         actions={
-          <div className="flex gap-2">
-            <button className="inline-flex items-center gap-1.5 rounded border border-border bg-white/5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-white/10">
-              <Download className="size-3.5" /> Export
-            </button>
-            <button className="inline-flex items-center gap-1.5 rounded border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-primary hover:bg-primary/20">
-              <RotateCcw className="size-3.5" /> Replay
-            </button>
+          run.workflowDefinitionId ? (
             <Link
               to="/workflows/$id"
-              params={{ id: workflow.id }}
+              params={{ id: run.workflowDefinitionId }}
               className="inline-flex items-center rounded bg-primary px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-primary-foreground"
             >
               Open Workflow
             </Link>
-          </div>
+          ) : (
+            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Definition deleted
+            </span>
+          )
         }
       />
-      <div className="grid flex-1 min-h-0 grid-cols-[320px_1fr] overflow-hidden">
-        {/* Timeline */}
-        <aside className="overflow-y-auto border-r border-border bg-card/50 p-6">
-          <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Timeline
-          </div>
-          <ol className="relative space-y-1 border-l border-border pl-4">
-            {workflow.nodes.map((n) => {
-              const s = run.node_states[n.id] ?? "queued";
-              return (
-                <li
-                  key={n.id}
-                  className="relative -ml-4 flex items-center gap-3 rounded-md py-2 pl-3 pr-2 transition hover:bg-white/5"
-                >
-                  {iconFor(s)}
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate text-sm font-medium">{n.label}</div>
-                    <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                      {n.kind} · {s}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
 
-          <div className="mt-8 mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Artifacts
-          </div>
-          <div className="space-y-2">
-            {["report.md", "extract.json", "broadcast.mp3"].map((f) => (
-              <div
-                key={f}
-                className="flex items-center justify-between rounded border border-border bg-white/[0.03] px-3 py-2 text-xs"
-              >
-                <span className="font-mono">{f}</span>
-                <button className="text-primary hover:underline">open</button>
-              </div>
-            ))}
-          </div>
-        </aside>
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+        {run.error ? (
+          <p className="mb-6 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {run.error}
+          </p>
+        ) : null}
 
-        {/* Logs */}
-        <section className="flex flex-col overflow-hidden bg-black/40">
-          <div className="flex items-center justify-between border-b border-border bg-background/60 px-6 py-3">
-            <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Streaming Log
-            </div>
-            <div className="flex gap-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              <button className="hover:text-foreground">All</button>
-              <button className="hover:text-foreground">Info</button>
-              <button className="hover:text-foreground">Warn</button>
-              <button className="hover:text-foreground">Error</button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto p-6 font-mono text-[11px] leading-relaxed">
-            {run.log.map((l, i) => (
-              <div key={i} className="flex gap-4 py-0.5">
-                <span className="text-primary shrink-0">{l.ts}</span>
-                <span className="text-muted-foreground shrink-0 w-24 truncate">[{l.node}]</span>
-                <span
-                  className={
-                    l.level === "success"
-                      ? "text-[var(--color-success)]"
-                      : l.level === "error"
-                        ? "text-destructive"
-                        : l.level === "warn"
-                          ? "text-[var(--color-chart-5)]"
-                          : "text-foreground/90"
-                  }
-                >
-                  {l.text}
-                </span>
-              </div>
-            ))}
-            {run.state === "running" && (
-              <div className="mt-2 flex gap-4 py-0.5 opacity-70">
-                <span className="text-primary">…</span>
-                <span className="animate-pulse text-muted-foreground">awaiting next event</span>
-              </div>
-            )}
-          </div>
+        <div className="mb-8 grid gap-3 md:grid-cols-4">
+          <Field label="Finished" value={run.finishedAt} />
+          <Field
+            label="Current nodes"
+            value={run.currentNodes.length > 0 ? run.currentNodes.join(", ") : "—"}
+          />
+          <Field label="Workflow" value={run.workflowDefinitionId ?? "—"} />
+          <Field label="Run id" value={run.id} />
+        </div>
+
+        <section className="mb-8">
+          <h2 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Runtime nodes ({nodes.length})
+          </h2>
+          <DataTable
+            rows={nodes}
+            rowKey={(n) => n.id}
+            empty="Atlas created no runtime nodes for this run."
+            columns={[
+              {
+                key: "nodeKey",
+                header: "Node",
+                render: (n) => <span className="font-mono text-xs text-primary">{n.nodeKey}</span>,
+              },
+              {
+                key: "jobId",
+                header: "Job",
+                render: (n) => (
+                  <span className="font-mono text-xs text-muted-foreground">{n.jobId ?? "—"}</span>
+                ),
+              },
+              {
+                key: "attempt",
+                header: "Attempt",
+                render: (n) => <span className="font-mono text-xs tabular-nums">{n.attempt}</span>,
+              },
+              {
+                key: "durationMs",
+                header: "Duration",
+                render: (n) => (
+                  <span className="font-mono text-xs">{formatDurationMs(n.durationMs)}</span>
+                ),
+              },
+              {
+                key: "error",
+                header: "Error",
+                render: (n) =>
+                  n.error ? (
+                    <span className="line-clamp-1 font-mono text-[11px] text-destructive">
+                      {n.error}
+                    </span>
+                  ) : (
+                    <span className="font-mono text-xs text-muted-foreground">—</span>
+                  ),
+              },
+              {
+                key: "state",
+                header: "State",
+                className: "text-right",
+                render: (n) => <StatusPill tone={n.state.tone}>{n.state.label}</StatusPill>,
+              },
+            ]}
+          />
         </section>
+
+        <section className="mb-8">
+          <h2 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Approvals ({approvals.length})
+          </h2>
+          <DataTable
+            rows={approvals}
+            rowKey={(a) => a.id}
+            empty="This run has no human gates."
+            columns={[
+              {
+                key: "nodeKey",
+                header: "Node",
+                render: (a) => <span className="font-mono text-xs">{a.nodeKey}</span>,
+              },
+              {
+                key: "label",
+                header: "Label",
+                render: (a) => <span className="text-sm">{a.label || "—"}</span>,
+              },
+              {
+                key: "selectedChoice",
+                header: "Decision",
+                render: (a) => (
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {a.selectedChoice ?? "—"}
+                  </span>
+                ),
+              },
+              {
+                key: "state",
+                header: "State",
+                className: "text-right",
+                render: (a) => <StatusPill tone={a.state.tone}>{a.state.label}</StatusPill>,
+              },
+            ]}
+          />
+          {detail.approvalsMayBeTruncated ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Atlas caps the approvals embedded in a run response at 100 and reports no total, so
+              this list may be truncated.
+            </p>
+          ) : null}
+        </section>
+
+        <section>
+          <h2 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Runtime edges ({edges.length})
+          </h2>
+          <DataTable
+            rows={edges}
+            rowKey={(e) => e.id}
+            empty="Atlas recorded no edge transitions for this run."
+            columns={[
+              {
+                key: "from",
+                header: "From",
+                render: (e) => <span className="font-mono text-xs">{e.from}</span>,
+              },
+              {
+                key: "to",
+                header: "To",
+                render: (e) => <span className="font-mono text-xs">{e.to}</span>,
+              },
+              {
+                key: "matched",
+                header: "Condition matched",
+                className: "text-right",
+                render: (e) => (
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {/* Null when Atlas recorded no evaluation result for the edge. */}
+                    {e.matched === null ? "—" : String(e.matched)}
+                  </span>
+                ),
+              },
+            ]}
+          />
+        </section>
+
+        <p className="mt-8 text-xs text-muted-foreground">
+          Live event streaming and run controls (pause, resume, cancel, approvals, artifacts) are
+          not wired to Atlas yet.
+        </p>
       </div>
     </>
   );
