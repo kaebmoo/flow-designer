@@ -26,6 +26,7 @@ import {
   type WorkflowNodeConfig,
   type WorkflowNodeConfigValue,
   type WorkflowNode,
+  type WorkflowRun,
   type NodeKind,
 } from "@/lib/atlas-store";
 import {
@@ -396,8 +397,12 @@ export function WorkflowEditor({ workflow }: { workflow: Workflow }) {
     simulatorRef.current?.cancel();
     save();
     const id = addRun(workflow.id);
-    const initialStates = Object.fromEntries(
-      nodes.map((node) => [node.id, "queued" as AtlasNodeData["runState"]]),
+    // `AtlasNodeData["runState"]` is optional, so casting to it makes every value
+    // `... | undefined` and the record stops matching `WorkflowRun["node_states"]`, which
+    // requires a concrete state per node. A run always starts with every node queued, so
+    // strip the undefined rather than widening the run type.
+    const initialStates: WorkflowRun["node_states"] = Object.fromEntries(
+      nodes.map((node) => [node.id, "queued" as NonNullable<AtlasNodeData["runState"]>]),
     );
     const initialLogs: RunLog[] = [
       {
