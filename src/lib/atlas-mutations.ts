@@ -434,20 +434,27 @@ export function useRevokeApiToken() {
  * answer and the dialog rendering it is a window in which a reload, a navigation, or a slow
  * refetch loses the only chance to see it. The metadata tables catching up is cosmetic and
  * must not gate the one-time display.
+ *
+ * The body lives in `mintApiToken`, a plain function over an injected client, so the ordering
+ * guarantee — resolve first, invalidate in the background, never throw for a refetch — is
+ * unit-testable with a stalled or failing invalidation (the race the gate review flagged).
  */
+export async function mintApiToken(
+  queryClient: { invalidateQueries: (filters: { queryKey: QueryKey }) => Promise<unknown> },
+  data: { userId: string; name: string },
+  mint: typeof createApiTokenFn = createApiTokenFn,
+): Promise<{ token: ApiTokenView; apiToken: string }> {
+  const result = unwrapMutation(await mint({ data }));
+  void Promise.all(
+    keysFor(["tokens", "users"]).map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  ).catch(() => {
+    // A failed background refetch only delays the metadata table; the next focus/interval
+    // refetch corrects it. Nothing here may throw after the token value is already held.
+  });
+  return result;
+}
+
 export function useMintApiToken() {
   const queryClient = useQueryClient();
-  return async (data: {
-    userId: string;
-    name: string;
-  }): Promise<{ token: ApiTokenView; apiToken: string }> => {
-    const result = unwrapMutation(await createApiTokenFn({ data }));
-    void Promise.all(
-      keysFor(["tokens", "users"]).map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-    ).catch(() => {
-      // A failed background refetch only delays the metadata table; the next focus/interval
-      // refetch corrects it. Nothing here may throw after the token value is already held.
-    });
-    return result;
-  };
+  return (data: { userId: string; name: string }) => mintApiToken(queryClient, data);
 }

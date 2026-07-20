@@ -21,9 +21,16 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  */
 export const DEFAULT_USAGE_WINDOW_DAYS = 30;
 
-/** The default inclusive `from` (an ISO date, UTC) for an unbounded usage request. */
+/**
+ * The default inclusive `from` (an ISO date, UTC) for an unbounded usage request.
+ *
+ * Subtracts `DEFAULT_USAGE_WINDOW_DAYS - 1`, not the full window: Atlas expands a bare date
+ * to 00:00 of that day and compares **inclusively** (`atlas/usage.py:201-213`), so the window
+ * spans the `from` date *and* today. Subtracting the full 30 would cover 31 calendar dates —
+ * one more than the label "last 30 days" claims.
+ */
 export function defaultUsageFrom(now: Date = new Date()): string {
-  return new Date(now.getTime() - DEFAULT_USAGE_WINDOW_DAYS * 86_400_000)
+  return new Date(now.getTime() - (DEFAULT_USAGE_WINDOW_DAYS - 1) * 86_400_000)
     .toISOString()
     .slice(0, 10);
 }

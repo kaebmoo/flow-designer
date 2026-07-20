@@ -447,6 +447,28 @@ Full suite re-run after the fixes — every command exit 0: typecheck, lint (sam
 warnings), format:check, unit **327**, contract **136 + 3 skipped** (real Atlas), stream 24,
 e2e **80**, build, `git diff --check`.
 
+**Second review round (2026-07-21):** no P1s remained; three P2s were fixed for a clean gate:
+
+- **Off-by-one in the default usage window.** Atlas expands `from=YYYY-MM-DD` to 00:00 and
+  compares inclusively, so subtracting the full 30 days covered 31 calendar dates.
+  `defaultUsageFrom` now subtracts `DEFAULT_USAGE_WINDOW_DAYS - 1`; the unit test asserts the
+  inclusive date count equals the label, with the exact boundary date pinned.
+- **Usage regression proven at the request level, not just the UI.** The browser test now
+  captures the outgoing `getUsageFn` RPC on a bare visit and asserts the default `from` rides
+  its payload (TanStack serialises structurally, so the quoted date is matched and the target
+  function is decoded from the route id), and asserts the Export CSV link carries the same
+  `from` and downloads through it. An event _older_ than the window cannot be seeded — Atlas
+  writes usage rows internally with its own timestamps and has no usage-write endpoint — so
+  Atlas honouring `from` remains covered by the contract suite's date-bound tests.
+- **The token race has a regression test.** `useMintApiToken`'s body moved to a plain,
+  injectable `mintApiToken` (behaviour unchanged); new unit tests drive it with an
+  invalidation that never settles and one that rejects, asserting the raw token resolves
+  immediately in both, the background invalidation still fires per family, and a refused mint
+  invalidates nothing.
+
+Suite after the second round — every command exit 0: unit **330**, contract **136 + 3
+skipped**, stream 24, e2e **80**, typecheck/lint/format/build/`git diff --check` unchanged.
+
 Deferred with an owner: `src/routes/api.artifacts.$id.content.ts` (Phase 3) forwards Atlas
 error text with the same missing 5xx redaction the export routes just gained — same
 three-line fix, owned by the Phase 6 security pass ("server error messages are normalized

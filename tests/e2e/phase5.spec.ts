@@ -288,13 +288,42 @@ test.describe("Phase 5: operational pages as admin", () => {
     // request the entire ledger implicitly. The note and the pre-seeded input say so.
     await expect(page.getByText(/Defaulting to the last 30 days/)).toBeVisible();
     await expect(page.getByLabel("From (inclusive)")).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
+    const defaultFrom = await page.getByLabel("From (inclusive)").inputValue();
+
+    /**
+     * The note alone could lie — prove the *request* carries the default bound. The usage
+     * server function is a GET whose payload rides the query string (TanStack serialises the
+     * data structurally, keys and values in separate arrays, so the quoted date — not a
+     * `"from":` pair — is what appears). The target function is named in the base64 route id.
+     * (Atlas honouring `from` is contract-proven; an event older than the window cannot be
+     * seeded here because Atlas writes usage rows internally with its own timestamps and
+     * exposes no usage-write endpoint.)
+     */
+    const [rpcRequest] = await Promise.all([
+      page.waitForRequest(
+        (request) =>
+          request.url().includes("/_serverFn/") &&
+          decodeURIComponent(request.url()).includes(`"${defaultFrom}"`),
+      ),
+      page.reload(),
+    ]);
+    const rpcId = Buffer.from(
+      new URL(rpcRequest.url()).pathname.split("/_serverFn/")[1] ?? "",
+      "base64",
+    ).toString();
+    expect(rpcId).toContain("getUsageFn");
+    await expect(page.getByText(/Defaulting to the last 30 days/)).toBeVisible();
 
     // Real usage rows exist (the seeded run and job both failed, which meters them).
     await expect(
       page.getByText(/events? in this range|newest 200|Atlas has recorded no usage/),
     ).toBeVisible();
 
-    const response = await page.request.get("/api/exports/usage-csv");
+    // The export link carries the same default bound, and the download honours it.
+    const exportLink = page.getByRole("link", { name: /Export CSV/ });
+    await expect(exportLink).toHaveAttribute("href", new RegExp(`from=${defaultFrom}`));
+    const exportHref = (await exportLink.getAttribute("href"))!;
+    const response = await page.request.get(exportHref);
     expect(response.status()).toBe(200);
     expect(response.headers()["content-type"]).toContain("text/csv");
     expect(await response.text()).toMatch(/^id,idempotency_key,kind/);

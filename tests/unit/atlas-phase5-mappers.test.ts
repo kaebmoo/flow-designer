@@ -257,15 +257,20 @@ describe("defaultUsageFrom", () => {
   /**
    * The usage page's default bound exists because `GET /api/usage` has no limit — an
    * unbounded default request would fetch the entire ledger. The value must be a bare ISO
-   * date (what Atlas's `from` accepts and what a date input renders) exactly the window's
-   * length in the past.
+   * date (what Atlas's `from` accepts and what a date input renders), and the **inclusive**
+   * window it opens — Atlas expands the date to 00:00 and compares `>=`
+   * (`atlas/usage.py:201-213`) — must span exactly the labelled number of calendar dates,
+   * counting today. Subtracting the full 30 days was the off-by-one the gate review caught:
+   * it covered 31 dates.
    */
-  it("returns an ISO date exactly the window's days before the given instant", () => {
+  it("opens an inclusive window of exactly the labelled calendar dates, today included", () => {
     const now = new Date("2026-07-21T10:30:00Z");
     const from = defaultUsageFrom(now);
+    expect(from).toBe("2026-06-22");
     expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    const elapsedDays = (now.getTime() - Date.parse(`${from}T10:30:00Z`)) / 86_400_000;
-    expect(elapsedDays).toBe(DEFAULT_USAGE_WINDOW_DAYS);
+    // Inclusive date count: from-date .. today, both ends counted.
+    const inclusiveDates = (Date.parse("2026-07-21") - Date.parse(from)) / 86_400_000 + 1;
+    expect(inclusiveDates).toBe(DEFAULT_USAGE_WINDOW_DAYS);
   });
 
   it("is a valid boundary by the same validator the RPC layer applies", () => {
