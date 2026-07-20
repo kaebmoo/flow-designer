@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Play, Plus } from "lucide-react";
+import { ArrowRight, Play, Workflow } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { PageHeader, StatusPill } from "@/components/atlas/page";
@@ -101,12 +101,15 @@ function DashboardPage() {
       <PageHeader
         title="Mission Control"
         subtitle="Live view of your worker fleet, active runs, and recent activity."
+        // Labelled for what it does: a link to the workflow list. Creating a workflow is a
+        // mutation and lands in Phase 3, so "New Workflow" promised an action this button has
+        // never performed.
         actions={
           <Link
             to="/workflows"
             className="inline-flex items-center gap-2 rounded bg-primary px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-primary-foreground shadow-[0_0_15px_color-mix(in_oklab,var(--color-primary)_25%,transparent)] transition hover:opacity-90"
           >
-            <Plus className="size-4" /> New Workflow
+            <Workflow className="size-4" /> View Workflows
           </Link>
         }
         meta={

@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+
+import { PlaceholderNotice } from "@/components/atlas/states";
 import { PageHeader, DataTable, StatusPill } from "@/components/atlas/page";
 import { KeyRound, Plus } from "lucide-react";
 
@@ -33,6 +35,7 @@ function UsersPage() {
         }
       />
       <div className="flex-1 space-y-6 overflow-y-auto px-8 py-6">
+        <PlaceholderNotice endpoint="GET /api/users" />
         <section>
           <div className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
             Users

@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+
+import { PlaceholderNotice } from "@/components/atlas/states";
 import { PageHeader } from "@/components/atlas/page";
 
 export const Route = createFileRoute("/_app/usage")({
@@ -26,6 +28,7 @@ function UsagePage() {
         subtitle="Tokens, jobs, and workspace load across the fleet."
       />
       <div className="flex-1 space-y-6 overflow-y-auto px-8 py-6">
+        <PlaceholderNotice endpoint="GET /api/usage" />
         <section className="rounded-lg border border-border bg-card p-6">
           <div className="mb-4 flex items-baseline justify-between">
             <div>

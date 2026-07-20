@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+
+import { PlaceholderNotice } from "@/components/atlas/states";
 import { PageHeader, DataTable, StatusPill } from "@/components/atlas/page";
 
 export const Route = createFileRoute("/_app/deliveries")({
@@ -46,6 +48,7 @@ function DeliveriesPage() {
     <>
       <PageHeader title="Deliveries" subtitle="Return-path callbacks issued by workflows." />
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        <PlaceholderNotice endpoint="GET /api/deliveries" />
         <DataTable
           rows={rows}
           rowKey={(r) => r.id}

@@ -273,6 +273,39 @@ test("a viewer sees the same Atlas data, because Atlas grants every role `read`"
 });
 
 /**
+ * A session that dies mid-visit must end the visit, not leave a signed-in shell.
+ *
+ * This is the path a route loader does not cover: changing a search parameter re-runs the page's
+ * query without re-running the `/_app` layout loader, so the 401 arrives at the query layer
+ * alone. Before this was handled, the page simply rendered an error panel while the app still
+ * looked signed in — and the previous identity's responses stayed in the in-memory cache.
+ *
+ * Clearing the cookie is the honest stand-in for the real causes (an expired bearer, a token
+ * revoked in Atlas, a sign-out in another tab): all four reach the server as "no usable session"
+ * and come back as `unauthorized`.
+ */
+test("a session that dies mid-visit redirects to sign-in instead of showing a broken page", async ({
+  page,
+  context,
+}) => {
+  await signIn(page, ADMIN_CREDENTIALS);
+  await page.goto("/jobs");
+  await expect(page.getByText("Contract fixture job.").first()).toBeVisible();
+
+  await context.clearCookies();
+
+  // Same route, new query key: the layout loader does not re-run, so this exercises the query
+  // path on its own.
+  await page.getByRole("button", { name: "500", exact: true }).click();
+
+  await expect(page).toHaveURL(/\/auth$/);
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+  // The dead page must not be one Back away.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/auth$/);
+});
+
+/**
  * Signing out must drop every cached Atlas response, not just the session cookie.
  *
  * The QueryClient lives for the life of the page, so it survives sign-out and the navigation to

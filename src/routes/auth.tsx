@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
@@ -29,6 +30,7 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const { error: loaderError } = Route.useLoaderData();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ClientAtlasError | null>(loaderError);
@@ -81,6 +83,16 @@ function AuthPage() {
       }
       // Drop the credentials from the DOM as soon as they are no longer needed.
       form.reset();
+      /**
+       * Drop every cached Atlas response before the new identity sees the app.
+       *
+       * `router.invalidate()` only invalidates router loader data; the QueryClient lives for
+       * the life of the page and survives both the sign-out and this sign-in. Signing out and
+       * straight back in as someone else would otherwise render the previous user's workers,
+       * runs, and jobs from cache until each query happened to go stale. Sign-out clears it
+       * too, but this path also covers a session that simply expired.
+       */
+      queryClient.clear();
       await router.invalidate();
       await router.navigate({ to: "/dashboard" });
     } catch {

@@ -323,9 +323,21 @@ export async function atlasLogout(
     ...options,
   });
 
+  /**
+   * `logged_out: true` is required, not merely an object.
+   *
+   * Atlas answers a successful revocation with exactly `{"logged_out": true}`
+   * (`atlas/app.py:282`). Accepting any object meant a `{}` — from a proxy, a future Atlas
+   * that reports a *failed* revocation in the body, or the keep-alive desync this client
+   * already works around — would be reported to the caller as a confirmed revocation. The
+   * caller then records `atlasRevoked: true` for a bearer that is still live.
+   */
   return expectShape<AtlasLogoutResponse>(
     payload,
-    (value) => value !== null && typeof value === "object",
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      (value as Record<string, unknown>).logged_out === true,
   );
 }
 

@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+
+import { PlaceholderNotice } from "@/components/atlas/states";
 import { PageHeader } from "@/components/atlas/page";
 
 export const Route = createFileRoute("/_app/audit")({
@@ -44,6 +46,7 @@ function AuditPage() {
     <>
       <PageHeader title="Audit Log" subtitle="Immutable record of operator and system actions." />
       <div className="flex-1 overflow-y-auto bg-black/40 p-6 font-mono text-[11px] leading-relaxed">
+        <PlaceholderNotice endpoint="GET /api/audit" />
         {events.map((e, i) => (
           <div key={i} className="flex gap-4 py-0.5">
             <span className="text-primary shrink-0">{e.ts}</span>

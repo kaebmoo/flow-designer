@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+
+import { PlaceholderNotice } from "@/components/atlas/states";
 import { PageHeader, DataTable } from "@/components/atlas/page";
 import { Download } from "lucide-react";
 
@@ -47,6 +49,7 @@ function ArtifactsPage() {
     <>
       <PageHeader title="Artifacts" subtitle="Files produced by workers and workflows." />
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        <PlaceholderNotice endpoint="GET /api/workflow-runs/{id}/artifacts" />
         <DataTable
           rows={rows}
           rowKey={(r) => r.id}

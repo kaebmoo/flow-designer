@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+
+import { PlaceholderNotice } from "@/components/atlas/states";
 import { PageHeader, DataTable } from "@/components/atlas/page";
 
 export const Route = createFileRoute("/_app/conversations")({
@@ -27,6 +29,7 @@ function ConversationsPage() {
         subtitle="Bindings that let Atlas continue against the same thClaws session across jobs."
       />
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        <PlaceholderNotice endpoint="GET /api/conversations" />
         <DataTable
           rows={rows}
           rowKey={(r) => r.id}

@@ -55,7 +55,7 @@ import {
   type WorkflowView,
   type WorkspaceView,
 } from "./atlas-mappers";
-import { requireAtlasToken } from "./auth.server";
+import { clearSession, requireAtlasToken } from "./auth.server";
 
 /** Every read resolves to data or to a normalised Atlas failure — never to a bare throw. */
 export type AtlasResult<T> = { ok: true; data: T } | { ok: false; error: ClientAtlasError };
@@ -77,13 +77,25 @@ function windowOf<T>(items: T[], limit: number): AtlasWindow<T> {
   return { items, limit, mayHaveMore: items.length >= limit };
 }
 
-/** Runs a read, converting any Atlas failure into the serialisable result shape. */
+/**
+ * Runs a read, converting any Atlas failure into the serialisable result shape.
+ *
+ * A 401 also *clears the session*. Atlas returns 401 when the bearer is missing, expired,
+ * revoked, or logged out elsewhere, and in every one of those cases the sealed cookie is now
+ * useless. Leaving it in place would keep the browser presenting a dead credential on every
+ * subsequent request, and — worse — would leave the app looking signed in while nothing loads.
+ * This mirrors what `currentIdentity` already does for `/api/me`.
+ */
 async function read<T>(operation: (token: string) => Promise<T>): Promise<AtlasResult<T>> {
   try {
     const token = await requireAtlasToken();
     return { ok: true, data: await operation(token) };
   } catch (error) {
-    return { ok: false, error: toClientAtlasError(error) };
+    const clientError = toClientAtlasError(error);
+    if (clientError.kind === "unauthorized") {
+      await clearSession();
+    }
+    return { ok: false, error: clientError };
   }
 }
 

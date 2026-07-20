@@ -87,6 +87,40 @@ export function NotFoundState({ description }: { description?: string }) {
 }
 
 /**
+ * Marks a page whose content is scaffold, not Atlas data.
+ *
+ * Several pages still render the placeholder arrays the original mock-up shipped with — a
+ * per-worker dollar cost, an audit log of events that never happened, an instance name and
+ * version that contradict the real ones on the dashboard. Left unlabelled, an operator has no
+ * way to tell them apart from the pages that now read Atlas, and the plausible ones are the
+ * dangerous ones: a fabricated cost or audit trail can be acted on.
+ *
+ * This is a stopgap, not the fix. The fix is wiring each page to its Atlas endpoint (Phase 5).
+ * Until then the page says what it is, in the tone of a warning rather than a footnote.
+ */
+export function PlaceholderNotice({ endpoint }: { endpoint?: string }) {
+  return (
+    <div
+      role="status"
+      className="mb-6 flex gap-3 rounded-lg border border-accent/40 bg-accent/10 px-4 py-3"
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+      <div className="text-xs leading-relaxed text-foreground">
+        <span className="font-semibold">Not connected to Atlas yet.</span> Everything below is
+        placeholder data from the original mock-up, and the actions on this page do nothing.
+        {endpoint ? (
+          <>
+            {" "}
+            Atlas serves this from <code className="font-mono">{endpoint}</code>; wiring it up is
+            still to come.
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Renders any normalised Atlas failure, choosing the presentation from its kind so that a
  * permission problem and an outage never look alike.
  */

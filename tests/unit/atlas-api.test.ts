@@ -34,6 +34,32 @@ afterEach(() => {
   resetServerEnvCache();
 });
 
+describe("atlasLogout response guard", () => {
+  /**
+   * Atlas confirms a revocation with exactly `{"logged_out": true}` (`atlas/app.py:282`).
+   * Accepting any object meant an empty body — from a proxy, or a future Atlas reporting a
+   * *failed* revocation in the body — was reported to the caller as a confirmed revocation, so
+   * the app recorded `atlasRevoked: true` for a bearer that is still live.
+   */
+  it.each([
+    ["an empty object", {}],
+    ["logged_out false", { logged_out: false }],
+    ["logged_out as a string", { logged_out: "true" }],
+    ["an unrelated body", { ok: true }],
+  ])("rejects %s as a protocol error rather than a confirmed logout", async (_case, body) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+
+    const error = await atlasLogout("some-token").catch((e) => e);
+    expect(error).toBeInstanceOf(AtlasError);
+    expect(error.kind).toBe("protocol");
+  });
+
+  it("accepts the confirmation Atlas actually sends", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ logged_out: true })));
+    await expect(atlasLogout("some-token")).resolves.toEqual({ logged_out: true });
+  });
+});
+
 describe("atlasErrorKindForStatus", () => {
   it.each([
     [400, "validation"],

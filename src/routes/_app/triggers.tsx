@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+
+import { PlaceholderNotice } from "@/components/atlas/states";
 import { PageHeader, DataTable, StatusPill } from "@/components/atlas/page";
 import { Copy, Plus } from "lucide-react";
 
@@ -55,6 +57,7 @@ function TriggersPage() {
         }
       />
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        <PlaceholderNotice endpoint="GET /api/workflow-triggers" />
         <DataTable
           rows={rows}
           rowKey={(r) => r.id}

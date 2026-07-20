@@ -1,4 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+
+import { PlaceholderNotice } from "@/components/atlas/states";
 import { PageHeader } from "@/components/atlas/page";
 
 export const Route = createFileRoute("/_app/settings")({
@@ -11,6 +13,7 @@ function SettingsPage() {
     <>
       <PageHeader title="Settings" subtitle="Control plane configuration and integrations." />
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        <PlaceholderNotice />
         <div className="grid gap-4 lg:grid-cols-2">
           <Section title="Control plane">
             <Row label="Instance name" value="atlas.prod.eu-west-1" />
