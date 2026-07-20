@@ -16,14 +16,26 @@
  */
 
 import {
+  isAtlasRowEnvelope,
+  isAtlasRowListEnvelope,
   isAtlasUser,
   readAtlasErrorMessage,
   type AtlasErrorKind,
+  type AtlasJob,
+  type AtlasJobListRow,
   type AtlasLoginResponse,
   type AtlasLogoutResponse,
   type AtlasMeResponse,
+  type AtlasMetrics,
   type AtlasUser,
+  type AtlasWorker,
+  type AtlasWorkflowDefinition,
+  type AtlasWorkflowRun,
+  type AtlasWorkflowRunDetail,
+  type AtlasWorkspace,
+  type AtlasWorkspaceListRow,
 } from "./atlas-types";
+import { clampAtlasLimit } from "./atlas-limits";
 import { getServerEnv } from "./env.server";
 
 /** Atlas is on a private network; 10s is generous for it and still bounds a hung socket. */
@@ -96,6 +108,14 @@ function defaultMessageForKind(kind: AtlasErrorKind): string {
 interface AtlasRequestOptions {
   method: "GET" | "POST";
   path: `/api/${string}`;
+  /**
+   * Fixed query parameters for this operation.
+   *
+   * Each exported operation supplies literal keys it knows Atlas accepts. Nothing here is
+   * forwarded from a client-chosen key/value pair — that would be the generic proxy the
+   * architecture forbids. `undefined` values are omitted rather than sent as "undefined".
+   */
+  query?: Record<string, string | number | undefined>;
   /** Server-side only. Never accept this from client input; it comes from the sealed session. */
   token?: string;
   body?: unknown;
@@ -143,9 +163,19 @@ async function atlasRequest(options: AtlasRequestOptions): Promise<unknown> {
     headers.connection = "close";
   }
 
+  let search = "";
+  if (options.query) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(options.query)) {
+      if (value !== undefined) params.set(key, String(value));
+    }
+    const encoded = params.toString();
+    if (encoded) search = `?${encoded}`;
+  }
+
   let response: Response;
   try {
-    response = await fetch(`${atlasApiOrigin}${options.path}`, {
+    response = await fetch(`${atlasApiOrigin}${options.path}${search}`, {
       method: options.method,
       headers,
       body: hasBody ? JSON.stringify(options.body ?? {}) : undefined,
@@ -297,4 +327,234 @@ export async function atlasLogout(
     payload,
     (value) => value !== null && typeof value === "object",
   );
+}
+
+// ---------------------------------------------------------------------------
+// Read operations (Phase 2).
+//
+// One exported function per Atlas route, each with the method and path baked in. A caller
+// cannot choose a path, a method, or a query key — that is what keeps this a set of fixed
+// operations rather than an Atlas proxy. Every one of these requires only the `read`
+// permission in Atlas (`atlas/app.py:1195`), but Atlas re-checks that on every call: nothing
+// here decides whether the caller is allowed to see the data.
+// ---------------------------------------------------------------------------
+
+/** `GET /api/metrics` — lifetime aggregates. The only aggregate endpoint open to `read`. */
+export async function atlasGetMetrics(
+  token: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasMetrics> {
+  const payload = await atlasRequest({ method: "GET", path: "/api/metrics", token, ...options });
+
+  return expectShape<{ metrics: AtlasMetrics }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      typeof (value as Record<string, unknown>).metrics === "object" &&
+      (value as Record<string, unknown>).metrics !== null,
+  ).metrics;
+}
+
+/**
+ * `GET /api/workers` — the whole table.
+ *
+ * Atlas accepts no `limit` and no filter on this route (`atlas/db.py:2029-2035`), so there is
+ * deliberately no pagination parameter to pass through.
+ */
+export async function atlasListWorkers(
+  token: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorker[]> {
+  const payload = await atlasRequest({ method: "GET", path: "/api/workers", token, ...options });
+
+  return expectShape<{ workers: AtlasWorker[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "workers"),
+  ).workers;
+}
+
+/** `GET /api/workers/{id}`. Throws `AtlasError("not_found")` when Atlas has no such worker. */
+export async function atlasGetWorker(
+  token: string,
+  workerId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorker> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: `/api/workers/${encodeURIComponent(workerId)}`,
+    token,
+    ...options,
+  });
+
+  return expectShape<{ worker: AtlasWorker }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "worker"),
+  ).worker;
+}
+
+/** `GET /api/workspaces` — the whole table, joined with worker name/status. No `limit`. */
+export async function atlasListWorkspaces(
+  token: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkspaceListRow[]> {
+  const payload = await atlasRequest({ method: "GET", path: "/api/workspaces", token, ...options });
+
+  return expectShape<{ workspaces: AtlasWorkspaceListRow[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "workspaces"),
+  ).workspaces;
+}
+
+/** `GET /api/workspaces/{id}`. Returns the un-joined row: no `worker_name`/`worker_status`. */
+export async function atlasGetWorkspace(
+  token: string,
+  workspaceId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkspace> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}`,
+    token,
+    ...options,
+  });
+
+  return expectShape<{ workspace: AtlasWorkspace }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "workspace"),
+  ).workspace;
+}
+
+/**
+ * `GET /api/workflows?limit=` — newest-updated first.
+ *
+ * `limit` is the only parameter Atlas accepts here, and the response carries no total, cursor,
+ * or has-more flag. Treat the result as a bounded window, never as "all workflows".
+ */
+export async function atlasListWorkflows(
+  token: string,
+  params: { limit?: number } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowDefinition[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/workflows",
+    token,
+    query: { limit: clampAtlasLimit(params.limit) },
+    ...options,
+  });
+
+  return expectShape<{ workflows: AtlasWorkflowDefinition[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "workflows"),
+  ).workflows;
+}
+
+/** `GET /api/workflows/{id}`. Throws `AtlasError("not_found")` for an unknown id. */
+export async function atlasGetWorkflow(
+  token: string,
+  workflowId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowDefinition> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: `/api/workflows/${encodeURIComponent(workflowId)}`,
+    token,
+    ...options,
+  });
+
+  return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "workflow"),
+  ).workflow;
+}
+
+/**
+ * `GET /api/workflow-runs?limit=&workflow_definition_id=` — newest-created first.
+ *
+ * Atlas exposes no state filter on this route, so a state filter is necessarily applied to the
+ * returned window in the UI rather than pushed down to the server. The envelope key is `runs`,
+ * not `workflow_runs`.
+ */
+export async function atlasListWorkflowRuns(
+  token: string,
+  params: { limit?: number; workflowDefinitionId?: string } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowRun[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/workflow-runs",
+    token,
+    query: {
+      limit: clampAtlasLimit(params.limit),
+      workflow_definition_id: params.workflowDefinitionId || undefined,
+    },
+    ...options,
+  });
+
+  return expectShape<{ runs: AtlasWorkflowRun[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "runs"),
+  ).runs;
+}
+
+/**
+ * `GET /api/workflow-runs/{id}` — run, runtime nodes, runtime edges, approvals.
+ *
+ * Atlas caps the embedded `approvals` at its default 100 with no truncation signal
+ * (`atlas/app.py:671`); a run with more approvals needs `GET /api/approvals?run_id=`, which is
+ * mutation-era work and out of Phase 2 scope.
+ */
+export async function atlasGetWorkflowRun(
+  token: string,
+  runId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowRunDetail> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: `/api/workflow-runs/${encodeURIComponent(runId)}`,
+    token,
+    ...options,
+  });
+
+  return expectShape<AtlasWorkflowRunDetail>(
+    payload,
+    (value) =>
+      isAtlasRowEnvelope(value, "run") &&
+      isAtlasRowListEnvelope(value, "nodes") &&
+      isAtlasRowListEnvelope(value, "edges") &&
+      isAtlasRowListEnvelope(value, "approvals"),
+  );
+}
+
+/**
+ * `GET /api/jobs?limit=` — newest-created first.
+ *
+ * `limit` is the only parameter; Atlas has no state, worker, or workspace filter here.
+ */
+export async function atlasListJobs(
+  token: string,
+  params: { limit?: number } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasJobListRow[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/jobs",
+    token,
+    query: { limit: clampAtlasLimit(params.limit) },
+    ...options,
+  });
+
+  return expectShape<{ jobs: AtlasJobListRow[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "jobs"),
+  ).jobs;
+}
+
+/** `GET /api/jobs/{id}`. Returns the un-joined row: no `worker_name`/`workspace_key`. */
+export async function atlasGetJob(
+  token: string,
+  jobId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasJob> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: `/api/jobs/${encodeURIComponent(jobId)}`,
+    token,
+    ...options,
+  });
+
+  return expectShape<{ job: AtlasJob }>(payload, (value) => isAtlasRowEnvelope(value, "job")).job;
 }
