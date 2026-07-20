@@ -1,6 +1,6 @@
 # Atlas Control Plane Web UI completion plan
 
-Status: implemented through Phase 4; Phase 5–6 remain planned
+Status: implemented through Phase 5; Phase 6–7 remain planned
 
 Date: 2026-07-20
 
@@ -151,8 +151,8 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 
 ### Exit criteria
 
-- Every listed page has a real API source or is explicitly marked as an unavailable Atlas capability.
-- No UI claims a setting/action exists when Atlas has no endpoint for it.
+- Every listed page has a real API source or is explicitly marked as an unavailable Atlas capability. — **met** (2026-07-21): conversations/deliveries/audit/usage/users read Atlas; artifacts and settings explicitly state the missing capabilities (no global artifact list, no settings API) and show only real `/api/metrics` values.
+- No UI claims a setting/action exists when Atlas has no endpoint for it. — **met**: no conversation edit/delete, no invite flow, no billing/quota, no settings mutations; evidence in `CHECKLIST.md`.
 - **Gate:** user confirms Phase 6 start.
 
 ## Phase 6 — Security, resilience, and visual cleanup

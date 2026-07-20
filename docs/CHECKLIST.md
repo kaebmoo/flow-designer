@@ -313,7 +313,7 @@ The diff was reviewed by independent agents against the Atlas source, then the f
 - [x] Long logs remain bounded/virtualized. (Hard caps in code: 500 events retained per stream (`JOB_STREAM_EVENT_CAP`), 150 rows rendered (`VISIBLE_LOG_ROWS`); overflow is compacted and stated in the UI. A browser test streams 600 events and asserts the DOM stays within the cap.)
 - [x] Run state is authoritative after refresh. (Browser test reloads mid-run: persisted run events are still on the page, runtime state comes from Atlas, and the live stream reattaches by replaying from seq 0 through the proxy.)
 - [x] Canvas highlights runtime state from Atlas. (`RunCanvas` draws the run's own `graph_snapshot` — parsed fail-closed like the editor; an unparseable snapshot renders its reason, an absent one says so — and colours nodes solely from Atlas's runtime node states. A browser test watches a genuinely running job flip `running → succeeded` from Atlas events, with no timer anywhere in the path.)
-- [ ] **Gate:** user confirms Phase 5 start.
+- [x] **Gate:** user confirmed Phase 5 start (2026-07-21).
 
 ### Phase 4 verification evidence (2026-07-21)
 
@@ -385,15 +385,67 @@ updated to the current labels; no application code was changed for this.
 
 ## Phase 5 — Operational pages
 
-- [ ] Artifacts use Atlas metadata/content endpoints.
-- [ ] Triggers use Atlas trigger endpoints.
-- [ ] Deliveries use Atlas delivery endpoints.
-- [ ] Conversations use Atlas session bindings.
-- [ ] Usage uses Atlas aggregates.
-- [ ] Audit uses Atlas audit data.
-- [ ] Users/tokens use Atlas admin endpoints.
-- [ ] Settings does not imply unsupported mutations.
+- [x] Artifacts use Atlas metadata/content endpoints. — Run-scoped metadata/preview/download (from Phase 3) remain the artifact surface; the `/artifacts` page now states truthfully that **Atlas has no global artifact list** (`GET /api/artifacts` is not a route — confirmed 404 by contract test), shows the real lifetime count from `GET /api/metrics`, and routes the user to run detail. No fake ledger, no run-sweeping simulation.
+- [x] Triggers use Atlas trigger endpoints. — **Completed in Phase 3**, not new Phase 5 work; Phase 5 verified no regression (the full trigger browser suite passes at this commit). Recorded here because the checklist row predates the plan's reassignment of trigger CRUD to Phase 3.
+- [x] Deliveries use Atlas delivery endpoints. — `GET /api/deliveries` with the real `run_id`/`status` filters pushed down to Atlas; one bounded manual retry on `failed`/`blocked` rows (admin/operator; auditor reads only, viewer gets the explicit 403 state); no automatic retry anywhere.
+- [x] Conversations use Atlas session bindings. — The fixed latest-100 window (proven with 103 rows in a contract test), create via `resources.manage`, client-side filtering labelled as filtering the loaded window only, and **no** Edit/Delete actions because Atlas has no such routes (404s asserted).
+- [x] Usage uses Atlas aggregates. — Totals come verbatim from Atlas's `summarize_usage`; `from`/`to` go to Atlas; `estimated_cost_usd` is labelled a frozen visibility estimate, not a charge; rendering is capped at 200 rows (the endpoint is unbounded) with the CSV export carrying the full range through the same-origin authenticated route.
+- [x] Audit uses Atlas audit data. — Newest-first, `limit`/`from`/`to` applied by Atlas, CSV through `/api/exports/audit-csv` (which also fixes Atlas's wrong `atlas-usage.csv` filename); admin/auditor only, everyone else sees the explicit forbidden state — the rendered 403 screen Phases 1–2 could not produce now exists and is browser-tested.
+- [x] Users/tokens use Atlas admin endpoints. — User CRUD (create — not "invite"; partial PUT; disable; delete with a confirmation naming the token cascade) and token mint/rename/revoke (`DELETE`; the `POST /revoke` alias deliberately unused). The raw token is shown once in transient dialog state, never enters any TanStack cache/storage/URL, and is asserted unrecoverable after close and reload.
+- [x] Settings does not imply unsupported mutations. — Read-only: Atlas version, schema version, and server time from `GET /api/metrics`, labelled with their source; the fabricated hostname/TLS/integrations/retention/danger-zone rows are deleted and the absence of an Atlas settings API is stated.
 - [ ] **Gate:** user confirms Phase 6 start.
+
+### Phase 5 verification evidence (2026-07-21)
+
+Atlas commit tested: `595ef62`. Baseline before Phase 5: **`64034be`**. Instances: isolated temp
+databases on ephemeral ports (contract and browser suites each boot their own) — no developer or
+production Atlas data touched. The Phase 5 instances run with `ATLAS_OUTBOUND_ALLOWLIST=127.0.0.1`
+so a delivery can genuinely be attempted (and fail) against a dead loopback port; auth bypasses
+stay off.
+
+Every row is a whole-repository result and an actual process exit code.
+
+| Check                   | Exit | Result                                                                            |
+| ----------------------- | ---- | --------------------------------------------------------------------------------- |
+| `bun run typecheck`     | 0    | 0 errors repo-wide                                                                |
+| `bun run lint`          | 0    | 0 errors; 6 pre-existing `react-refresh` warnings, unchanged since Phase 1        |
+| `bun run format:check`  | 0    | all files formatted                                                               |
+| `bun run test`          | 0    | 325 passed (307 at Phase 4)                                                       |
+| `bun run test:contract` | 0    | 136 passed, 3 skipped, against real isolated Atlas (111 + 3 at Phase 4)           |
+| `bun run test:stream`   | 0    | 24 passed (unchanged)                                                             |
+| `bun run test:e2e`      | 0    | 79 passed (68 at Phase 4)                                                         |
+| `bun run build`         | 0    | succeeded; router plugin regenerated `routeTree.gen.ts` for the two export routes |
+| `git diff --check`      | 0    | clean                                                                             |
+
+Additional checks against the tree at this commit:
+
+| Check                                      | Result                                                                                                                                                                                              |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client imports of `*.server.ts`            | none — the two CSV export routes join the artifact/SSE routes on the ESLint server-only-route exemption list                                                                                        |
+| Dynamic import of a server function        | none (the only dynamic import is the framework's own server entry in `src/server.ts`, server-side)                                                                                                  |
+| Secrets/tokens in the client bundle        | none — `.output/public` scanned for `SESSION_SECRET`, `ATLAS_API_ORIGIN`, `atlasToken`, `fd_session`, `api_token`, `token_hash`, with a positive control confirming the scan reads real bundle text |
+| Raw API token outside transient state      | none — browser test closes the mint dialog, sweeps the DOM, `localStorage`, and `sessionStorage`, then reloads                                                                                      |
+| Mock/static domain arrays on Phase 5 pages | none — a browser sweep drives all seven pages (plus reload) and asserts the scaffold-only strings are absent                                                                                        |
+| Fake pagination/total                      | none — conversations state the fixed latest-100; audit/deliveries state bounded newest-first windows; usage states its cap and points to CSV                                                        |
+| Timer-simulated data                       | none — no new timer exists outside test polling helpers                                                                                                                                             |
+| `src/routeTree.gen.ts` edited by hand      | no — regenerated by the router plugin when the export routes were added                                                                                                                             |
+| `graphify-out/`                            | untouched, not committed                                                                                                                                                                            |
+
+### What Phase 5 deliberately did not do
+
+- **No global artifact ledger.** Atlas has no such endpoint; the page says so instead of
+  simulating one by sweeping every run.
+- **No conversation edit/delete, no invitation flow, no billing/quota/pricing.** Atlas has no
+  contract for any of them; the UI does not pretend otherwise.
+- **No `blocked`-delivery fixture in tests.** Atlas fail-closes non-allowlisted callback URLs
+  at run _start_, so with a fixed allowlist a blocked row cannot be manufactured; the contract
+  test asserts that fail-closed rejection instead, and the UI's blocked-retry path shares the
+  code path proven on `failed` rows.
+- **No Phase 6 work.** The repo-wide design-token/colour cleanup, accessibility pass, and
+  security hardening sweep remain Phase 6; new Phase 5 UI uses existing tokens and the shared
+  state components only.
+- **Stream architecture untouched.** No SSE/backoff/idle change; Phase 4's three 401 guard
+  layers and mutation no-retry rules are unchanged.
 
 ## Phase 6 — Security, resilience, accessibility, tokens
 

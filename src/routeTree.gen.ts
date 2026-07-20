@@ -26,6 +26,8 @@ import { Route as AppAuditRouteImport } from './routes/_app/audit'
 import { Route as AppArtifactsRouteImport } from './routes/_app/artifacts'
 import { Route as AppWorkflowsIndexRouteImport } from './routes/_app/workflows.index'
 import { Route as AppRunsIndexRouteImport } from './routes/_app/runs.index'
+import { Route as ApiExportsUsageCsvRouteImport } from './routes/api.exports.usage-csv'
+import { Route as ApiExportsAuditCsvRouteImport } from './routes/api.exports.audit-csv'
 import { Route as AppWorkflowsIdRouteImport } from './routes/_app/workflows.$id'
 import { Route as AppRunsIdRouteImport } from './routes/_app/runs.$id'
 import { Route as ApiJobsIdEventsRouteImport } from './routes/api.jobs.$id.events'
@@ -115,6 +117,16 @@ const AppRunsIndexRoute = AppRunsIndexRouteImport.update({
   path: '/runs/',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiExportsUsageCsvRoute = ApiExportsUsageCsvRouteImport.update({
+  id: '/api/exports/usage-csv',
+  path: '/api/exports/usage-csv',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiExportsAuditCsvRoute = ApiExportsAuditCsvRouteImport.update({
+  id: '/api/exports/audit-csv',
+  path: '/api/exports/audit-csv',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppWorkflowsIdRoute = AppWorkflowsIdRouteImport.update({
   id: '/workflows/$id',
   path: '/workflows/$id',
@@ -153,6 +165,8 @@ export interface FileRoutesByFullPath {
   '/workspaces': typeof AppWorkspacesRoute
   '/runs/$id': typeof AppRunsIdRoute
   '/workflows/$id': typeof AppWorkflowsIdRoute
+  '/api/exports/audit-csv': typeof ApiExportsAuditCsvRoute
+  '/api/exports/usage-csv': typeof ApiExportsUsageCsvRoute
   '/runs/': typeof AppRunsIndexRoute
   '/workflows/': typeof AppWorkflowsIndexRoute
   '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
@@ -175,6 +189,8 @@ export interface FileRoutesByTo {
   '/workspaces': typeof AppWorkspacesRoute
   '/runs/$id': typeof AppRunsIdRoute
   '/workflows/$id': typeof AppWorkflowsIdRoute
+  '/api/exports/audit-csv': typeof ApiExportsAuditCsvRoute
+  '/api/exports/usage-csv': typeof ApiExportsUsageCsvRoute
   '/runs': typeof AppRunsIndexRoute
   '/workflows': typeof AppWorkflowsIndexRoute
   '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
@@ -199,6 +215,8 @@ export interface FileRoutesById {
   '/_app/workspaces': typeof AppWorkspacesRoute
   '/_app/runs/$id': typeof AppRunsIdRoute
   '/_app/workflows/$id': typeof AppWorkflowsIdRoute
+  '/api/exports/audit-csv': typeof ApiExportsAuditCsvRoute
+  '/api/exports/usage-csv': typeof ApiExportsUsageCsvRoute
   '/_app/runs/': typeof AppRunsIndexRoute
   '/_app/workflows/': typeof AppWorkflowsIndexRoute
   '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
@@ -223,6 +241,8 @@ export interface FileRouteTypes {
     | '/workspaces'
     | '/runs/$id'
     | '/workflows/$id'
+    | '/api/exports/audit-csv'
+    | '/api/exports/usage-csv'
     | '/runs/'
     | '/workflows/'
     | '/api/artifacts/$id/content'
@@ -245,6 +265,8 @@ export interface FileRouteTypes {
     | '/workspaces'
     | '/runs/$id'
     | '/workflows/$id'
+    | '/api/exports/audit-csv'
+    | '/api/exports/usage-csv'
     | '/runs'
     | '/workflows'
     | '/api/artifacts/$id/content'
@@ -268,6 +290,8 @@ export interface FileRouteTypes {
     | '/_app/workspaces'
     | '/_app/runs/$id'
     | '/_app/workflows/$id'
+    | '/api/exports/audit-csv'
+    | '/api/exports/usage-csv'
     | '/_app/runs/'
     | '/_app/workflows/'
     | '/api/artifacts/$id/content'
@@ -278,6 +302,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiExportsAuditCsvRoute: typeof ApiExportsAuditCsvRoute
+  ApiExportsUsageCsvRoute: typeof ApiExportsUsageCsvRoute
   ApiArtifactsIdContentRoute: typeof ApiArtifactsIdContentRoute
   ApiJobsIdEventsRoute: typeof ApiJobsIdEventsRoute
 }
@@ -403,6 +429,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRunsIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/exports/usage-csv': {
+      id: '/api/exports/usage-csv'
+      path: '/api/exports/usage-csv'
+      fullPath: '/api/exports/usage-csv'
+      preLoaderRoute: typeof ApiExportsUsageCsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/exports/audit-csv': {
+      id: '/api/exports/audit-csv'
+      path: '/api/exports/audit-csv'
+      fullPath: '/api/exports/audit-csv'
+      preLoaderRoute: typeof ApiExportsAuditCsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/workflows/$id': {
       id: '/_app/workflows/$id'
       path: '/workflows/$id'
@@ -478,6 +518,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiExportsAuditCsvRoute: ApiExportsAuditCsvRoute,
+  ApiExportsUsageCsvRoute: ApiExportsUsageCsvRoute,
   ApiArtifactsIdContentRoute: ApiArtifactsIdContentRoute,
   ApiJobsIdEventsRoute: ApiJobsIdEventsRoute,
 }

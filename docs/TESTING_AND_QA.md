@@ -1,6 +1,6 @@
 # Testing and QA strategy
 
-Status: implemented through Phase 4 and reconciled on 2026-07-21.
+Status: implemented through Phase 5 and reconciled on 2026-07-21.
 
 ## Runners and scripts
 
@@ -105,6 +105,18 @@ Record the following for each release:
 - stream behavior result
 - known Atlas limitations exercised
 - build/lint/test output
+
+## Phase 5 evidence (2026-07-21)
+
+The operational pages added unit coverage for their view models (including the structural
+raw-token exclusion and the date-boundary validator), 25 real-Atlas contract tests
+(`tests/contract/phase5.contract.test.ts`: the fixed latest-100 conversation window, absent
+conversation item routes, no global artifact list, delivery filters and bounded retry to
+`failed`, audit/usage date bounds and CSV headers, user/token lifecycle with the raw token
+returned once, and the four-role permission matrix — the harness now seeds an `auditor`), and
+11 browser tests (`tests/e2e/phase5.spec.ts`: forbidden states, reload-persistent creates,
+Atlas-side filters, same-origin CSV downloads, the one-time token lifecycle swept across DOM
+and storage, and a no-scaffold-data sweep). Full command results are in `CHECKLIST.md`.
 
 ## Phase 3 audit evidence (2026-07-20)
 

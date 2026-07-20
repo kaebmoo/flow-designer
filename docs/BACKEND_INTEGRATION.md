@@ -1,6 +1,6 @@
 # Atlas backend integration contract
 
-Status: contract verified and implemented through Phase 4
+Status: contract verified and implemented through Phase 5
 
 Date inspected: 2026-07-20
 
@@ -46,9 +46,24 @@ Streaming paths added in Phase 4 (2026-07-21):
 - `src/lib/job-stream.ts` is the typed stream client — SSE parsing, seq dedupe, exclusive-`after` resume, verified gap crossing, bounded backoff, and the transport idle watchdog — consumed through `src/lib/use-job-stream.ts`.
 - `runs.$id.tsx` combines per-job SSE (per running node's `job_id`) with persisted run refetch, renders the run's `graph_snapshot` as a read-only canvas highlighted from runtime node state, and keeps the live log bounded (500 events in memory, 150 rows in the DOM).
 
-Still scaffold, with an owning phase:
+Operational pages wired in Phase 5 (2026-07-21):
 
-- `artifacts.tsx`, `deliveries.tsx`, `conversations.tsx`, `usage.tsx`, `audit.tsx`, and `users.tsx` contain local static arrays — **Phase 5**.
+- `conversations.tsx` (fixed latest-100 window + create), `deliveries.tsx` (real `run_id`/`status`
+  filters + bounded retry), `audit.tsx` and `usage.tsx` (Atlas-applied `limit`/date ranges), and
+  `users.tsx` (admin user CRUD and API-token mint/rename/revoke) read Atlas through the same
+  typed-operation → RPC → view-model path as every earlier page. `artifacts.tsx` and
+  `settings.tsx` state what Atlas does **not** provide (no global artifact list; no settings
+  API) and show only real values from `GET /api/metrics`.
+- `src/routes/api.exports.audit-csv.ts` and `src/routes/api.exports.usage-csv.ts` are thin
+  same-origin transport glue for the two `format=csv` exports: session validated in the
+  handler, bearer attached server-side, correct filename substituted for Atlas's shared
+  `atlas-usage.csv`.
+- The raw API token from `POST /api/tokens` reaches the browser exactly once, as the direct
+  result of the admin's mint action, and lives only in transient dialog state — never in a
+  TanStack cache, storage, or URL. Token metadata types structurally exclude any token value.
+
+No scaffold pages remain: every route reads Atlas or explicitly states the missing Atlas
+capability.
 
 ## Backend capabilities confirmed
 

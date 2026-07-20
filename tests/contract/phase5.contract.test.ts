@@ -8,7 +8,9 @@
  *
  * The instance runs with `ATLAS_OUTBOUND_ALLOWLIST=127.0.0.1` so a delivery to a dead
  * loopback target is *attempted* (and fails) rather than blocked — the only way to walk a
- * delivery to `failed` — while a target on another loopback host stays `blocked`.
+ * delivery to `failed`. A `blocked` row cannot be manufactured at all against a fixed
+ * allowlist (see the deliveries block for why); the fail-closed run-start rejection is
+ * asserted in its place.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

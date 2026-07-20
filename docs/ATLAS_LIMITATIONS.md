@@ -422,6 +422,75 @@ Backend follow-up:
 
 - Either honour `workflow_definition_id` on update or reject it explicitly.
 
+### P2 — No global artifact listing
+
+**Confirmed while wiring Phase 5 (2026-07-21).** Artifacts are reachable only through their
+scope: `GET /api/workflow-runs/{id}/artifacts`, `GET /api/jobs/{id}/artifacts`, and by-id
+metadata/content. `GET /api/artifacts` is not a route at all (the dispatcher only handles
+`POST` there, which _creates_ an inline artifact) — confirmed 404 by contract test. There is
+no cross-run listing, search, or deletion.
+
+Frontend mitigation:
+
+- The `/artifacts` page states the limitation, shows the lifetime count from `/api/metrics`,
+  and routes the user to run detail. It does not simulate a ledger by sweeping every run.
+
+Backend follow-up:
+
+- Add a bounded, filterable `GET /api/artifacts` (by run, kind, key, date) if a global view is
+  wanted.
+
+### P2 — Conversations are a fixed latest-100 window with no item routes
+
+Confirmed: `list_conversations` hardcodes `LIMIT 100 ORDER BY updated_at DESC` and takes no
+parameter (`atlas/db.py:2245-2248`); the dispatcher has no conversation get-by-id, update, or
+delete route (all 404, contract-tested). Rows older than the newest 100 are unreachable
+through the API.
+
+Frontend mitigation:
+
+- The page states the fixed window, filters client-side over the loaded rows only (and says
+  so), and offers no Edit/Delete.
+
+Backend follow-up:
+
+- Add `limit`/pagination and item routes if conversations need management.
+
+### P2 — Both CSV exports are named `atlas-usage.csv`, and `GET /api/usage` is unbounded
+
+Confirmed: the shared `_csv` helper hardcodes `Content-Disposition: attachment;
+filename="atlas-usage.csv"` for **both** the usage and the audit export
+(`atlas/app.py:1133-1141`), so an audit export saves under a usage filename. Separately,
+`GET /api/usage` accepts no `limit` — the inclusive date range is the only size control, and a
+wide range returns the whole ledger in one JSON/CSV response.
+
+Frontend mitigation:
+
+- The same-origin export routes set their own correct filenames (`atlas-audit.csv` /
+  `atlas-usage.csv`) when relaying.
+- The usage page renders at most 200 rows, states the cap, and points to the CSV for the
+  complete range; the Atlas call uses a wider timeout.
+
+Backend follow-up:
+
+- Name the audit export correctly; add a `limit` or pagination to `/api/usage`.
+
+### P2 — A `blocked` delivery can only arise from allowlist drift
+
+Confirmed while writing the Phase 5 contract tests: `validate_run_input_envelope` fail-closes
+a non-allowlisted `_meta.reply.callback_url` at run **start** (`atlas/workflows.py:94-131`),
+and delivery attempts re-validate against the **current** allowlist. So with a stable
+`ATLAS_OUTBOUND_ALLOWLIST`, no run that could produce a `blocked` delivery can be created; a
+row becomes `blocked` only when the allowlist shrinks (or the secret key disappears) between
+run creation and delivery. Also note `_META_REPLY_MODES` is exactly `{webhook, none}`.
+
+Frontend consequence:
+
+- The deliveries UI still offers retry on `blocked` (Atlas re-validates against the current
+  allowlist, which is exactly the fix-then-retry flow), but tests prove the retry path on
+  `failed` and assert the fail-closed start rejection, because a blocked row cannot be
+  manufactured against a fixed-allowlist instance.
+
 ## Exit criteria for revisiting scale
 
 Move the architecture discussion back to Atlas before claiming higher scale when any of these become true:
