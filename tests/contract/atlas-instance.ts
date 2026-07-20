@@ -32,6 +32,18 @@ export const OPERATOR_CREDENTIALS = {
 };
 
 /**
+ * The fourth role, needed by the Phase 5 role matrix.
+ *
+ * An auditor is the only role that can read audit/usage/deliveries *without* being able to
+ * mutate anything — `read`, `audit.read`, `deliveries.read` and nothing else. Admin-vs-viewer
+ * cannot express "may read the ledger, may not retry a delivery".
+ */
+export const AUDITOR_CREDENTIALS = {
+  username: "auditor",
+  password: "contract-auditor-password",
+};
+
+/**
  * True when a real Atlas can be started here.
  *
  * A missing checkout at the *default* path is a legitimate skip (a machine without Atlas).
@@ -79,13 +91,21 @@ export interface AtlasInstance {
   logs: () => string;
 }
 
-export async function startIsolatedAtlas(): Promise<AtlasInstance> {
+export async function startIsolatedAtlas(
+  /**
+   * Extra Atlas environment for one instance — e.g. `ATLAS_OUTBOUND_ALLOWLIST` so a delivery
+   * attempt is permitted to fail against a dead loopback target instead of being blocked.
+   * Never used to weaken auth: the two bypass variables below are set last and win.
+   */
+  extraEnv: Record<string, string> = {},
+): Promise<AtlasInstance> {
   const dataDir = mkdtempSync(join(tmpdir(), "flow-designer-atlas-"));
   const dbPath = join(dataDir, "atlas.sqlite");
   const port = await freePort();
 
   const env = {
     ...process.env,
+    ...extraEnv,
     ATLAS_DB: dbPath,
     ATLAS_SECRET_KEY: "contract-test-secret-key",
     ATLAS_UPLOAD_DIR: join(dataDir, "uploads"),
@@ -119,6 +139,10 @@ export async function startIsolatedAtlas(): Promise<AtlasInstance> {
     seed(
       ["create-user", OPERATOR_CREDENTIALS.username, "--role", "operator"],
       OPERATOR_CREDENTIALS.password,
+    );
+    seed(
+      ["create-user", AUDITOR_CREDENTIALS.username, "--role", "auditor"],
+      AUDITOR_CREDENTIALS.password,
     );
   } catch (error) {
     rmSync(dataDir, { recursive: true, force: true });

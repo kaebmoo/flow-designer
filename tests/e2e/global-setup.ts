@@ -60,7 +60,11 @@ async function waitForApp(deadlineMs = 120_000) {
 }
 
 export default async function globalSetup() {
-  atlas = await startIsolatedAtlas();
+  // The allowlist lets a spec create a run whose reply callback targets a dead loopback port,
+  // which is the only way a delivery row can exist for the deliveries page to show. Atlas
+  // fail-closes non-allowlisted callback URLs at run start, so without this no delivery is
+  // producible at all.
+  atlas = await startIsolatedAtlas({ ATLAS_OUTBOUND_ALLOWLIST: "127.0.0.1" });
 
   /**
    * Seed through Atlas's own API with an admin bearer.
