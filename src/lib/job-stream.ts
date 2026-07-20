@@ -117,8 +117,8 @@ const KNOWN_EVENT_TYPES = new Set([
 export interface JobStreamEvent {
   seq: number;
   type: string;
-  /** `created_at` from the payload, or null when Atlas sent none. */
-  createdAt: string | null;
+  /** Required `created_at` from the validated Atlas data-frame payload. */
+  createdAt: string;
   /** Assistant text for `text` frames; null for structured frames. */
   text: string | null;
   /** Compact JSON of the payload (already redacted server-side by Atlas) for display. */
@@ -136,7 +136,11 @@ export type JobStreamPhase =
   /** Disconnected; an automatic reconnect is scheduled `retryInMs` from now. */
   | { phase: "disconnected"; attempt: number; retryInMs: number }
   | { phase: "terminal"; state: string }
-  | { phase: "failed"; reason: "unauthorized" | "not_found" | "exhausted"; message: string };
+  | {
+      phase: "failed";
+      reason: "unauthorized" | "forbidden" | "not_found" | "exhausted";
+      message: string;
+    };
 
 export interface JobStreamSnapshot {
   phase: JobStreamPhase;
@@ -370,6 +374,16 @@ export class JobEventStream {
       this.options.onAuthError?.();
       return;
     }
+    if (response.status === 403) {
+      this.notify({
+        phase: {
+          phase: "failed",
+          reason: "forbidden",
+          message: "Atlas did not permit this account to read job events.",
+        },
+      });
+      return;
+    }
     if (response.status === 404) {
       this.notify({
         phase: { phase: "failed", reason: "not_found", message: "Atlas has no such job." },
@@ -533,18 +547,28 @@ export class JobEventStream {
       return null;
     }
 
-    // Dedupe keys off the payload `seq` first (the contract's primary key), falling back to
-    // the SSE `id`, which Atlas writes from the same value.
-    let seq: number | null = null;
-    if (typeof payload.seq === "number" && Number.isInteger(payload.seq) && payload.seq > 0) {
-      seq = payload.seq;
-    } else if (frame.id !== null && /^\d+$/.test(frame.id)) {
-      seq = Number.parseInt(frame.id, 10);
+    // Atlas supplies the same positive sequence twice: as the SSE id and in the JSON payload.
+    // Requiring both and requiring equality prevents a malformed frame from advancing the
+    // exclusive resume cursor past rows the browser has never committed.
+    if (frame.id === null || !/^\d+$/.test(frame.id)) return null;
+    const idSeq = Number.parseInt(frame.id, 10);
+    if (!Number.isSafeInteger(idSeq) || idSeq <= 0) return null;
+    if (
+      typeof payload.seq !== "number" ||
+      !Number.isSafeInteger(payload.seq) ||
+      payload.seq <= 0 ||
+      payload.seq !== idSeq
+    ) {
+      return null;
     }
-    if (seq === null || seq <= 0) return null;
+
+    const createdAt =
+      typeof payload.created_at === "string" && payload.created_at.length > 0
+        ? payload.created_at
+        : null;
+    if (createdAt === null) return null;
 
     const type = frame.event;
-    const createdAt = typeof payload.created_at === "string" ? payload.created_at : null;
     const text = type === "text" && typeof payload.text === "string" ? payload.text : null;
 
     let detail = "";
@@ -555,7 +579,7 @@ export class JobEventStream {
       detail = JSON.stringify(rest).slice(0, 500);
     }
 
-    return { seq, type, createdAt, text, detail, known: KNOWN_EVENT_TYPES.has(type) };
+    return { seq: idSeq, type, createdAt, text, detail, known: KNOWN_EVENT_TYPES.has(type) };
   }
 
   private commit(event: JobStreamEvent): void {

@@ -402,6 +402,23 @@ describe("JobEventStream", () => {
     r.stream.stop();
   });
 
+  it("stops on a 403 and reports access denied instead of retrying it as a disconnect", async () => {
+    const r = rig();
+    r.transport.script = [403];
+    await start(r);
+
+    expect(r.snapshot().phase).toEqual({
+      phase: "failed",
+      reason: "forbidden",
+      message: "Atlas did not permit this account to read job events.",
+    });
+    expect(r.authErrors).toBe(0);
+    expect(r.clock.pending()).toBe(0);
+    await r.clock.advance(300_000);
+    expect(r.transport.urls).toHaveLength(1);
+    r.stream.stop();
+  });
+
   it("stops on a 404 — the job row is gone and retrying cannot bring it back", async () => {
     const r = rig();
     r.transport.script = [404];
@@ -446,6 +463,23 @@ describe("JobEventStream", () => {
     await flush();
 
     expect(r.snapshot().malformed).toBe(2);
+    expect(r.snapshot().lastConfirmedSeq).toBe(1);
+    expect(r.events.map((event) => event.seq)).toEqual([1]);
+    r.stream.stop();
+  });
+
+  it("requires matching id/seq and created_at before advancing the resume cursor", async () => {
+    const r = rig();
+    await start(r);
+    const malformed =
+      'id: 1\nevent: state\ndata: {"seq":2,"created_at":"2026-07-20T00:00:01"}\n\n' +
+      'id: 1\nevent: state\ndata: {"created_at":"2026-07-20T00:00:01"}\n\n' +
+      'event: state\ndata: {"seq":1,"created_at":"2026-07-20T00:00:01"}\n\n' +
+      'id: 1\nevent: state\ndata: {"seq":1}\n\n';
+    r.transport.latest().push(malformed + frame(1, "state", { state: "running" }));
+    await flush();
+
+    expect(r.snapshot().malformed).toBe(4);
     expect(r.snapshot().lastConfirmedSeq).toBe(1);
     expect(r.events.map((event) => event.seq)).toEqual([1]);
     r.stream.stop();

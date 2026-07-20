@@ -39,9 +39,9 @@ import type { AtlasErrorKind } from "@/lib/atlas-types";
  * A single workflow run, read from `GET /api/workflow-runs/{id}`, plus every operator action
  * Atlas exposes for it: pause/resume/cancel, approval decisions, delivery, and downloads.
  *
- * Two things this page deliberately does not do. It does not poll, and it does not animate
- * progress: every node state, edge, and event on screen is a value Atlas returned, and it
- * changes only when a mutation invalidates the query or the operator reloads. And it does not
+ * This page never animates or predicts progress: every node state, edge, and persisted event is
+ * a value Atlas returned. While a run is live, per-job SSE and a bounded data-layer poll trigger
+ * authoritative run refetches; neither source mutates node state itself. The page also does not
  * decide what an operator may do — Atlas re-checks the role on every call, so a control that
  * looks available here can still come back 403, and that 403 is shown as itself.
  */

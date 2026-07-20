@@ -64,7 +64,9 @@ function phaseLabel(phase: JobStreamPhase): { text: string; tone: string } {
             ? "disconnected"
             : phase.reason === "unauthorized"
               ? "session expired"
-              : "job not found",
+              : phase.reason === "forbidden"
+                ? "access denied"
+                : "job not found",
         tone: "border-destructive/40 bg-destructive/10 text-destructive",
       };
   }
