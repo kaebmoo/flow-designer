@@ -99,7 +99,7 @@ disagrees with the architecture.
 - [x] Workspaces reads Atlas workspaces. (`GET /api/workspaces`, including the joined worker name/status.)
 - [x] Workflows and runs survive reload. (Both detail routes load through the route loader, so SSR renders real Atlas data; asserted by browser tests that reload the page.)
 - [x] Jobs reads real job state. (`GET /api/jobs` for the table, `GET /api/jobs/{id}` for the detail pane.)
-- [x] Static arrays are removed or explicitly documented as unavailable. (Scope note below: this covers the six migrated pages. Artifacts/Triggers/Deliveries/Conversations/Usage/Audit/Users still hold static arrays and are Phase 5 in `IMPLEMENTATION_PLAN.md`.)
+- [ ] Static arrays are removed or explicitly documented as unavailable. — **partial.** True for the six migrated pages. Artifacts, Triggers, Deliveries, Conversations, Usage, Audit, Users, and Settings still render static arrays and are _not_ marked as placeholder. `IMPLEMENTATION_PLAN.md` assigns them to both Phase 2 (line 70–71) and Phase 5 (line 142); see "Open scope question for the gate" below. Left unticked rather than reinterpreted.
 - [x] Pagination/filter state is URL-safe where appropriate. (`limit` on workflows/runs/jobs, the runs' `workflow` filter, the run/job `state` filter, and the open job pane are all URL search parameters, parsed defensively and clamped to Atlas's range.)
 - [x] Lists are treated as a bounded `limit` window (no assumed offset/cursor/total). (`WindowNotice` states the window on every list; a full window is reported as "may have more", which is the only — and genuinely ambiguous — signal Atlas provides.)
 - [ ] **Gate:** user confirms Phase 3 start.
@@ -115,10 +115,10 @@ Every row is a whole-repository result and an actual process exit code.
 | `bun run typecheck`     | 0    | 0 errors repo-wide                                                        |
 | `bun run lint`          | 0    | 0 errors; 6 pre-existing `react-refresh` warnings, unchanged from Phase 1 |
 | `bun run format:check`  | 0    | all files formatted                                                       |
-| `bun run test`          | 0    | 190 passed (83 at Phase 1)                                                |
+| `bun run test`          | 0    | 195 passed (83 at Phase 1)                                                |
 | `bun run test:contract` | 0    | 34 passed against a real isolated Atlas (13 at Phase 1)                   |
 | `bun run test:stream`   | 0    | 0 tests, passes by design (SSE is Phase 4)                                |
-| `bun run test:e2e`      | 0    | 25 passed (9 at Phase 1)                                                  |
+| `bun run test:e2e`      | 0    | 27 passed (9 at Phase 1)                                                  |
 | `bun run build`         | 0    | succeeded                                                                 |
 | `git diff --check`      | 0    | clean                                                                     |
 
@@ -153,6 +153,56 @@ What is verified instead:
 - A browser test asserts the inverse property that actually matters today: a `viewer` sees the same Atlas data on every migrated page and is **not** blocked by a frontend that invented its own authorization.
 
 A rendered 403 becomes reachable in Phase 5, when the Users and Audit pages (which require `admin` and `audit.read`) are wired up.
+
+### Adversarial review of the Phase 2 diff
+
+The diff was reviewed by independent agents across five dimensions (Atlas wire contract, the
+server/client security boundary, UI correctness, query/router correctness, and test quality).
+Every finding was then attacked by three separate verifiers — one arguing it was wrong, one that
+it was out of scope or pre-existing, one that it could not be reproduced — and a finding was
+kept only if fewer than two of the three refuted it. 25 findings were raised; 13 survived.
+
+Fixed in `3b1b324`, each with a check that fails if the fix is reverted:
+
+| Defect                                                                             | Why it mattered                                                                                   |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Sign-out did not clear the TanStack Query cache                                    | A second identity in the same tab was served the first user's Atlas data for up to 10 seconds     |
+| Both detail routes re-requested their data immediately after hydration             | The loader existed to avoid exactly that; its comment claimed the opposite and was wrong          |
+| Atlas's raw 5xx exception text was forwarded to the browser                        | Atlas 500s carry a Python exception string that can name the database file or an internal path    |
+| The run state filter omitted `recovery_required` and inherited chips from the mock | That state is what Atlas writes when it restarts mid-run — the one an operator most needs to find |
+| The contract limit-clamp test passed with the client's clamp deleted               | Atlas clamps `0` itself, so the test asserted Atlas's behaviour, not ours                         |
+| Three browser assertions were zero-count checks with no preceding wait             | Satisfied on the first poll against a still-loading page, so they could not fail                  |
+| `mayHaveMore` had no coverage in any layer                                         | The truncation claim in the UI text changes on it                                                 |
+| The e2e seed was read at module scope                                              | `playwright test --list` died with ENOENT and reported "0 tests in 0 files"                       |
+
+Confirmed but deliberately **not** fixed here, with the reason:
+
+| Finding                                                                              | Disposition                                                                                                                                                              |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Eight `_app` routes still render hardcoded mock arrays                               | The open scope question below — the user's Phase 2 brief explicitly excluded them, and `IMPLEMENTATION_PLAN.md` assigns them to Phase 5 at line 142                      |
+| Those same pages have no loading/empty/error/not-found state                         | Same pages, same phase                                                                                                                                                   |
+| `test:contract` reports green with zero assertions when the Atlas checkout is absent | Pre-existing at `e509e79`, and a deliberate Phase 1 design (it warns loudly and skips). Changing it to fail hard is a CI-policy decision for the user, not a silent edit |
+| `.env.example` pins `NODE_ENV=development`                                           | Pre-existing configuration, owned by `CONFIGURATION.md`; changing a committed template's build semantics is not a read-migration change                                  |
+
+### Open scope question for the gate
+
+`IMPLEMENTATION_PLAN.md` contradicts itself about eight pages, and this is the user's to settle:
+
+- **Line 70–71** lists "Conversations, Artifacts, Triggers, Deliveries" and "Usage, Audit, Users, Settings" as Phase 2 work items 5 and 6.
+- **Line 142**, under "Phase 5 — Domain pages and operational UX", says "Replace all static arrays in Artifacts, Triggers, Deliveries, Conversations, Usage, Audit, and Users."
+- **Line 85** sets a Phase 2 exit criterion of "No route reads a mock array or mock Zustand domain collection."
+
+The instruction given for this phase scoped it to Dashboard, Fleet, Workspaces, Workflows, Runs,
+and Jobs, so those eight pages were left untouched — they are byte-identical to `c3d57b1`. Read
+literally, line 85 is therefore not satisfied repo-wide. Those pages still show fabricated
+figures (a per-worker dollar cost, a token total, an audit log of events that never happened, and
+a Settings page reporting `atlas.prod.eu-west-1` / `v2.4.1` while the dashboard shows Atlas's
+real version), and nothing marks them as placeholder.
+
+Two ways to close it, whichever the user prefers: extend Phase 2 to cover those pages before the
+gate, or accept them as Phase 5 scope and amend line 85 to say "no _migrated_ route". A stopgap
+worth considering either way is a visible placeholder banner on the eight pages, so no operator
+reads a fabricated cost as real while they wait for Phase 5.
 
 ### New Atlas limitations found during Phase 2
 
