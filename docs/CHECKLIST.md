@@ -245,7 +245,7 @@ All recorded in `ATLAS_LIMITATIONS.md` with source citations, none worked around
 - [x] Run calls Atlas and returns a real run ID. (Browser test asserts the URL carries an Atlas `wfr_…` id; the scaffold minted `run_000NN` from an array length.)
 - [x] Pause/resume/cancel/approval/delivery actions work. (Only the transitions Atlas permits are enabled; the rest are disabled with a visible reason. `recovery_required` requires an explicit authorization dialog that names the duplicate-work risk.)
 - [x] Mutation conflicts are visible and do not silently overwrite data (no ETag/If-Match in Atlas; guard client-side). (The editor owns the baseline `updated_at` so a background refetch cannot advance it; a save re-reads and refuses when it moved. Its one-second blind spot is Atlas's timestamp resolution and is recorded in `ATLAS_LIMITATIONS.md`.)
-- [ ] **Gate:** user confirms Phase 4 start.
+- [x] **Gate:** user confirmed Phase 4 start.
 
 ### Phase 3 verification evidence (2026-07-20)
 
@@ -333,8 +333,8 @@ Every row is a whole-repository result and an actual process exit code.
 | `bun run format:check`  | 0    | all files formatted                                                              |
 | `bun run test`          | 0    | 307 passed (298 at Phase 3)                                                      |
 | `bun run test:contract` | 0    | 111 passed, 3 skipped, against a real isolated Atlas (106 + 3 at Phase 3)        |
-| `bun run test:stream`   | 0    | 22 passed — the `--passWithNoTests` escape hatch was **removed** from the script |
-| `bun run test:e2e`      | 0    | 67 passed (63 at Phase 3)                                                        |
+| `bun run test:stream`   | 0    | 24 passed — the `--passWithNoTests` escape hatch was **removed** from the script |
+| `bun run test:e2e`      | 0    | 68 passed (63 at Phase 3)                                                        |
 | `bun run build`         | 0    | succeeded                                                                        |
 | `git diff --check`      | 0    | clean                                                                            |
 
@@ -363,8 +363,9 @@ unless marked contract/browser (real Atlas, no mock SSE server):
 - bounded exponential backoff and retry limit — unit ("backs off exponentially with a bound, then stops with a working manual Retry")
 - idle stream / stale state — unit (stale display, watchdog reconnect), browser ("a silent stream is shown stale, not terminal, and recovers" — 25s genuinely silent worker)
 - 401 mid-stream — unit ("stops on a 401 without reconnecting…"; the existing three 401 guard layers are untouched — the stream only triggers a read whose 401 the guards already own)
+- 403 stream refusal — unit (stops immediately and surfaces access denied rather than retrying a permanent authorization failure as a disconnect)
 - terminal then no reconnect — unit (close arms no timer; 5 minutes of fake time produce no request)
-- unknown event type ignored safely with diagnostic marker — unit (committed with `known: false`, stream continues); malformed frames are counted and never advance the cursor
+- unknown event type ignored safely with diagnostic marker — unit (committed with `known: false`, stream continues); malformed frames, missing `created_at`, and mismatched/missing `id`/`seq` are counted and never advance the cursor
 - bounded live log memory — unit (600 events into a 50-cap buffer), browser (600 events, DOM row cap held)
 - production stream path — contract drives `JobEventStream` itself against real Atlas bytes to terminal; browser tests consume the real proxy route end-to-end
 
