@@ -4,6 +4,10 @@
  * The two values are Atlas's own `from`/`to` query parameters — inclusive ISO dates applied
  * server-side by Atlas, never a client-side row filter. Submitting writes them to the URL, so
  * a range is shareable and survives reload.
+ *
+ * Draft state is seeded from props once per mount, so callers must `key` this component by
+ * the applied range: browser Back/Forward changes the URL without remounting the page, and an
+ * un-keyed form would keep showing the previous range above data that has already changed.
  */
 
 import { useState } from "react";

@@ -428,6 +428,12 @@ export function useRevokeApiToken() {
  * `api_token` — the one value that must never sit in any TanStack cache. So the RPC is called
  * directly, the raw token goes straight to the caller (who holds it in transient dialog state
  * and discards it on close), and the affected query families are invalidated by hand.
+ *
+ * The invalidation is fired without being awaited, on purpose. Once Atlas has answered, the
+ * token **exists** and its value can never be shown again — every millisecond between that
+ * answer and the dialog rendering it is a window in which a reload, a navigation, or a slow
+ * refetch loses the only chance to see it. The metadata tables catching up is cosmetic and
+ * must not gate the one-time display.
  */
 export function useMintApiToken() {
   const queryClient = useQueryClient();
@@ -436,9 +442,12 @@ export function useMintApiToken() {
     name: string;
   }): Promise<{ token: ApiTokenView; apiToken: string }> => {
     const result = unwrapMutation(await createApiTokenFn({ data }));
-    await Promise.all(
+    void Promise.all(
       keysFor(["tokens", "users"]).map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-    );
+    ).catch(() => {
+      // A failed background refetch only delays the metadata table; the next focus/interval
+      // refetch corrects it. Nothing here may throw after the token value is already held.
+    });
     return result;
   };
 }

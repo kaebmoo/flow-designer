@@ -375,8 +375,12 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
       );
     });
 
-    it("exports CSV with the documented header", async () => {
-      const csv = await atlasExportAuditCsv(adminToken, { limit: 10 });
+    it("exports CSV with the documented header, as a streamable response", async () => {
+      const response = await atlasExportAuditCsv(adminToken, { limit: 10 });
+      // The operation returns the validated Response so the export route can relay the byte
+      // stream without buffering; the body is intact CSV.
+      expect(response.body).not.toBeNull();
+      const csv = await response.text();
       expect(csv.split("\n")[0]).toBe(
         "id,created_at,actor,action,resource_type,resource_id,details",
       );
@@ -426,7 +430,7 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
     });
 
     it("exports CSV with one row per raw event", async () => {
-      const csv = await atlasExportUsageCsv(adminToken);
+      const csv = await (await atlasExportUsageCsv(adminToken)).text();
       const [header, ...rows] = csv.trim().split("\n");
       expect(header).toBe(
         "id,idempotency_key,kind,status,units,seconds,run_id,job_id,node_key,worker_id,actor,started_at,finished_at,model,tokens_prompt,tokens_output,created_at,metadata",

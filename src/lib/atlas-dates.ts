@@ -12,6 +12,23 @@ const MAX_BOUNDARY_LENGTH = 40;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
+ * The bounded window the usage page applies when the URL carries no explicit range.
+ *
+ * `GET /api/usage` has no `limit` — the date range is the only size control — so an
+ * unbounded default would fetch the entire ledger into memory on every visit. Thirty days
+ * keeps the default response proportional to recent activity; a wider range remains one
+ * deliberate click away.
+ */
+export const DEFAULT_USAGE_WINDOW_DAYS = 30;
+
+/** The default inclusive `from` (an ISO date, UTC) for an unbounded usage request. */
+export function defaultUsageFrom(now: Date = new Date()): string {
+  return new Date(now.getTime() - DEFAULT_USAGE_WINDOW_DAYS * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
  * Normalises one optional boundary value.
  *
  * Returns `undefined` for absent/empty, the trimmed string when it looks like an ISO date or

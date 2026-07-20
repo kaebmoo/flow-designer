@@ -53,7 +53,6 @@ function DeliveriesPage() {
   const canRetry = role === "admin" || role === "operator";
 
   const deliveries = useQuery(deliveriesQuery({ limit, runId: run, status }));
-  const [runDraft, setRunDraft] = useState(run ?? "");
 
   const rows = deliveries.data ?? [];
 
@@ -93,44 +92,13 @@ function DeliveriesPage() {
         }
       />
       <div className="flex-1 overflow-y-auto px-8 py-6">
-        <form
-          className="mb-4 flex flex-wrap items-end gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void navigate({
-              search: (prev) => ({ ...prev, run: runDraft.trim() || undefined }),
-            });
-          }}
-        >
-          <div className="w-72">
-            <Label htmlFor="delivery-run-filter" className="text-xs text-muted-foreground">
-              Filter by run id (applied by Atlas)
-            </Label>
-            <Input
-              id="delivery-run-filter"
-              value={runDraft}
-              onChange={(event) => setRunDraft(event.target.value)}
-              placeholder="wfr_…"
-              className="mt-1 font-mono text-xs"
-            />
-          </div>
-          <Button type="submit" variant="outline" size="sm">
-            Apply
-          </Button>
-          {run ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setRunDraft("");
-                void navigate({ search: (prev) => ({ ...prev, run: undefined }) });
-              }}
-            >
-              Clear
-            </Button>
-          ) : null}
-        </form>
+        {/* Keyed by the applied filter so browser Back/Forward re-seeds the draft — the input
+            must always show the run id the table below is actually filtered by. */}
+        <RunFilterForm
+          key={run ?? ""}
+          run={run}
+          onApply={(next) => void navigate({ search: (prev) => ({ ...prev, run: next }) })}
+        />
 
         {deliveries.isPending ? (
           <LoadingState label="Loading deliveries" />
@@ -223,6 +191,53 @@ function DeliveriesPage() {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * The run-id filter, holding its own draft so the caller can `key` it by the applied value.
+ *
+ * The draft is seeded from the URL once per mount; Back/Forward changes the URL without a
+ * page remount, and the key forces this form to re-seed so it always describes the filter the
+ * table is actually under.
+ */
+function RunFilterForm({
+  run,
+  onApply,
+}: {
+  run: string | undefined;
+  onApply: (next: string | undefined) => void;
+}) {
+  const [draft, setDraft] = useState(run ?? "");
+  return (
+    <form
+      className="mb-4 flex flex-wrap items-end gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onApply(draft.trim() || undefined);
+      }}
+    >
+      <div className="w-72">
+        <Label htmlFor="delivery-run-filter" className="text-xs text-muted-foreground">
+          Filter by run id (applied by Atlas)
+        </Label>
+        <Input
+          id="delivery-run-filter"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="wfr_…"
+          className="mt-1 font-mono text-xs"
+        />
+      </div>
+      <Button type="submit" variant="outline" size="sm">
+        Apply
+      </Button>
+      {run ? (
+        <Button type="button" variant="ghost" size="sm" onClick={() => onApply(undefined)}>
+          Clear
+        </Button>
+      ) : null}
+    </form>
   );
 }
 

@@ -36,7 +36,14 @@ const STATUS_FOR_KIND: Record<AtlasErrorKind, number> = {
 function errorResponse(error: unknown): Response {
   const headers = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
   if (isAtlasError(error)) {
-    return new Response(error.message, { status: STATUS_FOR_KIND[error.kind], headers });
+    /**
+     * An Atlas 5xx message is a raw Python exception string that can name the database file
+     * or an internal path; substitute the same generic copy `toClientAtlasError` uses. Every
+     * other kind carries a message Atlas wrote *for* the caller and passes through.
+     */
+    const message =
+      error.kind === "server" ? "Atlas failed to process the request." : error.message;
+    return new Response(message, { status: STATUS_FOR_KIND[error.kind], headers });
   }
   if (error instanceof Error && error.message) {
     return new Response(error.message, { status: 400, headers });
@@ -59,8 +66,11 @@ export const Route = createFileRoute("/api/exports/audit-csv")({
             from: parseDateBoundary(url.searchParams.get("from"), "from"),
             to: parseDateBoundary(url.searchParams.get("to"), "to"),
           };
-          const csv = await atlasExportAuditCsv(token, params);
-          return new Response(csv, {
+          // Relay Atlas's byte stream: nothing is buffered here, so a large export costs
+          // this server a pipe, not the whole file in memory. A client disconnect aborts
+          // the upstream read through the request signal.
+          const upstream = await atlasExportAuditCsv(token, params, { signal: request.signal });
+          return new Response(upstream.body, {
             headers: {
               "content-type": "text/csv; charset=utf-8",
               "content-disposition": 'attachment; filename="atlas-audit.csv"',

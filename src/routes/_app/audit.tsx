@@ -82,7 +82,10 @@ function AuditPage() {
         }
       />
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        {/* Keyed by the applied range so browser Back/Forward re-seeds the inputs — the form
+            must always describe the same range the table below is showing. */}
         <DateRangeForm
+          key={`${from ?? ""}|${to ?? ""}`}
           from={from}
           to={to}
           onApply={(next) =>

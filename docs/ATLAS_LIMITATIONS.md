@@ -440,21 +440,29 @@ Backend follow-up:
 - Add a bounded, filterable `GET /api/artifacts` (by run, kind, key, date) if a global view is
   wanted.
 
-### P2 — Conversations are a fixed latest-100 window with no item routes
+### P2 — Conversations are a fixed latest-100 window with no item routes, and session bindings are unreadable
 
 Confirmed: `list_conversations` hardcodes `LIMIT 100 ORDER BY updated_at DESC` and takes no
 parameter (`atlas/db.py:2245-2248`); the dispatcher has no conversation get-by-id, update, or
 delete route (all 404, contract-tested). Rows older than the newest 100 are unreachable
-through the API.
+through the API. Separately, the worker **session binding** a conversation exists to enable
+lives in Atlas-internal tables (`session_bindings`), is written only when a worker later
+reports a session (`atlas/jobs.py`), and has **no read endpoint** — so no client can show
+whether a conversation currently has a binding, or which session it points at.
 
 Frontend mitigation:
 
 - The page states the fixed window, filters client-side over the loaded rows only (and says
   so), and offers no Edit/Delete.
+- Copy is hedged to the observable contract: a conversation is a grouping record, and Atlas
+  _may_ reuse an internal worker session once one exists; the UI never claims binding state
+  it cannot read.
 
 Backend follow-up:
 
 - Add `limit`/pagination and item routes if conversations need management.
+- Expose binding status (bound worker/session, last updated) on a conversation read if the
+  dashboard should show session reuse.
 
 ### P2 — Both CSV exports are named `atlas-usage.csv`, and `GET /api/usage` is unbounded
 
@@ -467,9 +475,11 @@ wide range returns the whole ledger in one JSON/CSV response.
 Frontend mitigation:
 
 - The same-origin export routes set their own correct filenames (`atlas-audit.csv` /
-  `atlas-usage.csv`) when relaying.
-- The usage page renders at most 200 rows, states the cap, and points to the CSV for the
-  complete range; the Atlas call uses a wider timeout.
+  `atlas-usage.csv`) and **relay Atlas's CSV as a byte stream** — nothing is buffered
+  server-side, so an unbounded export costs a pipe, not the whole file in memory.
+- The usage page never issues an unbounded request implicitly: a bare visit defaults to a
+  stated last-30-days window, an explicit range is respected as given, and rendering is
+  capped at 200 rows with the cap stated.
 
 Backend follow-up:
 

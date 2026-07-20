@@ -35,6 +35,12 @@ export const Route = createFileRoute("/_app/conversations")({
  * (`atlas/db.py:2245-2248`; the dispatcher has no other conversation route). So this page
  * offers list + create and nothing else: an Edit or Delete button here would promise an
  * operation the backend cannot perform.
+ *
+ * On session reuse the copy is deliberately hedged: a conversation row is a *grouping
+ * record*. The worker-session binding lives in Atlas-internal tables (`session_bindings`,
+ * written only when a worker later reports a session, `atlas/jobs.py`), no endpoint exposes
+ * it, and a binding may never come to exist. Claiming "jobs share one session" would assert
+ * state this API cannot show.
  */
 function ConversationsPage() {
   const identity = appRoute.useLoaderData();
@@ -62,7 +68,7 @@ function ConversationsPage() {
     <>
       <PageHeader
         title="Conversations"
-        subtitle="Bindings that let Atlas continue against the same thClaws session across jobs."
+        subtitle="Records that group related jobs. Atlas may reuse an internal worker session for a conversation once a worker reports one."
         actions={
           canCreate ? (
             <Button size="sm" onClick={() => setCreateOpen(true)}>
@@ -104,7 +110,7 @@ function ConversationsPage() {
               <div className="rounded-lg border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
                 Atlas has no conversations yet.
                 {canCreate
-                  ? " Create one to bind future jobs to a shared worker session."
+                  ? " Create one to group related jobs under a shared conversation id."
                   : " They appear here once created by an operator or by job submission."}
               </div>
             ) : (
@@ -152,7 +158,9 @@ function ConversationsPage() {
               {conversations.data.mayHaveMore
                 ? "This window is full, so older conversations exist that the API cannot list."
                 : "There is no paging, search, or per-conversation detail endpoint."}{" "}
-              Conversations cannot be edited or deleted — Atlas has no such operation.
+              Conversations cannot be edited or deleted — Atlas has no such operation. Worker
+              session bindings are internal to Atlas and not readable through the API, so this page
+              cannot show whether a conversation currently has one.
             </p>
           </>
         )}
@@ -185,7 +193,9 @@ function CreateConversationDialog({ open, onClose }: { open: boolean; onClose: (
         <DialogHeader>
           <DialogTitle>New conversation</DialogTitle>
           <DialogDescription>
-            Creates an Atlas conversation. Jobs submitted with its id share one thClaws session.
+            Creates an Atlas conversation record. Jobs submitted with its id are grouped together,
+            and Atlas may reuse an internal worker session for them once one exists — the API does
+            not expose binding status.
           </DialogDescription>
         </DialogHeader>
         <form

@@ -207,6 +207,12 @@ test.describe("Phase 5: operational pages as admin", () => {
     await page.getByRole("button", { name: "Apply" }).click();
     await expect(page.getByRole("row").filter({ hasText: fixture.deliveryId })).toBeVisible();
 
+    // Backing out of the run filter must re-seed the draft input: a form still showing the
+    // run id above an unfiltered table would misreport what the table contains.
+    await page.goBack();
+    await expect(page.getByLabel(/Filter by run id/)).toHaveValue("");
+    await expect(page.getByRole("row").filter({ hasText: fixture.deliveryId })).toBeVisible();
+
     // No scaffold rows anywhere.
     await expect(page.getByText("dlv_5501")).toHaveCount(0);
   });
@@ -242,10 +248,46 @@ test.describe("Phase 5: operational pages as admin", () => {
     await expect(page.getByText("wf_ingest")).toHaveCount(0);
   });
 
+  test("browser Back/Forward keeps the audit range form in sync with the data", async ({
+    page,
+  }) => {
+    await gotoHydrated(page, "/audit");
+    await expect(page.getByText("auth.login").first()).toBeVisible();
+
+    await page.getByLabel("From (inclusive)").fill("1990-01-01");
+    await page.getByLabel("To (inclusive)").fill("1990-01-02");
+    await page.getByRole("button", { name: "Apply range" }).click();
+    await expect(
+      page.getByText("Atlas recorded no audit entries in this date range."),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Clear" }).click();
+    await expect(page.getByText("auth.login").first()).toBeVisible();
+    await expect(page.getByLabel("From (inclusive)")).toHaveValue("");
+
+    // Back to the 1990 range: the table AND the inputs must both describe it.
+    await page.goBack();
+    await expect(
+      page.getByText("Atlas recorded no audit entries in this date range."),
+    ).toBeVisible();
+    await expect(page.getByLabel("From (inclusive)")).toHaveValue("1990-01-01");
+    await expect(page.getByLabel("To (inclusive)")).toHaveValue("1990-01-02");
+
+    // Back again to the unbounded view: inputs empty, entries back.
+    await page.goBack();
+    await expect(page.getByText("auth.login").first()).toBeVisible();
+    await expect(page.getByLabel("From (inclusive)")).toHaveValue("");
+  });
+
   test("usage shows Atlas totals labelled as estimates, and CSV downloads", async ({ page }) => {
     await gotoHydrated(page, "/usage");
     await expect(page.getByText("Workflow runs", { exact: true })).toBeVisible();
     await expect(page.getByText(/not a billable\s+charge/)).toBeVisible();
+
+    // A bare visit is bounded by default — the endpoint has no limit, so the page must never
+    // request the entire ledger implicitly. The note and the pre-seeded input say so.
+    await expect(page.getByText(/Defaulting to the last 30 days/)).toBeVisible();
+    await expect(page.getByLabel("From (inclusive)")).toHaveValue(/^\d{4}-\d{2}-\d{2}$/);
 
     // Real usage rows exist (the seeded run and job both failed, which meters them).
     await expect(

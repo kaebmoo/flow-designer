@@ -1777,17 +1777,29 @@ export async function atlasGetUsage(
  * Shared fetch for the two `format=csv` exports — the only Atlas routes besides artifact
  * content and SSE that do not answer JSON. Private, like `atlasRequest`: the two exported
  * wrappers below fix the path and the permitted query keys.
+ *
+ * Returns the validated `Response` (status checked, content type checked) rather than the
+ * body, so callers can **stream** Atlas's bytes onward. `/api/usage` has no `limit`, meaning
+ * an export can be arbitrarily large — buffering it into one string would hold the whole
+ * ledger in this server's memory per request. Like the SSE operation, the timeout bounds only
+ * the connect phase (dial + status + headers) and is disarmed once headers arrive; a caller
+ * `signal` (the browser abandoning the download) is what ends the relay after that.
  */
 async function atlasCsvRequest(
   path: `/api/${string}`,
   query: Record<string, string | number | undefined>,
   token: string,
   options: AtlasCallOptions,
-): Promise<string> {
+): Promise<Response> {
   const { atlasApiOrigin } = getServerEnv();
-  const timeoutMs = options.timeoutMs ?? 30_000;
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+  const connectTimeoutMs = options.timeoutMs ?? DEFAULT_ATLAS_TIMEOUT_MS;
+
+  const controller = new AbortController();
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort();
+    options.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+  const connectTimer = setTimeout(() => controller.abort(), connectTimeoutMs);
 
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
@@ -1800,16 +1812,18 @@ async function atlasCsvRequest(
     response = await fetch(`${atlasApiOrigin}${path}?${params.toString()}`, {
       method: "GET",
       headers: { authorization: `Bearer ${token}`, accept: "text/csv" },
-      signal,
+      signal: controller.signal,
       redirect: "error",
     });
   } catch (cause) {
-    if (timeoutSignal.aborted) {
+    clearTimeout(connectTimer);
+    if (options.signal?.aborted) throw cause;
+    if (controller.signal.aborted) {
       throw new AtlasError("timeout", defaultMessageForKind("timeout"), { cause });
     }
-    if (options.signal?.aborted) throw cause;
     throw new AtlasError("network", defaultMessageForKind("network"), { cause });
   }
+  clearTimeout(connectTimer);
 
   if (!response.ok) {
     // Failures on these routes still answer with Atlas's JSON error envelope.
@@ -1832,7 +1846,7 @@ async function atlasCsvRequest(
       status: response.status,
     });
   }
-  return response.text();
+  return response;
 }
 
 /**
@@ -1840,13 +1854,14 @@ async function atlasCsvRequest(
  *
  * Atlas's own `Content-Disposition` on this route names the file `atlas-usage.csv` (its `_csv`
  * helper hardcodes that name for both exports, `atlas/app.py:1133-1141`); the same-origin
- * export route sets a correct filename of its own when relaying.
+ * export route sets a correct filename of its own when relaying. The returned `Response`'s
+ * body is Atlas's CSV byte stream, ready to relay without buffering.
  */
 export async function atlasExportAuditCsv(
   token: string,
   params: AtlasAuditParams = {},
   options: AtlasCallOptions = {},
-): Promise<string> {
+): Promise<Response> {
   return atlasCsvRequest(
     "/api/audit",
     {
@@ -1859,12 +1874,12 @@ export async function atlasExportAuditCsv(
   );
 }
 
-/** `GET /api/usage?format=csv` — one row per raw usage event in the range. */
+/** `GET /api/usage?format=csv` — one row per raw usage event in the range, as a stream. */
 export async function atlasExportUsageCsv(
   token: string,
   params: AtlasUsageParams = {},
   options: AtlasCallOptions = {},
-): Promise<string> {
+): Promise<Response> {
   return atlasCsvRequest(
     "/api/usage",
     { from: params.from || undefined, to: params.to || undefined },

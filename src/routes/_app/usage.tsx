@@ -7,7 +7,7 @@ import { DateRangeForm } from "@/components/atlas/date-range";
 import { DataTable, PageHeader } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import { Button } from "@/components/ui/button";
-import { parseDateBoundary } from "@/lib/atlas-dates";
+import { DEFAULT_USAGE_WINDOW_DAYS, defaultUsageFrom, parseDateBoundary } from "@/lib/atlas-dates";
 import { toClientAtlasError, type UsageEventView } from "@/lib/atlas-mappers";
 import { usageQuery } from "@/lib/atlas-queries";
 
@@ -49,10 +49,23 @@ const RENDERED_EVENT_CAP = 200;
 function UsagePage() {
   const { from, to } = Route.useSearch();
   const navigate = Route.useNavigate();
-  const usage = useQuery(usageQuery({ from, to }));
 
+  /**
+   * The request Atlas actually receives is always bounded by default.
+   *
+   * `GET /api/usage` has no `limit`, so a bare visit would fetch the entire ledger — every
+   * event ever recorded — into this server and the browser on page load. When the URL carries
+   * no explicit bound at all, the last 30 days are requested instead; a user who wants a
+   * wider window states one deliberately through the form (which then appears in the URL).
+   * An explicitly chosen bound, even a one-sided one, is respected as given.
+   */
+  const bounded = from !== undefined || to !== undefined;
+  const effectiveFrom = bounded ? from : defaultUsageFrom();
+  const usage = useQuery(usageQuery({ from: effectiveFrom, to }));
+
+  // The export carries the same range the page shows, including the default bound.
   const exportHref = `/api/exports/usage-csv?${[
-    from ? `from=${encodeURIComponent(from)}` : "",
+    effectiveFrom ? `from=${encodeURIComponent(effectiveFrom)}` : "",
     to ? `to=${encodeURIComponent(to)}` : "",
   ]
     .filter(Boolean)
@@ -75,11 +88,21 @@ function UsagePage() {
         }
       />
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        {/* Keyed by the applied range so browser Back/Forward re-seeds the inputs — a form
+            showing 1990 above a table showing this month would misreport what is on screen. */}
         <DateRangeForm
-          from={from}
+          key={`${effectiveFrom ?? ""}|${to ?? ""}`}
+          from={effectiveFrom}
           to={to}
           onApply={(next) => void navigate({ search: () => ({ from: next.from, to: next.to }) })}
         />
+        {bounded ? null : (
+          <p className="-mt-3 mb-6 text-xs text-muted-foreground">
+            Defaulting to the last {DEFAULT_USAGE_WINDOW_DAYS} days (from {effectiveFrom}). Atlas
+            has no limit on this endpoint, so an unbounded request would return the entire ledger —
+            apply a wider range deliberately if you need one.
+          </p>
+        )}
 
         {usage.isPending ? (
           <LoadingState label="Loading usage" />
@@ -116,7 +139,9 @@ function UsagePage() {
             </div>
 
             <p className="mt-3 text-xs text-muted-foreground">
-              Estimated cost for {from || to ? "this range" : "the whole ledger"}:{" "}
+              Estimated cost for{" "}
+              {bounded ? "this range" : `the default last-${DEFAULT_USAGE_WINDOW_DAYS}-days window`}
+              :{" "}
               <span className="font-mono">
                 ${usage.data.totals.estimatedCostUsd.toFixed(4)} USD
               </span>{" "}
@@ -126,13 +151,12 @@ function UsagePage() {
 
             <section className="mt-8">
               <h2 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                Usage events {from || to ? "in range" : "(entire ledger)"}
+                Usage events in range
               </h2>
               {usage.data.eventCount === 0 ? (
                 <div className="rounded-lg border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
-                  {from || to
-                    ? "Atlas recorded no usage events in this date range."
-                    : "Atlas has recorded no usage events yet. Events appear as jobs and workflow runs complete."}
+                  Atlas recorded no usage events in this date range. Events appear as jobs and
+                  workflow runs complete.
                 </div>
               ) : (
                 <>

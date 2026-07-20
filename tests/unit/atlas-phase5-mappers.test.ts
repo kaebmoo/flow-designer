@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { parseDateBoundary } from "@/lib/atlas-dates";
+import { DEFAULT_USAGE_WINDOW_DAYS, defaultUsageFrom, parseDateBoundary } from "@/lib/atlas-dates";
 import {
   toApiTokenView,
   toAuditEntryView,
@@ -250,6 +250,26 @@ describe("toUsageView", () => {
     expect(runEvent.seconds).toBeNull();
     expect(runEvent.tokensPrompt).toBeNull();
     expect(runEvent.model).toBe("");
+  });
+});
+
+describe("defaultUsageFrom", () => {
+  /**
+   * The usage page's default bound exists because `GET /api/usage` has no limit — an
+   * unbounded default request would fetch the entire ledger. The value must be a bare ISO
+   * date (what Atlas's `from` accepts and what a date input renders) exactly the window's
+   * length in the past.
+   */
+  it("returns an ISO date exactly the window's days before the given instant", () => {
+    const now = new Date("2026-07-21T10:30:00Z");
+    const from = defaultUsageFrom(now);
+    expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const elapsedDays = (now.getTime() - Date.parse(`${from}T10:30:00Z`)) / 86_400_000;
+    expect(elapsedDays).toBe(DEFAULT_USAGE_WINDOW_DAYS);
+  });
+
+  it("is a valid boundary by the same validator the RPC layer applies", () => {
+    expect(parseDateBoundary(defaultUsageFrom(), "from")).toBe(defaultUsageFrom());
   });
 });
 
