@@ -1,1218 +1,929 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+/**
+ * The Atlas-native workflow editor.
+ *
+ * The canvas edits one thing: the semantic graph in `workflow-graph.ts`. React Flow's own
+ * objects are a projection of that graph, rebuilt whenever it changes, with positions merged in
+ * from local storage on the way out. Nothing flows back the other way except a drag, which
+ * updates the layout and never the graph — which is why moving a node does not make the
+ * workflow dirty and does not offer to `PUT` anything to Atlas.
+ *
+ * The palette has exactly four entries because Atlas's executor accepts exactly four node
+ * types. Conditions are edited on edges, parallelism is several outgoing edges, a loop is a
+ * guarded back-edge, and triggers are a separate resource with their own panel. None of those
+ * is a node here and none is convertible into one: a graph containing a `condition`, `loop`,
+ * `fanout`, or `trigger` node is rejected by Atlas on save, so offering to draw one would be
+ * offering to build something that cannot be saved.
+ */
+
 import {
-  ReactFlow,
-  ReactFlowProvider,
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
-  addEdge,
-  useEdgesState,
-  useNodesState,
+  ReactFlow,
+  ReactFlowProvider,
+  applyNodeChanges,
+  useReactFlow,
   type Connection,
   type Edge,
-  type EdgeChange,
   type Node,
   type NodeChange,
+  type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { AtlasNode, type AtlasNodeData } from "./workflow-node";
-import { NODE_PRESENTATION } from "./workflow-node-presentation";
-import { createWorkflowSimulator, type PendingGate } from "./workflow-simulator";
+import { AlertTriangle, Check, Play, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  NODE_KINDS,
-  useAtlas,
-  type ChoiceOption,
-  type Workflow,
-  type WorkflowNodeConfig,
-  type WorkflowNodeConfigValue,
-  type WorkflowNode,
-  type WorkflowRun,
+  describeCondition,
+  removeNode,
+  renameNodeId,
+  serializeWorkflowGraph,
+  serializeWorkflowPolicy,
+  unreachableNodeIds,
+  validateWorkflow,
+  type GraphEdge,
+  type GraphNode,
   type NodeKind,
-} from "./workflow-scaffold-store";
+  type ValidationIssue,
+  type WorkflowGraph,
+  type WorkflowPolicy,
+} from "@/lib/workflow-graph";
+import { EdgeInspector, NodeInspector, PolicyPanel } from "./workflow-inspector";
 import {
-  ArrowLeft,
-  Braces,
-  Check,
-  CheckCircle2,
-  ChevronRight,
-  ClipboardCheck,
-  Clock3,
-  GitBranch,
-  Link2,
-  Play,
-  Plus,
-  Save,
-  Sparkles,
-  Trash2,
-  Wrench,
-  X,
-  XCircle,
-  Zap,
-} from "lucide-react";
-import { Link, useNavigate } from "@tanstack/react-router";
+  autoLayout,
+  clearLayout,
+  readLayout,
+  renameInLayout,
+  resolveLayout,
+  writeLayout,
+  type WorkflowLayout,
+} from "./workflow-layout";
+import { NODE_PRESENTATION, PALETTE_ORDER } from "./workflow-node-presentation";
+import { WorkflowCanvasNode, type CanvasNodeData } from "./workflow-node";
 
-const nodeTypes = { atlas: AtlasNode };
+const nodeTypes: NodeTypes = { atlas: WorkflowCanvasNode };
 
-const DEFAULT_NODE_CONFIG: Record<NodeKind, WorkflowNodeConfig> = {
-  trigger: { mode: "webhook", path: "/api/v1/events", time: "09:00", event_workflow: "" },
-  worker: {
-    worker: "wrk_01",
-    workspace: "thclaws",
-    prompt: "Describe the work this node should complete.",
-    output: "result",
-  },
-  condition: {
-    expr: "payload.status === 'ready'",
-    true_label: "matches",
-    false_label: "otherwise",
-  },
-  decision: {
-    question: "Pick how to continue.",
-    choices: [
-      { id: "choice_a", label: "Option A" },
-      { id: "choice_b", label: "Option B" },
-    ],
-  },
-  loop: { collection: "payload.items", limit: "100" },
-  fanout: { branches: "2" },
-  join: { mode: "all", quorum: "2" },
-  approval: {
-    approvers: "ops-lead",
-    message: "Please review before the workflow continues.",
-    timeout_s: "600",
-  },
-  manager: { prompt: "Review the connected results and choose the next appropriate path." },
-};
+type Selection =
+  | { kind: "node"; id: string }
+  | { kind: "edge"; index: number }
+  | { kind: "policy" }
+  | null;
 
-const configText = (config: WorkflowNodeConfig, key: string, fallback = "") => {
-  const value = config[key];
-  return typeof value === "string" || typeof value === "number" ? String(value) : fallback;
-};
-
-const configChoices = (config: WorkflowNodeConfig): ChoiceOption[] =>
-  Array.isArray(config.choices) ? config.choices : [];
-
-function defaultedConfig(node: WorkflowNode): WorkflowNodeConfig {
-  const config = { ...DEFAULT_NODE_CONFIG[node.kind], ...node.config };
-  if (node.kind !== "trigger" || configText(node.config, "mode")) return config;
-  if (configText(node.config, "cron")) return { ...config, mode: "schedule" };
-  if (node.label.toLowerCase().includes("manual")) return { ...config, mode: "manual" };
-  return config;
-}
-
-function nodeHint(node: WorkflowNode) {
-  const config = defaultedConfig(node);
-  if (node.kind === "trigger") {
-    const mode = configText(config, "mode", "webhook");
-    if (mode === "event") return "After another workflow";
-    if (mode === "schedule") return `Daily at ${configText(config, "time", "09:00")}`;
-    return configText(config, "path", "Manual start");
+/** A readable id for a new node: `worker_1`, `worker_2`, … */
+function nextNodeId(graph: WorkflowGraph, kind: NodeKind): string {
+  const prefix = kind === "human_gate" ? "gate" : kind;
+  for (let index = 1; ; index += 1) {
+    const candidate = `${prefix}_${index}`;
+    if (!graph.nodes.some((node) => node.id === candidate)) return candidate;
   }
-  if (node.kind === "worker")
-    return configText(config, "output")
-      ? `Saves ${configText(config, "output")}`
-      : configText(config, "workspace", "Worker job");
-  if (node.kind === "condition") return configText(config, "expr", "Evaluate expression");
-  if (node.kind === "decision") return `${configChoices(config).length} choices for a person`;
-  if (node.kind === "approval")
-    return configText(config, "approvers")
-      ? `For ${configText(config, "approvers")}`
-      : "Wait for review";
-  if (node.kind === "join")
-    return configText(config, "mode")
-      ? `Wait for ${configText(config, "mode")}`
-      : "Wait for branches";
-  if (node.kind === "loop") return configText(config, "collection", "Iterate items");
-  if (node.kind === "fanout") return `${configText(config, "branches", "2")} parallel paths`;
-  return configText(config, "prompt", "Choose a connected path");
 }
 
-function toFlow(wf: Workflow, runStates?: Record<string, AtlasNodeData["runState"]>) {
-  const nodes: Node[] = wf.nodes.map((n) => ({
-    id: n.id,
-    type: "atlas",
-    position: { x: n.x, y: n.y },
-    data: {
-      kind: n.kind,
-      label: n.label,
-      hint: nodeHint(n),
-      config: defaultedConfig(n),
-      runState: runStates?.[n.id],
-    } satisfies AtlasNodeData,
-  }));
-  const edges: Edge[] = wf.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: e.label,
-    sourceHandle: e.sourceHandle,
-    targetHandle: e.targetHandle,
-    animated: runStates?.[e.source] === "success" && runStates?.[e.target] === "running",
-    style: { stroke: "var(--color-primary)", strokeWidth: 2, strokeOpacity: 0.65 },
-  }));
-  return { nodes, edges };
-}
-
-type RunLog = {
-  ts: string;
-  node: string;
-  level: "info" | "success" | "error" | "warn";
-  text: string;
-};
-
-function RunGate({
-  gate,
-  onApprove,
-  onChoose,
-}: {
-  gate: PendingGate;
-  onApprove: (approved: boolean) => void;
-  onChoose: (choiceId: string) => void;
-}) {
-  if (gate.kind === "approval") {
-    return (
-      <div className="mb-3 rounded-xl border border-amber-300/35 bg-amber-300/[0.09] p-3 font-sans">
-        <div className="flex items-center gap-2 text-xs font-bold text-amber-100">
-          <Clock3 className="size-4" /> Approval needed · {gate.title}
-        </div>
-        <p className="mt-1.5 text-[11px] leading-5 text-[#d3c28a]">{gate.message}</p>
-        <div className="mt-3 flex gap-2">
-          <button
-            type="button"
-            onClick={() => onApprove(false)}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-destructive/45 bg-destructive/10 px-3 py-2 text-[11px] font-bold text-destructive transition hover:bg-destructive/20"
-          >
-            <XCircle className="size-3.5" /> Reject
-          </button>
-          <button
-            type="button"
-            onClick={() => onApprove(true)}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-[11px] font-bold text-primary-foreground transition hover:brightness-110"
-          >
-            <CheckCircle2 className="size-3.5" /> Approve
-          </button>
-        </div>
-      </div>
-    );
+function newNode(id: string, kind: NodeKind): GraphNode {
+  switch (kind) {
+    case "worker":
+      return { id, type: "worker", prompt: "" };
+    case "manager":
+      // The schema constant is required and not editable; emitting it on creation means a
+      // manager is valid from the moment it exists, not only once its inspector is opened.
+      return { id, type: "manager", schema: "manager_decision_v1", prompt: "" };
+    case "join":
+      return { id, type: "join", mode: "all" };
+    case "human_gate":
+      return { id, type: "human_gate", label: "Approval" };
   }
+}
 
+/** The one-liner under a node title, derived from the graph and stored nowhere. */
+function nodeHint(node: GraphNode, graph: WorkflowGraph): string {
+  const outgoing = graph.edges.filter((edge) => edge.from === node.id).length;
+  const parallel = outgoing > 1 ? ` · ${outgoing} parallel paths` : "";
+
+  switch (node.type) {
+    case "worker":
+      return `${node.outputs?.[0] ? `→ ${node.outputs[0]}` : "no output artifact"}${parallel}`;
+    case "manager":
+      return `chooses among ${outgoing} path(s)`;
+    case "join": {
+      const upstream = new Set(
+        graph.edges.filter((edge) => edge.to === node.id).map((edge) => edge.from),
+      ).size;
+      return node.mode === "quorum"
+        ? `quorum ${node.quorum ?? 1} of ${upstream}`
+        : `${node.mode} of ${upstream}`;
+    }
+    case "human_gate":
+      return node.choices?.length
+        ? `${node.choices.length} choice(s)${parallel}`
+        : `approve or reject${parallel}`;
+  }
+}
+
+function nodeTitle(node: GraphNode): string {
+  return node.type === "human_gate" && node.label ? node.label : node.id;
+}
+
+function issueKey(issue: ValidationIssue): string {
+  const target = issue.target;
+  if (target.kind === "node") return `node:${target.nodeId}`;
+  if (target.kind === "edge") return `edge:${target.edgeIndex}`;
+  if (target.kind === "policy") return `policy:${target.field}`;
+  return `graph:${target.field ?? ""}`;
+}
+
+export interface WorkflowDraft {
+  name: string;
+  description: string;
+  graph: Record<string, unknown>;
+  policy: Record<string, unknown>;
+  /**
+   * The `updated_at` this editor believes Atlas holds — the lost-update guard's baseline.
+   *
+   * It belongs to the editor rather than to the route because a background refetch moves the
+   * route's copy. If the guard read that, a refetch that pulled in someone else's save would
+   * silently advance the baseline and the guard would compare against the *other* person's
+   * write — passing, and overwriting it. This value only ever advances when a save from this
+   * editor lands.
+   */
+  expectedUpdatedAt: string | null;
+}
+
+export interface WorkflowEditorProps {
+  /** Atlas's id, or null while creating a workflow that has not been saved yet. */
+  workflowId: string | null;
+  /** Keys the local layout alongside the workflow id. */
+  graphVersion: number;
+  initialName: string;
+  initialDescription: string;
+  initialGraph: WorkflowGraph;
+  initialPolicy: WorkflowPolicy;
+  /**
+   * Atlas's current `updated_at`, refreshed by the query.
+   *
+   * Used to notice that *someone else* wrote to this workflow while it was open. It is not
+   * used to detect this editor's own save — see `saveCount`.
+   */
+  savedAt: string | null;
+  /**
+   * How many saves from this editor have landed.
+   *
+   * A counter rather than a timestamp because `updated_at` cannot carry the signal: Atlas's
+   * `now_iso()` truncates to whole seconds (`atlas/db.py`), so creating a workflow and saving it
+   * a moment later produces the *same* `updated_at` and a timestamp comparison sees no change
+   * at all. The editor would then sit on "Unsaved changes" after a save that plainly worked.
+   */
+  saveCount: number;
+  /** Runtime node states from a run being viewed, keyed by node id. Empty while authoring. */
+  runStates?: Record<string, string>;
+  saving: boolean;
+  /** Rejections the server produced, mapped back onto the same node/edge/policy targets. */
+  serverIssues?: ValidationIssue[];
+  /** The message from the last failed save. Shown verbatim, because Atlas wrote it for us. */
+  saveError?: string | null;
+  onSave: (draft: WorkflowDraft) => void;
+  /** Validates against Atlas. Absent until the workflow has an id Atlas knows. */
+  onValidateWithAtlas?: (draft: {
+    graph: Record<string, unknown>;
+    policy: Record<string, unknown>;
+  }) => void;
+  validating?: boolean;
+  atlasValidation?: { ok: boolean; message: string } | null;
+  /** Starts a real run. Absent while the workflow is unsaved or the role cannot run it. */
+  onRun?: () => void;
+  running?: boolean;
+  /** Why running is unavailable, when it is. Shown instead of a silently dead button. */
+  runDisabledReason?: string;
+}
+
+export function WorkflowEditor(props: WorkflowEditorProps) {
   return (
-    <div className="mb-3 rounded-xl border border-teal-300/30 bg-teal-300/[0.08] p-3 font-sans">
-      <div className="flex items-center gap-2 text-xs font-bold text-teal-100">
-        <GitBranch className="size-4" /> Choice needed · {gate.title}
-      </div>
-      <p className="mt-1.5 text-[11px] leading-5 text-[#b9dedb]">{gate.question}</p>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        {gate.choices.map((choice) => (
-          <button
-            type="button"
-            key={choice.id}
-            onClick={() => onChoose(choice.id)}
-            className="rounded-lg border border-teal-300/25 bg-[#0d1e28] px-3 py-2 text-left text-[11px] font-semibold text-teal-100 transition hover:border-teal-200/70 hover:bg-teal-300/[0.12]"
-          >
-            {choice.label || "Untitled choice"}
-          </button>
-        ))}
-      </div>
-    </div>
+    <ReactFlowProvider>
+      <EditorSurface {...props} />
+    </ReactFlowProvider>
   );
 }
 
-export function WorkflowEditor({ workflow }: { workflow: Workflow }) {
-  const initial = useMemo(() => toFlow(workflow), [workflow]);
-  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
-  const [runStates, setRunStates] = useState<Record<string, AtlasNodeData["runState"]>>({});
-  const [logs, setLogs] = useState<RunLog[]>([]);
-  const [drawerOpen, setDrawerOpen] = useState(true);
-  const [dirty, setDirty] = useState(false);
-  const [pendingGate, setPendingGate] = useState<PendingGate | null>(null);
-  const simulatorRef = useRef<ReturnType<typeof createWorkflowSimulator> | null>(null);
+function EditorSurface({
+  workflowId,
+  graphVersion,
+  initialName,
+  initialDescription,
+  initialGraph,
+  initialPolicy,
+  savedAt,
+  saveCount,
+  runStates,
+  saving,
+  serverIssues,
+  saveError,
+  onSave,
+  onValidateWithAtlas,
+  validating,
+  atlasValidation,
+  onRun,
+  running,
+  runDisabledReason,
+}: WorkflowEditorProps) {
+  const [name, setName] = useState(initialName);
+  const [description, setDescription] = useState(initialDescription);
+  const [graph, setGraph] = useState<WorkflowGraph>(initialGraph);
+  const [policy, setPolicy] = useState<WorkflowPolicy>(initialPolicy);
+  const [selection, setSelection] = useState<Selection>(null);
+  const [layout, setLayout] = useState<WorkflowLayout>({});
+  const { fitView } = useReactFlow();
 
-  const updateWorkflow = useAtlas((s) => s.updateWorkflow);
-  const addRun = useAtlas((s) => s.addRun);
-  const updateRun = useAtlas((s) => s.updateRun);
-  const workers = useAtlas((s) => s.workers);
-  const workflows = useAtlas((s) => s.workflows);
-  const navigate = useNavigate();
-
-  const handleNodesChange = useCallback(
-    (changes: NodeChange<Node>[]) => {
-      onNodesChange(changes);
-      if (changes.some((change) => change.type === "position" && change.dragging !== true))
-        setDirty(true);
-    },
-    [onNodesChange],
+  const current = useMemo(
+    () => ({
+      name,
+      description,
+      graph: serializeWorkflowGraph(graph),
+      policy: serializeWorkflowPolicy(policy),
+    }),
+    [name, description, graph, policy],
   );
 
-  const handleEdgesChange = useCallback(
-    (changes: EdgeChange<Edge>[]) => {
-      onEdgesChange(changes);
-      if (changes.some((change) => change.type === "remove")) setDirty(true);
+  /**
+   * Dirty is a comparison against what Atlas holds, not a flag set by an event handler.
+   *
+   * The scaffold derived its flag from React Flow's `NodeChange` stream, so a drag marked the
+   * workflow dirty and a keyboard delete did not — exactly backwards, and the delete case meant
+   * losing a node silently. Comparing the bytes that would actually be sent cannot get that
+   * wrong: identical payload, nothing to save.
+   */
+  const [baseline, setBaseline] = useState(() =>
+    JSON.stringify({
+      name: initialName,
+      description: initialDescription,
+      graph: serializeWorkflowGraph(initialGraph),
+      policy: serializeWorkflowPolicy(initialPolicy),
+    }),
+  );
+  const dirty = JSON.stringify(current) !== baseline;
+
+  /**
+   * What this editor believes Atlas holds, and what it last sent.
+   *
+   * A save is not instantaneous, and the canvas stays editable while it is in flight. Baselining
+   * against whatever is on screen when the server answers would therefore mark an edit made
+   * during the save as already-saved and lose it on the next reload. Baselining against the
+   * payload that was actually sent cannot do that: anything typed since stays dirty.
+   */
+  const [guardUpdatedAt, setGuardUpdatedAt] = useState<string | null>(savedAt);
+  const sentPayload = useRef<string | null>(null);
+
+  const savedAtRef = useRef(savedAt);
+  savedAtRef.current = savedAt;
+
+  useEffect(() => {
+    if (saveCount === 0 || sentPayload.current === null) return;
+    setBaseline(sentPayload.current);
+    sentPayload.current = null;
+    setGuardUpdatedAt(savedAtRef.current);
+    // Nothing re-baselines when the server moves for any other reason. A refetch that brings in
+    // someone else's write leaves the draft exactly as the user has it — discarding their work
+    // to adopt a stranger's is the one thing that must not happen — and `changedElsewhere` below
+    // says so. The guard deliberately keeps the older value, so a save is refused rather than
+    // silently overwriting.
+  }, [saveCount]);
+
+  /**
+   * Someone else wrote to this workflow while it was open.
+   *
+   * Detected by the server timestamp moving past what this editor last saw. It inherits Atlas's
+   * one-second resolution, so a write inside the same second as ours is invisible here — as it
+   * is to the server-side guard, which is recorded in `docs/ATLAS_LIMITATIONS.md`. It catches
+   * the case that actually happens: a tab left open while someone else edits.
+   */
+  const changedElsewhere =
+    savedAt !== null && guardUpdatedAt !== null && savedAt !== guardUpdatedAt;
+
+  const submit = () => {
+    const draft: WorkflowDraft = {
+      name,
+      description,
+      graph: current.graph,
+      policy: current.policy,
+      expectedUpdatedAt: guardUpdatedAt,
+    };
+    sentPayload.current = JSON.stringify({
+      name: draft.name,
+      description: draft.description,
+      graph: draft.graph,
+      policy: draft.policy,
+    });
+    onSave(draft);
+  };
+
+  // Layout is read in an effect, not in a lazy initialiser: `localStorage` does not exist during
+  // server rendering, so reading it up front would make SSR and hydration disagree about where
+  // every node sits.
+  const layoutKeyId = workflowId ?? "draft";
+  const initialGraphRef = useRef(initialGraph);
+  initialGraphRef.current = initialGraph;
+  /**
+   * Requests a view fit once the layout change it follows has actually been rendered.
+   *
+   * `fitView` reads React Flow's store, which holds the new positions only after the changed
+   * `nodes` prop has been committed and measured — calling it synchronously would fit to where
+   * the nodes just were, and a bare `requestAnimationFrame` races the commit. The effect below
+   * lists `flowNodes` in its dependencies, so it is guaranteed to run after the nodes are in.
+   */
+  const [fitRequest, setFitRequest] = useState(0);
+  const fitSoon = useCallback(() => setFitRequest((request) => request + 1), []);
+
+  useEffect(() => {
+    setLayout(resolveLayout(initialGraphRef.current, readLayout(layoutKeyId, graphVersion)));
+    // React Flow's `fitView` prop only runs on mount, and on mount every node is still at the
+    // origin because the layout has not been read yet. Fitting once it has is what makes the
+    // graph visible without the user having to pan to find it.
+    fitSoon();
+  }, [layoutKeyId, graphVersion, fitSoon]);
+
+  /**
+   * Applies a layout, writing it through to storage.
+   *
+   * `persist: false` keeps a mid-drag frame in memory only. `onNodesChange` fires on every
+   * pointer move, and a synchronous `localStorage.setItem` per frame is a main-thread write on
+   * the hot path of the one interaction that has to stay smooth.
+   */
+  const applyLayout = useCallback(
+    (next: WorkflowLayout, persist = true) => {
+      setLayout(next);
+      if (persist) writeLayout(layoutKeyId, graphVersion, next);
     },
-    [onEdgesChange],
+    [layoutKeyId, graphVersion],
+  );
+
+  const localIssues = useMemo(() => validateWorkflow(graph, policy), [graph, policy]);
+  const issues = useMemo(
+    () => [...localIssues, ...(serverIssues ?? [])],
+    [localIssues, serverIssues],
+  );
+  const issuesByTarget = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const issue of issues) {
+      const key = issueKey(issue);
+      const bucket = map.get(key);
+      if (bucket) bucket.push(issue.message);
+      else map.set(key, [issue.message]);
+    }
+    return map;
+  }, [issues]);
+
+  const orphans = useMemo(() => unreachableNodeIds(graph), [graph]);
+
+  /**
+   * React Flow's node objects, kept rather than rebuilt.
+   *
+   * The semantic graph is still the source of truth — this array is derived from it on every
+   * change. What it must *not* do is replace the node objects wholesale, because React Flow v12
+   * stores each node's measured size on the object it was given and keeps a node
+   * `visibility: hidden` until it has been measured. Handing it a freshly built array every
+   * render throws that measurement away on each pass, `fitView` never completes, and the canvas
+   * renders an invisible graph. Merging into the previous objects preserves it.
+   */
+  const [flowNodes, setFlowNodes] = useState<Node<CanvasNodeData>[]>([]);
+
+  useEffect(() => {
+    setFlowNodes((previous) => {
+      const byId = new Map(previous.map((node) => [node.id, node]));
+      return graph.nodes.map((node) => {
+        const existing = byId.get(node.id);
+        return {
+          ...existing,
+          id: node.id,
+          type: "atlas",
+          position: layout[node.id] ?? existing?.position ?? { x: 0, y: 0 },
+          selected: selection?.kind === "node" && selection.id === node.id,
+          data: {
+            kind: node.type,
+            title: nodeTitle(node),
+            hint: nodeHint(node, graph),
+            isStart: graph.start === node.id,
+            hasIssue: issuesByTarget.has(`node:${node.id}`),
+            runState: runStates?.[node.id],
+          },
+        } satisfies Node<CanvasNodeData>;
+      });
+    });
+  }, [graph, layout, selection, issuesByTarget, runStates]);
+
+  useEffect(() => {
+    if (fitRequest === 0 || flowNodes.length === 0) return;
+    const frame = window.requestAnimationFrame(() => void fitView({ duration: 150 }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [fitRequest, flowNodes, fitView]);
+
+  const flowEdges: Edge[] = useMemo(
+    () =>
+      graph.edges.map((edge, index) => ({
+        // The index is part of the identity because Atlas permits two edges between the same
+        // pair of nodes carrying different conditions — `from->to` alone is not unique.
+        id: `e${index}:${edge.from}->${edge.to}`,
+        source: edge.from,
+        target: edge.to,
+        // The caption is a render of the condition. It is not stored, and it cannot drift from
+        // the condition the way the scaffold's free-text edge labels did.
+        label: describeCondition(edge.condition),
+        selected: selection?.kind === "edge" && selection.index === index,
+        style: issuesByTarget.has(`edge:${index}`)
+          ? { stroke: "var(--color-destructive)" }
+          : undefined,
+      })),
+    [graph, selection, issuesByTarget],
+  );
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<Node<CanvasNodeData>>[]) => {
+      // Every change is forwarded, including the `dimensions` change that carries React Flow's
+      // measurement — dropping it is what leaves nodes invisible.
+      setFlowNodes((previous) => applyNodeChanges(changes, previous));
+
+      // A position change is *layout*, not graph: it updates local storage and never touches
+      // the semantic model or the dirty state, which is why dragging a node does not make the
+      // workflow claim unsaved changes.
+      const moves = changes.filter(
+        (change): change is Extract<NodeChange<Node<CanvasNodeData>>, { type: "position" }> =>
+          change.type === "position" && change.position !== undefined,
+      );
+      if (moves.length === 0) return;
+
+      // React Flow reports `dragging: true` for every frame of a drag and `false` once it ends;
+      // only the settled frame is written through to storage.
+      const settled = !moves.some((change) => change.dragging === true);
+      setLayout((previous) => {
+        const next = { ...previous };
+        for (const move of moves) next[move.id] = move.position!;
+        if (settled) writeLayout(layoutKeyId, graphVersion, next);
+        return next;
+      });
+    },
+    [layoutKeyId, graphVersion],
+  );
+
+  const addNode = useCallback(
+    (kind: NodeKind) => {
+      const id = nextNodeId(graph, kind);
+      const next: WorkflowGraph = {
+        // The first node becomes the start: a graph without one is invalid, and asking the user
+        // to choose when there is exactly one candidate is a step with one possible answer.
+        start: graph.nodes.length === 0 ? id : graph.start,
+        nodes: [...graph.nodes, newNode(id, kind)],
+        edges: graph.edges,
+      };
+      setGraph(next);
+      applyLayout({ ...layout, [id]: autoLayout(next)[id] ?? { x: 0, y: 0 } });
+      setSelection({ kind: "node", id });
+      // A node placed outside the current pane would otherwise appear not to have been added.
+      fitSoon();
+    },
+    [graph, layout, applyLayout, fitSoon],
+  );
+
+  const deleteSelection = useCallback(() => {
+    if (selection?.kind === "node") {
+      setGraph((previous) => removeNode(previous, selection.id));
+    } else if (selection?.kind === "edge") {
+      setGraph((previous) => ({
+        ...previous,
+        edges: previous.edges.filter((_, index) => index !== selection.index),
+      }));
+    } else {
+      return;
+    }
+    // Clearing the selection is part of the delete, not a side effect: the scaffold left the
+    // inspector pointed at a node that no longer existed.
+    setSelection(null);
+  }, [selection]);
+
+  /**
+   * Keyboard delete, bound on the canvas rather than the document so it cannot fire while the
+   * user is deleting characters in an inspector field.
+   */
+  const onCanvasKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      if (selection?.kind !== "node" && selection?.kind !== "edge") return;
+      event.preventDefault();
+      deleteSelection();
+    },
+    [selection, deleteSelection],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      const source = nodes.find((node) => node.id === connection.source);
-      const sourceData = source?.data as AtlasNodeData | undefined;
-      let label: string | undefined;
-      if (sourceData?.kind === "condition") {
-        label =
-          connection.sourceHandle === "condition:false"
-            ? configText(sourceData.config, "false_label", "otherwise")
-            : configText(sourceData.config, "true_label", "matches");
-      }
-      if (sourceData?.kind === "decision" && connection.sourceHandle?.startsWith("choice:")) {
-        label = configChoices(sourceData.config).find(
-          (choice) => `choice:${choice.id}` === connection.sourceHandle,
-        )?.label;
-      }
-      setEdges((currentEdges) =>
-        addEdge(
-          {
-            ...connection,
-            label,
-            style: { stroke: "var(--color-primary)", strokeWidth: 2, strokeOpacity: 0.65 },
-          },
-          currentEdges,
-        ),
-      );
-      setDirty(true);
+      const { source, target } = connection;
+      if (!source || !target) return;
+      const from = graph.nodes.find((node) => node.id === source);
+      // Seed the condition Atlas requires for this source, so a freshly drawn edge is valid
+      // rather than immediately reported as a problem the user then has to go and fix.
+      const condition: GraphEdge["condition"] =
+        from?.type === "manager"
+          ? { type: "manager_selected", target }
+          : from?.type === "human_gate" && from.choices?.length
+            ? { type: "human_selected", choice: from.choices[0]!.id }
+            : { type: "always" };
+      const edges = [...graph.edges, { from: source, to: target, condition }];
+      setGraph({ ...graph, edges });
+      setSelection({ kind: "edge", index: edges.length - 1 });
     },
-    [nodes, setEdges],
+    [graph],
   );
 
-  const selectedNode = nodes.find((node) => node.id === selected);
-  const selectedData = selectedNode?.data as AtlasNodeData | undefined;
+  const updateNode = useCallback((next: GraphNode) => {
+    setGraph((previous) => ({
+      ...previous,
+      nodes: previous.nodes.map((node) => (node.id === next.id ? next : node)),
+    }));
+  }, []);
 
-  const updateSelected = (patch: Partial<AtlasNodeData>) => {
-    if (!selected) return;
-    setNodes((currentNodes) =>
-      currentNodes.map((node) =>
-        node.id === selected
-          ? { ...node, data: { ...(node.data as AtlasNodeData), ...patch } }
-          : node,
-      ),
-    );
-    setDirty(true);
-  };
+  const rename = useCallback(
+    (fromId: string, toId: string): { ok: boolean; reason?: string } => {
+      const result = renameNodeId(graph, fromId, toId);
+      if (!result.ok) return { ok: false, reason: result.reason };
+      setGraph(result.graph);
+      applyLayout(renameInLayout(layout, fromId, toId));
+      setSelection({ kind: "node", id: toId });
+      return { ok: true };
+    },
+    [graph, layout, applyLayout],
+  );
 
-  const updateConfig = (key: string, value: WorkflowNodeConfigValue) => {
-    if (!selectedData) return;
-    updateSelected({ config: { ...selectedData.config, [key]: value } });
-  };
+  const selectedNode =
+    selection?.kind === "node" ? graph.nodes.find((node) => node.id === selection.id) : undefined;
+  const selectedEdge = selection?.kind === "edge" ? graph.edges[selection.index] : undefined;
 
-  const updateDecisionChoices = (choices: ChoiceOption[]) => {
-    if (!selectedData || selectedData.kind !== "decision" || !selected) return;
-    const validHandles = new Set(choices.map((choice) => `choice:${choice.id}`));
-    const labelsByHandle = new Map(choices.map((choice) => [`choice:${choice.id}`, choice.label]));
-    setNodes((currentNodes) =>
-      currentNodes.map((node) =>
-        node.id === selected
-          ? {
-              ...node,
-              data: {
-                ...(node.data as AtlasNodeData),
-                config: { ...(node.data as AtlasNodeData).config, choices },
-              },
-            }
-          : node,
-      ),
-    );
-    setEdges((currentEdges) =>
-      currentEdges
-        .filter(
-          (edge) =>
-            edge.source !== selected ||
-            !edge.sourceHandle?.startsWith("choice:") ||
-            validHandles.has(edge.sourceHandle),
-        )
-        .map((edge) =>
-          edge.source === selected && edge.sourceHandle?.startsWith("choice:")
-            ? { ...edge, label: labelsByHandle.get(edge.sourceHandle) ?? edge.label }
-            : edge,
-        ),
-    );
-    setDirty(true);
-  };
-
-  const addNode = (kind: NodeKind) => {
-    const id = `n_${Math.random().toString(36).slice(2, 7)}`;
-    const newNode: Node = {
-      id,
-      type: "atlas",
-      position: { x: 240 + Math.random() * 280, y: 120 + Math.random() * 280 },
-      data: {
-        kind,
-        label: NODE_KINDS.find((item) => item.kind === kind)?.label ?? kind,
-        hint: NODE_PRESENTATION[kind].description,
-        config: { ...DEFAULT_NODE_CONFIG[kind] },
-      } satisfies AtlasNodeData,
-    };
-    setNodes((currentNodes) => [...currentNodes, newNode]);
-    setSelected(id);
-    setDirty(true);
-  };
-
-  const removeSelected = () => {
-    if (!selected) return;
-    setNodes((currentNodes) => currentNodes.filter((node) => node.id !== selected));
-    setEdges((currentEdges) =>
-      currentEdges.filter((edge) => edge.source !== selected && edge.target !== selected),
-    );
-    setSelected(null);
-    setDirty(true);
-  };
-
-  const save = () => {
-    updateWorkflow(workflow.id, {
-      nodes: nodes.map((node) => {
-        const data = node.data as AtlasNodeData;
-        return {
-          id: node.id,
-          kind: data.kind,
-          label: data.label,
-          x: node.position.x,
-          y: node.position.y,
-          config: data.config,
-        };
-      }),
-      edges: edges.map((edge) => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        label: edge.label as string | undefined,
-        sourceHandle: edge.sourceHandle,
-        targetHandle: edge.targetHandle,
-      })),
-    });
-    setDirty(false);
-  };
-
-  const run = () => {
-    simulatorRef.current?.cancel();
-    save();
-    const id = addRun(workflow.id);
-    // `AtlasNodeData["runState"]` is optional, so casting to it makes every value
-    // `... | undefined` and the record stops matching `WorkflowRun["node_states"]`, which
-    // requires a concrete state per node. A run always starts with every node queued, so
-    // strip the undefined rather than widening the run type.
-    const initialStates: WorkflowRun["node_states"] = Object.fromEntries(
-      nodes.map((node) => [node.id, "queued" as NonNullable<AtlasNodeData["runState"]>]),
-    );
-    const initialLogs: RunLog[] = [
-      {
-        ts: new Date().toLocaleTimeString(),
-        node: "SYSTEM",
-        level: "info",
-        text: `Run ${id} started.`,
-      },
-    ];
-    let currentStates = initialStates;
-    let currentLogs = initialLogs;
-    setRunId(id);
-    setDrawerOpen(true);
-    setPendingGate(null);
-    setLogs(initialLogs);
-    setRunStates(initialStates);
-    updateRun(id, { node_states: initialStates, log: initialLogs });
-    const simulator = createWorkflowSimulator({
-      nodes,
-      edges,
-      onNodeState: (nodeId, state) => {
-        currentStates = { ...currentStates, [nodeId]: state };
-        setRunStates(currentStates);
-        updateRun(id, {
-          node_states: currentStates,
-          state: state === "waiting" ? "paused" : "running",
-        });
-      },
-      onLog: (nodeId, text, level = "info") => {
-        const node = nodes.find((item) => item.id === nodeId);
-        currentLogs = [
-          ...currentLogs,
-          {
-            ts: new Date().toLocaleTimeString(),
-            node: node ? (node.data as AtlasNodeData).label.toUpperCase() : nodeId,
-            level,
-            text,
-          },
-        ];
-        setLogs(currentLogs);
-        updateRun(id, { log: currentLogs });
-      },
-      onGate: setPendingGate,
-      onFinish: (state) => {
-        updateRun(id, { state, node_states: currentStates, log: currentLogs });
-      },
-    });
-    simulatorRef.current = simulator;
-    simulator.start();
-  };
-
-  useEffect(() => {
-    setNodes((currentNodes) =>
-      currentNodes.map((node) => ({
-        ...node,
-        data: { ...(node.data as AtlasNodeData), runState: runStates[node.id] },
-      })),
-    );
-  }, [runStates, setNodes]);
+  const blocking = localIssues.length > 0;
 
   return (
-    <div className="workflow-editor flex h-full min-h-0 flex-col bg-[#0b1420]">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-[#273647] bg-[#101a27]/95 px-5 backdrop-blur">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link
-            to="/workflows"
-            aria-label="Back to workflows"
-            className="grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
-          >
-            <ArrowLeft className="size-4" />
-          </Link>
-          <div className="grid size-9 shrink-0 place-items-center rounded-lg border border-primary/20 bg-primary/15 text-primary">
-            <Zap className="size-4" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="truncate text-sm font-bold tracking-[-0.01em] text-foreground">
-              {workflow.name}
-            </h1>
-            <div className="mt-0.5 flex items-center gap-2 text-[10px] font-medium text-muted-foreground">
-              <span
-                className={`inline-flex items-center gap-1 ${workflow.trigger_enabled ? "text-primary" : ""}`}
-              >
-                <span
-                  className={`size-1.5 rounded-full ${workflow.trigger_enabled ? "bg-primary animate-pulse" : "bg-muted-foreground"}`}
-                />
-                {workflow.trigger_enabled ? "Trigger enabled" : "Trigger disabled"}
-              </span>
-              <span className="text-[#405369]">•</span>
-              <span>{nodes.length} steps</span>
-            </div>
-          </div>
-          {dirty && (
-            <span className="hidden rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-1 text-[10px] font-semibold text-amber-200 sm:inline">
-              Unsaved changes
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              updateWorkflow(workflow.id, { trigger_enabled: !workflow.trigger_enabled })
-            }
-            className="hidden items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground transition hover:bg-white/5 hover:text-foreground lg:flex"
-          >
-            <Zap className="size-3.5" />{" "}
-            {workflow.trigger_enabled ? "Disable trigger" : "Enable trigger"}
-          </button>
-          <button
-            type="button"
-            className="hidden items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground transition hover:bg-white/5 hover:text-foreground xl:flex"
-          >
-            <Wrench className="size-3.5" /> Check
-          </button>
-          <button
-            type="button"
-            onClick={save}
-            className="flex items-center gap-1.5 rounded-lg border border-[#3b4d60] bg-[#172434] px-3.5 py-2 text-xs font-bold text-foreground transition hover:border-[#52677c] hover:bg-[#1c2a3a]"
-          >
-            <Save className="size-3.5" /> Save
-          </button>
-          <button
-            type="button"
-            onClick={run}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow-[0_8px_18px_color-mix(in_oklab,var(--color-primary)_24%,transparent)] transition hover:brightness-110"
-          >
-            <Play className="size-3.5 fill-current" /> Run
-          </button>
-        </div>
-      </header>
-
-      <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-64 shrink-0 flex-col border-r border-[#273647] bg-[#101a27] p-3 lg:flex">
-          <div className="px-2 pb-3 pt-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#8193a7]">
-            Add a step
-          </div>
-          <div className="space-y-1">
-            {NODE_KINDS.map((kind) => {
-              const presentation = NODE_PRESENTATION[kind.kind];
+    <div className="flex min-h-0 flex-1">
+      <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-card">
+        <div className="border-b border-border px-4 py-4">
+          <h3 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Add a node
+          </h3>
+          <div className="space-y-1.5">
+            {PALETTE_ORDER.map((kind) => {
+              const presentation = NODE_PRESENTATION[kind];
               const Icon = presentation.icon;
               return (
                 <button
+                  key={kind}
                   type="button"
-                  key={kind.kind}
-                  onClick={() => addNode(kind.kind)}
-                  className="group flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition hover:bg-white/[0.055]"
+                  onClick={() => addNode(kind)}
+                  className="flex w-full items-center gap-2.5 rounded-md border border-border px-2 py-2 text-left transition-colors hover:bg-secondary"
                 >
                   <span
-                    className={`grid size-9 shrink-0 place-items-center rounded-lg ${presentation.tile}`}
+                    className={`grid size-7 shrink-0 place-items-center rounded ${presentation.tile}`}
                   >
-                    <Icon className="size-4" />
+                    <Icon className="size-3.5" aria-hidden="true" />
                   </span>
                   <span className="min-w-0">
                     <span className="block truncate text-xs font-semibold text-foreground">
                       {presentation.label}
                     </span>
-                    <span className="mt-0.5 block truncate text-[10px] leading-tight text-muted-foreground">
+                    <span className="block truncate text-[10px] text-muted-foreground">
                       {presentation.description}
                     </span>
                   </span>
-                  <Plus className="ml-auto size-3.5 shrink-0 text-[#587087] opacity-0 transition group-hover:opacity-100" />
                 </button>
               );
             })}
           </div>
-          <div className="mt-auto rounded-xl border border-[#2b3a4a] bg-[#0d1723] p-3 text-[11px] leading-5 text-muted-foreground">
-            Select a step to add it, then drag it into place and connect its ports on the canvas.
-          </div>
-        </aside>
+          {/*
+            Naming the four things that are deliberately absent costs three lines and saves an
+            operator hunting for a Condition tile that Atlas could never have stored.
+          */}
+          <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+            Conditions live on edges. Parallel work is several outgoing edges. A loop is a back-edge
+            with a guard. Triggers are managed outside the graph.
+          </p>
+        </div>
 
-        <div className="relative min-w-0 flex-1 overflow-hidden">
-          <ReactFlowProvider>
-            <div className="workflow-canvas absolute inset-0">
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={handleNodesChange}
-                onEdgesChange={handleEdgesChange}
-                onConnect={onConnect}
-                onNodeClick={(_, node) => setSelected(node.id)}
-                onPaneClick={() => setSelected(null)}
-                nodeTypes={nodeTypes}
-                fitView
-                fitViewOptions={{ padding: 0.24 }}
-                proOptions={{ hideAttribution: true }}
-                defaultEdgeOptions={{
-                  style: { stroke: "var(--color-primary)", strokeWidth: 2, strokeOpacity: 0.65 },
-                }}
-              >
-                <Background gap={22} size={1.2} color="rgba(140, 166, 192, 0.16)" />
-                <Controls showInteractive={false} />
-                <MiniMap
-                  nodeColor={() => "#15cfe2"}
-                  maskColor="rgba(6, 12, 20, 0.74)"
-                  pannable
-                  zoomable
-                />
-              </ReactFlow>
-            </div>
-          </ReactFlowProvider>
+        <div className="border-b border-border px-4 py-4">
+          <button
+            type="button"
+            onClick={() => setSelection({ kind: "policy" })}
+            className={`w-full rounded-md border px-2 py-2 text-left text-xs font-semibold transition-colors ${
+              selection?.kind === "policy"
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-foreground hover:bg-secondary"
+            }`}
+          >
+            Run policy
+            {issues.some((issue) => issue.target.kind === "policy") ? (
+              <span className="ml-1.5 text-destructive">•</span>
+            ) : null}
+          </button>
+        </div>
 
-          <div className="pointer-events-none absolute left-5 top-5 z-10 hidden rounded-full border border-[#34475a] bg-[#101a27]/90 px-3 py-1.5 text-[10px] font-medium text-muted-foreground shadow-lg backdrop-blur xl:block">
-            Canvas <span className="mx-1.5 text-[#43586d]">/</span> drag to arrange{" "}
-            <span className="mx-1.5 text-[#43586d]">/</span> connect ports to link
-          </div>
-
-          {runId && (
-            <section
-              className={`absolute bottom-0 left-0 right-0 z-20 border-t border-[#2c3d4f] bg-[#0e1825]/98 shadow-[0_-20px_45px_rgba(0,0,0,0.35)] backdrop-blur transition-[height] duration-200 ${drawerOpen ? (pendingGate ? "h-72" : "h-52") : "h-11"}`}
-            >
-              <header className="flex h-11 items-center justify-between border-b border-[#273647] px-4">
-                <div className="flex min-w-0 items-center gap-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <h3 className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            Checks
+          </h3>
+          {issues.length === 0 ? (
+            <p className="flex items-center gap-1.5 text-xs text-success">
+              <Check className="size-3.5" aria-hidden="true" /> Ready to save
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {issues.map((issue, index) => (
+                <li key={`${issueKey(issue)}:${index}`}>
                   <button
                     type="button"
-                    onClick={() => setDrawerOpen((open) => !open)}
-                    className="grid size-7 place-items-center rounded-md text-muted-foreground transition hover:bg-white/5 hover:text-foreground"
+                    onClick={() => {
+                      const target = issue.target;
+                      if (target.kind === "node") setSelection({ kind: "node", id: target.nodeId });
+                      else if (target.kind === "edge")
+                        setSelection({ kind: "edge", index: target.edgeIndex });
+                      else if (target.kind === "policy") setSelection({ kind: "policy" });
+                    }}
+                    className="w-full text-left text-[11px] leading-snug text-destructive hover:underline"
                   >
-                    <ChevronRight
-                      className={`size-4 transition ${drawerOpen ? "rotate-90" : ""}`}
-                    />
+                    {issue.target.kind === "node"
+                      ? `${issue.target.nodeId}: `
+                      : issue.target.kind === "edge"
+                        ? `edge ${issue.target.edgeIndex + 1}: `
+                        : ""}
+                    {issue.message}
                   </button>
-                  <div className="flex items-center gap-2 truncate text-xs font-semibold text-foreground">
-                    <span className="size-2 animate-pulse rounded-full bg-primary" /> Live run{" "}
-                    {runId}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => navigate({ to: "/runs/$id", params: { id: runId } })}
-                    className="hidden text-[10px] font-semibold text-primary hover:underline sm:block"
-                  >
-                    Open full view
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRunId(null);
-                    setRunStates({});
-                    setPendingGate(null);
-                    simulatorRef.current?.cancel();
-                    simulatorRef.current = null;
-                  }}
-                  className="rounded-md px-2 py-1 text-[10px] font-semibold text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
-                >
-                  Clear
-                </button>
-              </header>
-              {drawerOpen && (
-                <div className="h-[calc(100%-2.75rem)] overflow-y-auto p-3 font-mono text-[11px] leading-relaxed">
-                  {pendingGate && (
-                    <RunGate
-                      gate={pendingGate}
-                      onApprove={(approved) => simulatorRef.current?.approve(approved)}
-                      onChoose={(choiceId) => simulatorRef.current?.choose(choiceId)}
-                    />
-                  )}
-                  {logs.map((log, index) => (
-                    <div
-                      key={index}
-                      className="flex gap-3 rounded-lg px-2 py-1.5 hover:bg-white/[0.03]"
-                    >
-                      <span className="shrink-0 text-primary">{log.ts}</span>
-                      <span className="w-28 shrink-0 truncate text-[#8193a7]">[{log.node}]</span>
-                      <span
-                        className={
-                          log.level === "success"
-                            ? "text-[var(--color-success)]"
-                            : log.level === "error"
-                              ? "text-destructive"
-                              : "text-foreground"
-                        }
-                      >
-                        {log.text}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
 
-        {selectedNode && selectedData && (
-          <NodeInspector
-            data={selectedData}
-            workers={workers}
-            workflows={workflows.filter((item) => item.id !== workflow.id)}
-            onClose={() => setSelected(null)}
-            onDelete={removeSelected}
-            onLabelChange={(label) => updateSelected({ label })}
-            onConfigChange={updateConfig}
-            onChoicesChange={updateDecisionChoices}
-            onSave={save}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function NodeInspector({
-  data,
-  workers,
-  workflows,
-  onClose,
-  onDelete,
-  onLabelChange,
-  onConfigChange,
-  onChoicesChange,
-  onSave,
-}: {
-  data: AtlasNodeData;
-  workers: { id: string; name: string; status: string }[];
-  workflows: { id: string; name: string }[];
-  onClose: () => void;
-  onDelete: () => void;
-  onLabelChange: (label: string) => void;
-  onConfigChange: (key: string, value: WorkflowNodeConfigValue) => void;
-  onChoicesChange: (choices: ChoiceOption[]) => void;
-  onSave: () => void;
-}) {
-  const presentation = NODE_PRESENTATION[data.kind];
-  const Icon = presentation.icon;
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const value = (key: string, fallback = "") => configText(data.config, key, fallback);
-  const choices = configChoices(data.config);
-
-  return (
-    <aside className="flex w-[340px] shrink-0 flex-col border-l border-[#273647] bg-[#101a27] shadow-[-16px_0_36px_rgba(0,0,0,0.16)] animate-slide-in-right">
-      <header className="flex items-center gap-3 border-b border-[#273647] px-4 py-4">
-        <div className={`grid size-9 shrink-0 place-items-center rounded-lg ${presentation.tile}`}>
-          <Icon className="size-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-[#8193a7]">
-            {presentation.label}
-          </div>
-          <div className="mt-0.5 truncate text-sm font-bold text-foreground">Configure step</div>
-        </div>
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label="Delete node"
-          className="grid size-8 place-items-center rounded-md text-[#8091a3] transition hover:bg-destructive/10 hover:text-destructive"
-        >
-          <Trash2 className="size-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close inspector"
-          className="grid size-8 place-items-center rounded-md text-[#8091a3] transition hover:bg-white/5 hover:text-foreground"
-        >
-          <X className="size-4" />
-        </button>
-      </header>
-
-      <div className="flex-1 space-y-5 overflow-y-auto p-5">
-        <Field label="Step name">
-          <input
-            value={data.label}
-            onChange={(event) => onLabelChange(event.target.value)}
-            className="inspector-input"
-          />
-        </Field>
-
-        {data.kind === "worker" && (
-          <>
-            <Field label="What should the worker do?">
-              <textarea
-                value={value("prompt")}
-                onChange={(event) => onConfigChange("prompt", event.target.value)}
-                rows={5}
-                className="inspector-input resize-y leading-relaxed"
-                placeholder="Write the task as you would brief a colleague…"
-              />
-              <p className="inspector-help">
-                Use results from an earlier step as variables, for example{" "}
-                <code>{"{{ trigger.payload }}"}</code>.
-              </p>
-            </Field>
-            <Field label="Which worker?">
-              <select
-                value={value("worker", "wrk_01")}
-                onChange={(event) => onConfigChange("worker", event.target.value)}
-                className="inspector-input"
-              >
-                <option value="auto">Auto — choose a healthy worker</option>
-                {workers.map((worker) => (
-                  <option key={worker.id} value={worker.id}>
-                    {worker.name} {worker.status === "offline" ? "(offline)" : ""}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Workspace">
-                <input
-                  value={value("workspace", "thclaws")}
-                  onChange={(event) => onConfigChange("workspace", event.target.value)}
-                  className="inspector-input font-mono text-xs"
-                />
-              </Field>
-              <Field label="Save result as">
-                <input
-                  value={value("output", "result")}
-                  onChange={(event) =>
-                    onConfigChange("output", event.target.value.replace(/[^a-zA-Z0-9_]/g, "_"))
-                  }
-                  className="inspector-input font-mono text-xs"
-                />
-              </Field>
-            </div>
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen((open) => !open)}
-              className="flex w-full items-center justify-between rounded-lg border border-[#2c3e50] bg-[#0c1622] px-3 py-2.5 text-xs font-semibold text-[#c9d5e1] transition hover:border-[#40556a] hover:bg-[#111e2d]"
-            >
-              <span className="flex items-center gap-2">
-                <Braces className="size-3.5 text-primary" /> Advanced worker settings
+          {orphans.length > 0 ? (
+            <p className="mt-3 flex gap-1.5 text-[11px] leading-snug text-warning">
+              <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                Never reached from the start node: {orphans.join(", ")}. Atlas accepts this, but
+                those nodes will not run.
               </span>
-              <ChevronRight
-                className={`size-4 text-muted-foreground transition ${advancedOpen ? "rotate-90" : ""}`}
-              />
-            </button>
-            {advancedOpen && (
-              <div className="space-y-3 rounded-xl border border-[#2c3e50] bg-[#0c1622] p-3">
-                <Field label="Work budget (minutes)">
-                  <input
-                    type="number"
-                    min="1"
-                    value={value("budget_minutes", "15")}
-                    onChange={(event) =>
-                      onConfigChange("budget_minutes", Number(event.target.value || 0))
-                    }
-                    className="inspector-input w-28 font-mono text-xs"
-                  />
-                </Field>
-                <button
-                  type="button"
-                  onClick={() =>
-                    onConfigChange("structured_output", data.config.structured_output !== true)
-                  }
-                  className="flex w-full items-center justify-between text-left"
-                >
-                  <span>
-                    <span className="block text-xs font-semibold text-foreground">
-                      Require structured output
-                    </span>
-                    <span className="mt-0.5 block text-[10px] text-muted-foreground">
-                      Return a JSON-compatible result for the next step.
-                    </span>
-                  </span>
-                  <span
-                    className={`relative ml-3 h-5 w-9 shrink-0 rounded-full transition ${data.config.structured_output === true ? "bg-primary" : "bg-[#45596d]"}`}
-                  >
-                    <span
-                      className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition ${data.config.structured_output === true ? "left-4.5" : "left-0.5"}`}
-                    />
-                  </span>
-                </button>
-              </div>
-            )}
-          </>
-        )}
+            </p>
+          ) : null}
+        </div>
+      </aside>
 
-        {data.kind === "trigger" && (
-          <>
-            <Field label="This workflow starts…">
-              <div className="space-y-1">
-                {[
-                  ["webhook", "Webhook", "When another system sends an event", Zap],
-                  ["schedule", "Scheduled", "At a set time", Clock3],
-                  ["manual", "Manually", "When an operator runs it", Play],
-                  ["event", "After another workflow", "When an upstream workflow finishes", Link2],
-                ].map(([mode, label, detail, ModeIcon]) => (
-                  <RadioChoice
-                    key={mode as string}
-                    selected={value("mode", "webhook") === mode}
-                    label={label as string}
-                    detail={detail as string}
-                    icon={ModeIcon as typeof Zap}
-                    onClick={() => onConfigChange("mode", mode as string)}
-                  />
-                ))}
-              </div>
-            </Field>
-            {value("mode", "webhook") === "schedule" ? (
-              <Field label="Time of day">
-                <input
-                  type="time"
-                  value={value("time", "09:00")}
-                  onChange={(event) => onConfigChange("time", event.target.value)}
-                  className="inspector-input"
-                />
-              </Field>
-            ) : value("mode", "webhook") === "webhook" ? (
-              <Field label="Endpoint path">
-                <input
-                  value={value("path", "/api/v1/events")}
-                  onChange={(event) => onConfigChange("path", event.target.value)}
-                  className="inspector-input font-mono text-xs"
-                />
-              </Field>
-            ) : value("mode", "webhook") === "event" ? (
-              <Field label="Start after workflow">
-                <select
-                  value={value("event_workflow")}
-                  onChange={(event) => onConfigChange("event_workflow", event.target.value)}
-                  className="inspector-input"
-                >
-                  <option value="">Select a workflow…</option>
-                  {workflows.map((workflow) => (
-                    <option key={workflow.id} value={workflow.id}>
-                      {workflow.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="inspector-help">
-                  The workflow starts after the selected workflow completes successfully.
-                </p>
-              </Field>
-            ) : (
-              <PanelHint>Use the Run button in the editor or API to begin this workflow.</PanelHint>
-            )}
-          </>
-        )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-3">
+          <Input
+            value={name}
+            aria-label="Workflow name"
+            onChange={(event) => setName(event.target.value)}
+            className="h-8 max-w-xs text-sm font-semibold"
+          />
+          <Textarea
+            value={description}
+            aria-label="Workflow description"
+            rows={1}
+            placeholder="Description"
+            onChange={(event) => setDescription(event.target.value)}
+            className="h-8 min-h-8 max-w-sm resize-none py-1.5 text-xs"
+          />
 
-        {data.kind === "condition" && (
-          <>
-            <Field label="Expression">
-              <input
-                value={value("expr")}
-                onChange={(event) => onConfigChange("expr", event.target.value)}
-                className="inspector-input font-mono text-xs"
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Matched path">
-                <input
-                  value={value("true_label", "matches")}
-                  onChange={(event) => onConfigChange("true_label", event.target.value)}
-                  className="inspector-input"
-                />
-              </Field>
-              <Field label="Other path">
-                <input
-                  value={value("false_label", "otherwise")}
-                  onChange={(event) => onConfigChange("false_label", event.target.value)}
-                  className="inspector-input"
-                />
-              </Field>
-            </div>
-            <PanelHint icon={<GitBranch className="size-4 text-primary" />}>
-              Connect the named output ports on the right side of this node to route each result.
-            </PanelHint>
-          </>
-        )}
+          <div className="ml-auto flex items-center gap-2">
+            <span
+              data-testid="workflow-dirty-state"
+              className={`font-mono text-[10px] uppercase tracking-widest ${
+                dirty ? "text-warning" : "text-muted-foreground"
+              }`}
+            >
+              {dirty ? "Unsaved changes" : "Saved"}
+            </span>
 
-        {data.kind === "decision" && (
-          <>
-            <Field label="Question for the person">
-              <textarea
-                value={value("question", "Pick how to continue.")}
-                onChange={(event) => onConfigChange("question", event.target.value)}
-                rows={3}
-                className="inspector-input resize-y leading-relaxed"
-              />
-            </Field>
-            <Field label="Choices">
-              <div className="space-y-2">
-                {choices.map((choice, index) => (
-                  <div
-                    key={choice.id}
-                    className="flex items-center gap-2 rounded-lg border border-[#2d4053] bg-[#0c1622] p-1.5"
-                  >
-                    <span className="grid size-7 shrink-0 place-items-center rounded-md bg-teal-300/15 text-[10px] font-bold text-teal-200">
-                      {index + 1}
-                    </span>
-                    <input
-                      value={choice.label}
-                      onChange={(event) =>
-                        onChoicesChange(
-                          choices.map((item) =>
-                            item.id === choice.id ? { ...item, label: event.target.value } : item,
-                          ),
-                        )
-                      }
-                      className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-xs font-medium text-foreground outline-none placeholder:text-muted-foreground"
-                      placeholder={`Option ${index + 1}`}
-                    />
-                    <button
-                      type="button"
-                      disabled={choices.length <= 2}
-                      onClick={() =>
-                        onChoicesChange(choices.filter((item) => item.id !== choice.id))
-                      }
-                      aria-label={`Remove ${choice.label || `choice ${index + 1}`}`}
-                      className="grid size-7 shrink-0 place-items-center rounded-md text-[#8ca0b4] transition hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() =>
-                    onChoicesChange([
-                      ...choices,
-                      {
-                        id: `choice_${Math.random().toString(36).slice(2, 8)}`,
-                        label: `Option ${choices.length + 1}`,
-                      },
-                    ])
-                  }
-                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-[#4a6176] py-2.5 text-xs font-semibold text-[#a9bac9] transition hover:border-teal-300/60 hover:bg-teal-300/[0.06] hover:text-teal-100"
-                >
-                  <Plus className="size-3.5" /> Add a choice
-                </button>
-              </div>
-            </Field>
-            <PanelHint icon={<GitBranch className="size-4 text-teal-200" />}>
-              Each choice becomes its own output port. Connect each port to the next step for that
-              path.
-            </PanelHint>
-          </>
-        )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                applyLayout(autoLayout(graph));
+                // Rearranging can make the graph wider than the pane, which would leave nodes
+                // off-screen with no indication that anything happened.
+                fitSoon();
+              }}
+              title="Rearrange the canvas and fit it to the view. Layout is stored in this browser only."
+            >
+              <RotateCcw className="mr-1.5 size-3.5" aria-hidden="true" />
+              Auto-arrange
+            </Button>
 
-        {data.kind === "approval" && (
-          <>
-            <Field label="Message to the approver">
-              <textarea
-                value={value("message")}
-                onChange={(event) => onConfigChange("message", event.target.value)}
-                rows={4}
-                className="inspector-input resize-y leading-relaxed"
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Approvers">
-                <input
-                  value={value("approvers", "ops-lead")}
-                  onChange={(event) => onConfigChange("approvers", event.target.value)}
-                  className="inspector-input"
-                />
-              </Field>
-              <Field label="Timeout (seconds)">
-                <input
-                  value={value("timeout_s", "600")}
-                  onChange={(event) => onConfigChange("timeout_s", event.target.value)}
-                  className="inspector-input font-mono text-xs"
-                />
-              </Field>
-            </div>
-            <PanelHint icon={<ClipboardCheck className="size-4 text-orange-200" />}>
-              The run pauses here until an approver accepts or rejects the request.
-            </PanelHint>
-          </>
-        )}
+            <Button
+              type="button"
+              size="sm"
+              disabled={saving || blocking || !dirty}
+              title={
+                blocking
+                  ? "Fix the problems listed on the left first."
+                  : !dirty
+                    ? "Nothing has changed since the last save."
+                    : undefined
+              }
+              onClick={submit}
+            >
+              <Save className="mr-1.5 size-3.5" aria-hidden="true" />
+              {saving ? "Saving…" : "Save"}
+            </Button>
 
-        {data.kind === "join" && (
-          <Field label="Continue when…">
-            <div className="space-y-1">
-              <RadioChoice
-                selected={value("mode", "all") === "all"}
-                label="All branches finish"
-                onClick={() => onConfigChange("mode", "all")}
-              />
-              <RadioChoice
-                selected={value("mode") === "any"}
-                label="The first branch finishes"
-                onClick={() => onConfigChange("mode", "any")}
-              />
-              <RadioChoice
-                selected={value("mode") === "quorum"}
-                label="A set number finish"
-                onClick={() => onConfigChange("mode", "quorum")}
-              />
-            </div>
-            {value("mode") === "quorum" && (
-              <div className="mt-3 flex items-center gap-3 pl-8">
-                <span className="text-xs font-medium text-muted-foreground">How many?</span>
-                <input
-                  value={value("quorum", "2")}
-                  onChange={(event) => onConfigChange("quorum", event.target.value)}
-                  className="inspector-input w-20 font-mono text-xs"
-                />
-              </div>
-            )}
-          </Field>
-        )}
+            {/*
+              Atlas validates a *stored* workflow: it looks the row up by id before checking the
+              candidate, and the checks only it can do — worker and workspace references — are
+              resolved against its own tables. So this genuinely cannot run before a first save,
+              and the title says so rather than leaving a button that would 404.
+            */}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!onValidateWithAtlas || validating || blocking || dirty}
+              title={
+                !onValidateWithAtlas
+                  ? "Save the workflow first — Atlas validates a stored workflow by id."
+                  : dirty
+                    ? "Save first; Atlas checks what it has stored."
+                    : blocking
+                      ? "Fix the problems listed on the left first."
+                      : "Checks worker and workspace references against Atlas."
+              }
+              onClick={() =>
+                onValidateWithAtlas?.({ graph: current.graph, policy: current.policy })
+              }
+            >
+              {validating ? "Checking…" : "Check against Atlas"}
+            </Button>
 
-        {data.kind === "fanout" && (
-          <>
-            <Field label="Parallel paths">
-              <input
-                value={value("branches", "2")}
-                onChange={(event) => onConfigChange("branches", event.target.value)}
-                className="inspector-input w-24 font-mono text-xs"
-              />
-            </Field>
-            <PanelHint>
-              Connect each branch to a step, then use a Join node when they need to converge.
-            </PanelHint>
-          </>
-        )}
-
-        {data.kind === "loop" && (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Collection">
-              <input
-                value={value("collection", "payload.items")}
-                onChange={(event) => onConfigChange("collection", event.target.value)}
-                className="inspector-input font-mono text-xs"
-              />
-            </Field>
-            <Field label="Maximum items">
-              <input
-                value={value("limit", "100")}
-                onChange={(event) => onConfigChange("limit", event.target.value)}
-                className="inspector-input font-mono text-xs"
-              />
-            </Field>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={!onRun || running || blocking || dirty}
+              title={
+                !onRun
+                  ? (runDisabledReason ?? "Save the workflow before running it.")
+                  : dirty
+                    ? "Save first — Atlas runs the stored graph, not the one on screen."
+                    : blocking
+                      ? "Fix the problems listed on the left first."
+                      : undefined
+              }
+              onClick={() => onRun?.()}
+            >
+              <Play className="mr-1.5 size-3.5" aria-hidden="true" />
+              {running ? "Starting…" : "Run"}
+            </Button>
           </div>
-        )}
+        </div>
 
-        {data.kind === "manager" && (
-          <>
-            <Field label="What should the manager consider?">
-              <textarea
-                value={value("prompt")}
-                onChange={(event) => onConfigChange("prompt", event.target.value)}
-                rows={5}
-                className="inspector-input resize-y leading-relaxed"
-              />
-            </Field>
-            <PanelHint icon={<Sparkles className="size-4 text-primary" />}>
-              The manager can choose only among the steps you have connected to it.
-            </PanelHint>
-          </>
-        )}
+        {/*
+          Someone else wrote to this workflow while it was open. Said here rather than left for
+          the save to discover, so the operator can decide what to do before typing more.
+        */}
+        {changedElsewhere ? (
+          <p
+            role="status"
+            className="border-b border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning"
+          >
+            This workflow changed in Atlas after you opened it. Your edits are still here, but
+            saving them will be refused until you reload and reapply them.
+          </p>
+        ) : null}
+
+        {saveError ? (
+          <p
+            role="alert"
+            className="border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive"
+          >
+            {saveError}
+          </p>
+        ) : null}
+
+        {atlasValidation ? (
+          <p
+            role="status"
+            className={`border-b px-4 py-2 text-xs ${
+              atlasValidation.ok
+                ? "border-success/40 bg-success/10 text-success"
+                : "border-destructive/40 bg-destructive/10 text-destructive"
+            }`}
+          >
+            {atlasValidation.message}
+          </p>
+        ) : null}
+
+        <div
+          className="relative min-h-0 flex-1"
+          onKeyDown={onCanvasKeyDown}
+          tabIndex={-1}
+          role="application"
+          aria-label="Workflow canvas"
+        >
+          <ReactFlow
+            nodes={flowNodes}
+            edges={flowEdges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onConnect={onConnect}
+            onNodeClick={(_, node) => setSelection({ kind: "node", id: node.id })}
+            onEdgeClick={(_, edge) => {
+              const index = flowEdges.findIndex((candidate) => candidate.id === edge.id);
+              if (index >= 0) setSelection({ kind: "edge", index });
+            }}
+            onPaneClick={() => setSelection(null)}
+            fitView
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+            <Controls showInteractive={false} />
+            <MiniMap pannable zoomable />
+          </ReactFlow>
+
+          {graph.nodes.length === 0 ? (
+            <div className="pointer-events-none absolute inset-0 grid place-items-center">
+              <p className="flex items-center gap-2 rounded-md border border-dashed border-border bg-card px-4 py-3 text-xs text-muted-foreground">
+                <Plus className="size-3.5" aria-hidden="true" />
+                Add a node from the palette to begin.
+              </p>
+            </div>
+          ) : null}
+        </div>
       </div>
 
-      <footer className="flex gap-2 border-t border-[#273647] p-4">
-        <button
-          type="button"
-          onClick={onDelete}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-destructive/45 bg-destructive/10 py-2.5 text-xs font-bold text-destructive transition hover:bg-destructive/20"
-        >
-          <Trash2 className="size-3.5" /> Delete
-        </button>
-        <button
-          type="button"
-          onClick={onSave}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary py-2.5 text-xs font-bold text-primary-foreground transition hover:brightness-110"
-        >
-          <Check className="size-3.5" /> Save changes
-        </button>
-      </footer>
-    </aside>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-xs font-semibold text-[#d6e0ea]">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-function RadioChoice({
-  selected,
-  label,
-  detail,
-  icon: Icon,
-  onClick,
-}: {
-  selected: boolean;
-  label: string;
-  detail?: string;
-  icon?: typeof Zap;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition ${selected ? "bg-primary/10" : "hover:bg-white/[0.045]"}`}
-    >
-      <span
-        className={`grid size-4 shrink-0 place-items-center rounded-full border-2 ${selected ? "border-primary" : "border-[#71859a]"}`}
-      >
-        {selected && <span className="size-1.5 rounded-full bg-primary" />}
-      </span>
-      {Icon && <Icon className="size-3.5 shrink-0 text-[#8ca0b4]" />}
-      <span className="min-w-0">
-        <span className="block text-xs font-medium text-foreground">{label}</span>
-        {detail && <span className="mt-0.5 block text-[10px] text-muted-foreground">{detail}</span>}
-      </span>
-    </button>
-  );
-}
-
-function PanelHint({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
-  return (
-    <div className="flex gap-2.5 rounded-xl border border-[#2c3e50] bg-[#0c1622] p-3 text-[11px] leading-5 text-muted-foreground">
-      {icon && <span className="mt-0.5 shrink-0">{icon}</span>}
-      <span>{children}</span>
+      <aside className="w-80 shrink-0 border-l border-border bg-card">
+        {selectedNode ? (
+          <NodeInspector
+            node={selectedNode}
+            graph={graph}
+            issues={issuesByTarget.get(`node:${selectedNode.id}`) ?? []}
+            onChange={updateNode}
+            onRename={(nextId) => rename(selectedNode.id, nextId)}
+            onSetStart={() => setGraph((previous) => ({ ...previous, start: selectedNode.id }))}
+            onDelete={deleteSelection}
+          />
+        ) : selectedEdge && selection?.kind === "edge" ? (
+          <EdgeInspector
+            edge={selectedEdge}
+            edgeIndex={selection.index}
+            graph={graph}
+            policy={policy}
+            issues={issuesByTarget.get(`edge:${selection.index}`) ?? []}
+            onChange={(next) =>
+              setGraph((previous) => ({
+                ...previous,
+                edges: previous.edges.map((edge, index) =>
+                  index === selection.index ? next : edge,
+                ),
+              }))
+            }
+            onDelete={deleteSelection}
+          />
+        ) : selection?.kind === "policy" ? (
+          <PolicyPanel
+            policy={policy}
+            issues={issues
+              .filter((issue) => issue.target.kind === "policy")
+              .map((issue) => issue.message)}
+            onChange={setPolicy}
+          />
+        ) : (
+          <div className="space-y-4 px-4 py-6">
+            <p className="text-xs text-muted-foreground">
+              Select a node or an edge to edit it. Drawing a connection creates an edge; its
+              condition decides whether Atlas takes it.
+            </p>
+            <div className="rounded-md border border-border px-3 py-2">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Start node
+              </p>
+              <p className="mt-1 font-mono text-xs text-foreground">{graph.start || "not set"}</p>
+            </div>
+            <div className="rounded-md border border-border px-3 py-2">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Layout
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Node positions are stored in this browser only — Atlas has no layout endpoint, so
+                they do not follow you to another device and nobody else sees them.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  clearLayout(layoutKeyId, graphVersion);
+                  setLayout(autoLayout(graph));
+                  fitSoon();
+                }}
+                className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                <Trash2 className="size-3" aria-hidden="true" />
+                Forget this layout
+              </button>
+            </div>
+          </div>
+        )}
+      </aside>
     </div>
   );
 }

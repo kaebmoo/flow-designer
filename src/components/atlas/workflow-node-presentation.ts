@@ -1,87 +1,61 @@
-import {
-  Cpu,
-  GitBranch,
-  ListChecks,
-  Merge,
-  Repeat,
-  ShieldCheck,
-  Sparkles,
-  Split,
-  Webhook,
-} from "lucide-react";
-import type { NodeKind } from "./workflow-scaffold-store";
+/**
+ * Visual identity for the four node kinds Atlas actually has.
+ *
+ * Five of the scaffold's nine entries are gone because Atlas has no such node type: `trigger`
+ * is a separate resource, `condition` is an edge property, `loop` is a guarded cycle, and
+ * `fanout` is simply more than one outgoing edge. `approval` was the scaffold's name for what
+ * Atlas calls `human_gate`; the internal kind is now Atlas's, and "Approval" survives only as
+ * the label an operator reads.
+ *
+ * Colours are design tokens, not literals, so the canvas follows the theme like the rest of the
+ * app. The icons the removed kinds used are reused where their meaning survived: `GitBranch`
+ * now marks a conditional edge, and `Webhook` belongs to the trigger panel.
+ */
 
-export const NODE_PRESENTATION: Record<
-  NodeKind,
-  {
-    label: string;
-    description: string;
-    icon: typeof Cpu;
-    tile: string;
-    accent: string;
-  }
-> = {
-  trigger: {
-    label: "Trigger",
-    description: "Start from an event or schedule",
-    icon: Webhook,
-    tile: "border border-amber-300/20 bg-amber-300/15 text-amber-200",
-    accent: "bg-amber-300",
-  },
+import { Cpu, Merge, ShieldCheck, Sparkles } from "lucide-react";
+
+import type { NodeKind } from "@/lib/workflow-graph";
+
+export interface NodePresentation {
+  label: string;
+  description: string;
+  icon: typeof Cpu;
+  /** The icon tile: border, fill, and foreground, all token-derived. */
+  tile: string;
+  /** A solid accent for handles, bullets, and the start badge. */
+  accent: string;
+}
+
+export const NODE_PRESENTATION: Record<NodeKind, NodePresentation> = {
   worker: {
-    label: "Worker task",
-    description: "Run a job on a connected worker",
+    label: "Worker",
+    description: "Runs a prompt on a connected worker",
     icon: Cpu,
-    tile: "border border-primary/20 bg-primary/15 text-primary",
+    tile: "border border-primary/25 bg-primary/15 text-primary",
     accent: "bg-primary",
-  },
-  condition: {
-    label: "Condition",
-    description: "Route work based on an expression",
-    icon: GitBranch,
-    tile: "border border-fuchsia-300/20 bg-fuchsia-300/15 text-fuchsia-200",
-    accent: "bg-fuchsia-300",
-  },
-  decision: {
-    label: "Ask to choose",
-    description: "Let a person choose the next path",
-    icon: ListChecks,
-    tile: "border border-teal-300/20 bg-teal-300/15 text-teal-200",
-    accent: "bg-teal-300",
-  },
-  loop: {
-    label: "Loop",
-    description: "Repeat work for each item",
-    icon: Repeat,
-    tile: "border border-fuchsia-300/20 bg-fuchsia-300/15 text-fuchsia-200",
-    accent: "bg-fuchsia-300",
-  },
-  fanout: {
-    label: "Fan out",
-    description: "Send work down parallel paths",
-    icon: Split,
-    tile: "border border-emerald-300/20 bg-emerald-300/15 text-emerald-200",
-    accent: "bg-emerald-300",
-  },
-  join: {
-    label: "Join",
-    description: "Continue after branches finish",
-    icon: Merge,
-    tile: "border border-emerald-300/20 bg-emerald-300/15 text-emerald-200",
-    accent: "bg-emerald-300",
-  },
-  approval: {
-    label: "Approval",
-    description: "Pause for a human decision",
-    icon: ShieldCheck,
-    tile: "border border-orange-300/20 bg-orange-300/15 text-orange-200",
-    accent: "bg-orange-300",
   },
   manager: {
     label: "Manager",
-    description: "Let an AI choose the next path",
+    description: "Lets a model choose which path to take",
     icon: Sparkles,
-    tile: "border border-primary/20 bg-primary/15 text-primary",
-    accent: "bg-primary",
+    tile: "border border-accent/25 bg-accent/15 text-accent",
+    accent: "bg-accent",
+  },
+  join: {
+    label: "Join",
+    description: "Waits for upstream branches to arrive",
+    icon: Merge,
+    tile: "border border-success/25 bg-success/15 text-success",
+    accent: "bg-success",
+  },
+  human_gate: {
+    label: "Approval",
+    description: "Pauses until a person decides",
+    icon: ShieldCheck,
+    tile: "border border-warning/25 bg-warning/15 text-warning",
+    accent: "bg-warning",
   },
 };
+
+/** Palette order: the two that do work, then the two that control flow. */
+export const PALETTE_ORDER: readonly NodeKind[] = ["worker", "manager", "join", "human_gate"];

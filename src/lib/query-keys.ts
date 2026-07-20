@@ -37,6 +37,29 @@ export const queryKeys = {
   jobs: () => ["atlas", "jobs"] as const,
   jobList: (params: { limit: number }) => ["atlas", "jobs", "list", params] as const,
   jobDetail: (jobId: string) => ["atlas", "jobs", "detail", jobId] as const,
+
+  /**
+   * Phase 3 families.
+   *
+   * Nested under `runs` where the data belongs to a run, so cancelling a run invalidates its
+   * events and artifacts with the same `["atlas", "runs"]` prefix rather than needing three
+   * separate invalidations that could drift apart.
+   */
+  runEvents: (runId: string, params: { limit: number }) =>
+    ["atlas", "runs", "events", runId, params] as const,
+  runArtifacts: (runId: string) => ["atlas", "runs", "artifacts", runId] as const,
+
+  approvals: () => ["atlas", "approvals"] as const,
+  approvalList: (params: { limit: number; state?: string; runId?: string }) =>
+    ["atlas", "approvals", "list", params] as const,
+
+  deliveries: () => ["atlas", "deliveries"] as const,
+  deliveryList: (params: { limit: number; runId?: string; status?: string }) =>
+    ["atlas", "deliveries", "list", params] as const,
+
+  triggers: () => ["atlas", "triggers"] as const,
+  triggerList: (params: { limit: number; workflowDefinitionId?: string }) =>
+    ["atlas", "triggers", "list", params] as const,
 } as const;
 
 export type QueryKeys = typeof queryKeys;

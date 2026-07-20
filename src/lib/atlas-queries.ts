@@ -11,6 +11,14 @@ import { queryOptions } from "@tanstack/react-query";
 
 import { isClientAtlasError, type ClientAtlasError } from "./atlas-mappers";
 import {
+  getEditableWorkflowFn,
+  listApprovalsFn,
+  listDeliveriesFn,
+  listRunArtifactsFn,
+  listRunEventsFn,
+  listTriggersFn,
+} from "./atlas-mutations.functions";
+import {
   getJobFn,
   getMetricsFn,
   getRunFn,
@@ -141,6 +149,66 @@ export function jobQuery(jobId: string) {
   return queryOptions({
     queryKey: queryKeys.jobDetail(jobId),
     queryFn: async () => unwrap(await getJobFn({ data: { jobId } })),
+    ...shared,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 reads: the surfaces mutations act on.
+// ---------------------------------------------------------------------------
+
+/**
+ * The workflow as the editor needs it — the parsed semantic graph, or a stated refusal.
+ *
+ * `staleTime: 0` on purpose, unlike every other read here. This query is the editor's baseline
+ * for the lost-update guard: serving a cached row that is ten seconds old would make the guard
+ * compare against a stale `updated_at` and report a conflict that is not one.
+ */
+export function editableWorkflowQuery(workflowId: string) {
+  return queryOptions({
+    queryKey: queryKeys.workflowDetail(workflowId),
+    queryFn: async () => unwrap(await getEditableWorkflowFn({ data: { workflowId } })),
+    retry: retryRead,
+    staleTime: 0,
+  });
+}
+
+export function triggersQuery(params: { limit: number; workflowDefinitionId?: string }) {
+  return queryOptions({
+    queryKey: queryKeys.triggerList(params),
+    queryFn: async () => unwrap(await listTriggersFn({ data: params })),
+    ...shared,
+  });
+}
+
+export function approvalsQuery(params: { limit: number; state?: string; runId?: string }) {
+  return queryOptions({
+    queryKey: queryKeys.approvalList(params),
+    queryFn: async () => unwrap(await listApprovalsFn({ data: params })),
+    ...shared,
+  });
+}
+
+export function deliveriesQuery(params: { limit: number; runId?: string; status?: string }) {
+  return queryOptions({
+    queryKey: queryKeys.deliveryList(params),
+    queryFn: async () => unwrap(await listDeliveriesFn({ data: params })),
+    ...shared,
+  });
+}
+
+export function runArtifactsQuery(runId: string) {
+  return queryOptions({
+    queryKey: queryKeys.runArtifacts(runId),
+    queryFn: async () => unwrap(await listRunArtifactsFn({ data: { runId } })),
+    ...shared,
+  });
+}
+
+export function runEventsQuery(runId: string, params: { limit: number }) {
+  return queryOptions({
+    queryKey: queryKeys.runEvents(runId, params),
+    queryFn: async () => unwrap(await listRunEventsFn({ data: { runId, limit: params.limit } })),
     ...shared,
   });
 }

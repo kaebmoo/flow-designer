@@ -234,18 +234,70 @@ All recorded in `ATLAS_LIMITATIONS.md` with source citations, none worked around
 
 ## Phase 3 — Mutations/editor
 
-- [ ] Worker/workspace mutations call Atlas.
-- [ ] Round-trip fixtures exist for the four native node types (serialize → Atlas → parse back) before wiring save/run.
-- [ ] Palette exposes only `worker`/`manager`/`join`/`human_gate`; conditions are edited on edges, fan-out is multiple edges, loops are guarded back-edges, triggers live outside `graph.nodes`. No `condition`/`loop`/`fanout`/`trigger` pseudo-nodes.
-- [ ] The internal node kind is `human_gate` (display label “Approval”); legacy mock `approval` values receive a one-time scaffold migration only. `join.mode`/`quorum` and `manager.schema` are always emitted.
-- [ ] Any unknown Atlas node/condition type fails closed in the UI (not sent to Atlas).
-- [ ] Node layout is stored locally (keyed by workflow id + graph version) with auto-layout fallback; only semantic JSON goes to Atlas.
-- [ ] Validation runs before save/enable/run.
-- [ ] Save/reload preserves graph semantics and UI layout separately.
-- [ ] Run calls Atlas and returns a real run ID.
-- [ ] Pause/resume/cancel/approval/delivery actions work.
-- [ ] Mutation conflicts are visible and do not silently overwrite data (no ETag/If-Match in Atlas; guard client-side).
+- [x] Worker/workspace mutations call Atlas. (`POST /api/workers` and `POST /api/workspaces` are upserts, not creates — the UI says which existing row an upsert will edit before submitting, and a worker delete lists the workspaces it will cascade.)
+- [x] Round-trip fixtures exist for the four native node types (serialize → Atlas → parse back) before wiring save/run. (`tests/fixtures/workflow-graphs.ts`; asserted in unit tests and posted to a real Atlas in `mutations.contract.test.ts`.)
+- [x] Palette exposes only `worker`/`manager`/`join`/`human_gate`; conditions are edited on edges, fan-out is multiple edges, loops are guarded back-edges, triggers live outside `graph.nodes`. No `condition`/`loop`/`fanout`/`trigger` pseudo-nodes. (A browser test asserts the four are offered and the other four are absent.)
+- [x] The internal node kind is `human_gate` (display label “Approval”); legacy mock `approval` values receive a one-time scaffold migration only. `join.mode`/`quorum` and `manager.schema` are always emitted. (No migration was needed: the mock store was deleted rather than converted, so no `approval` value ever reached the new model.)
+- [x] Any unknown Atlas node/condition type fails closed in the UI (not sent to Atlas). (Enforced in the parser _and_ again server-side in the RPC handler, which is the last code before the request leaves — a crafted direct POST cannot bypass it.)
+- [x] Node layout is stored locally (keyed by workflow id + graph version) with auto-layout fallback; only semantic JSON goes to Atlas. (A browser test wipes `localStorage` and asserts the graph still arrives, arranged by the auto-layout.)
+- [x] Validation runs before save/enable/run. (Locally on every keystroke, so all problems appear at once anchored to their node/edge/field; Atlas's own reference checks are a separate action that requires a saved workflow.)
+- [x] Save/reload preserves graph semantics and UI layout separately. (Browser test: a moved node keeps its stored coordinates across a reload, and the graph comes back from Atlas.)
+- [x] Run calls Atlas and returns a real run ID. (Browser test asserts the URL carries an Atlas `wfr_…` id; the scaffold minted `run_000NN` from an array length.)
+- [x] Pause/resume/cancel/approval/delivery actions work. (Only the transitions Atlas permits are enabled; the rest are disabled with a visible reason. `recovery_required` requires an explicit authorization dialog that names the duplicate-work risk.)
+- [x] Mutation conflicts are visible and do not silently overwrite data (no ETag/If-Match in Atlas; guard client-side). (The editor owns the baseline `updated_at` so a background refetch cannot advance it; a save re-reads and refuses when it moved. Its one-second blind spot is Atlas's timestamp resolution and is recorded in `ATLAS_LIMITATIONS.md`.)
 - [ ] **Gate:** user confirms Phase 4 start.
+
+### Phase 3 verification evidence (2026-07-20)
+
+Atlas commit tested: `595ef62`. Baseline before Phase 3: **`ecc0b4b`**. Instance: isolated temp database on an ephemeral port — no developer or production Atlas data touched.
+
+| Check                   | Exit | Result                                                                     |
+| ----------------------- | ---- | -------------------------------------------------------------------------- |
+| `bun run typecheck`     | 0    | 0 errors repo-wide                                                         |
+| `bun run lint`          | 0    | 0 errors; 6 pre-existing `react-refresh` warnings, unchanged since Phase 1 |
+| `bun run format:check`  | 0    | all files formatted                                                        |
+| `bun run test`          | 0    | 293 passed (200 at Phase 2)                                                |
+| `bun run test:contract` | 0    | 106 passed, 3 skipped, against a real isolated Atlas (34 at Phase 2)       |
+| `bun run test:stream`   | 0    | 0 tests, passes by design (SSE is Phase 4)                                 |
+| `bun run test:e2e`      | 0    | 61 passed (28 at Phase 2)                                                  |
+| `bun run build`         | 0    | succeeded                                                                  |
+| `git diff --check`      | 0    | clean                                                                      |
+
+Additional checks against the tree at this commit:
+
+| Check                                      | Result                                                                                               |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Client imports of `*.server.ts`            | none — the only exemption is the artifact-download route, which TanStack prunes from the client      |
+| Dynamic import of a server function        | none                                                                                                 |
+| Atlas token in the client bundle           | none — `.output/public` scanned for `SESSION_SECRET`, `ATLAS_API_ORIGIN`, `atlasToken`, `fd_session` |
+| Timer-simulated execution                  | none — the only `setTimeout` releases a blob URL after a download starts                             |
+| `condition`/`loop`/`fanout`/`trigger` node | none anywhere in the graph model or the editor                                                       |
+| `src/routeTree.gen.ts` edited by hand      | no — regenerated by the router plugin when the download route was added                              |
+
+### Defects found by adversarial review of the Phase 3 work, and fixed
+
+The diff was reviewed by independent agents against the Atlas source, then the fixes were re-verified by a second pass. The reviews found 22 defects; all were fixed. The ones that mattered most:
+
+| Defect                                                                                   | Why it mattered                                                                                           |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Graph re-validation ran in `createServerFn`'s `validator`, not its handler               | A validator throw becomes a framework 500, so the anchored per-node rejection path was dead code entirely |
+| The inspector wrote `output_format: "json"` as a side effect of setting the artifact key | Atlas then `json.loads` the worker's reply unguarded — a worker answering in prose fails at run time      |
+| Saving discarded any edit made while the save was in flight                              | The route remounted the editor on the server timestamp, silently destroying work                          |
+| The parser refused artifact keys Atlas legally stores                                    | A pack-imported workflow became permanently uneditable by the only tool that can fix it                   |
+| `collect_files` and the loop guard's `max` had no local validation                       | Both are save-blocking rules in Atlas, so the UI said "ready to save" and Atlas answered 400              |
+| React Flow node objects were rebuilt every render                                        | v12 stores measurements on them and hides an unmeasured node — the canvas rendered an invisible graph     |
+| Every disabled control stated its reason only in a `title`                               | `disabled:pointer-events-none` means that tooltip never renders; the reasons were invisible               |
+| Mutation failures rendered Atlas's raw `"forbidden"`                                     | A permission problem was indistinguishable from a generic failure                                         |
+| A `blocked` delivery could not be retried                                                | Atlas never re-drives it either, so the row was stuck with the UI claiming Atlas would handle it          |
+| Editing a worker offered to "overwrite" another worker at the same base URL              | Atlas's two-row upsert match either 500s on a unique constraint or rewrites the wrong row silently        |
+| Auto-arrange could push nodes outside the pane with no re-fit                            | The graph appeared to vanish                                                                              |
+| Form labels were not associated with their controls                                      | Screen readers announced unlabelled fields; clicking a caption focused nothing                            |
+
+### What Phase 3 deliberately did not do
+
+- **No SSE.** Live run progress is a refetch of Atlas's persisted history; the streaming adapter is Phase 4.
+- **Pages owned by Phase 5 were not touched:** Artifacts, Deliveries, Conversations, Usage, Audit, Users, Settings still render static arrays behind their placeholder notice. Triggers moved out of that set because Phase 3 owns trigger CRUD.
+- **No `approval` → `human_gate` migration was written.** The mock store was deleted, so there was no legacy value to migrate — writing a converter would have been code for data that does not exist.
 
 ## Phase 4 — Live events
 

@@ -110,10 +110,10 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 
 ### Exit criteria
 
-- Round-trip fixtures pass for each of the four native node kinds.
-- A workflow saved in one session opens correctly after a full reload.
-- Atlas validation errors appear at the relevant node/edge/form field.
-- Run starts through `POST /api/workflow-runs` and returns a real run ID.
+- Round-trip fixtures pass for each of the four native node kinds. — **met** (`tests/fixtures/workflow-graphs.ts`, asserted in unit tests and against a real Atlas).
+- A workflow saved in one session opens correctly after a full reload. — **met** (browser test; semantics come back from Atlas, layout from `localStorage`).
+- Atlas validation errors appear at the relevant node/edge/form field. — **met**; note that Atlas returns one sentence with no field path, so the subject is parsed back out of it (`mapAtlasValidationMessage`) and anything unrecognised stays a graph-level message rather than being attached to a guess.
+- Run starts through `POST /api/workflow-runs` and returns a real run ID. — **met** (browser test asserts an Atlas `wfr_…` id in the URL).
 - **Gate:** user confirms Phase 4 start.
 
 ## Phase 4 — Live execution and event UX

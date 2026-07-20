@@ -17,6 +17,19 @@ export const ATLAS_REPO =
 
 export const ADMIN_CREDENTIALS = { username: "admin", password: "contract-admin-password" };
 export const VIEWER_CREDENTIALS = { username: "viewer", password: "contract-viewer-password" };
+/**
+ * The third role, and the only one that can express Atlas's permission *asymmetry*.
+ *
+ * `ROLE_PERMISSIONS` (`atlas/app.py:70-73`) gives operator everything an admin has except
+ * `admin` itself, and `_required_permission` (`atlas/app.py:1207-1211`) demands `admin` for
+ * every non-poll write under `/api/workers` while `/api/workspaces` falls through to
+ * `resources.manage`. Admin-versus-viewer can never show that split: an operator may create
+ * and delete workspaces yet is 403 on any worker mutation.
+ */
+export const OPERATOR_CREDENTIALS = {
+  username: "operator",
+  password: "contract-operator-password",
+};
 
 /**
  * True when a real Atlas can be started here.
@@ -102,6 +115,10 @@ export async function startIsolatedAtlas(): Promise<AtlasInstance> {
     seed(
       ["create-user", VIEWER_CREDENTIALS.username, "--role", "viewer"],
       VIEWER_CREDENTIALS.password,
+    );
+    seed(
+      ["create-user", OPERATOR_CREDENTIALS.username, "--role", "operator"],
+      OPERATOR_CREDENTIALS.password,
     );
   } catch (error) {
     rmSync(dataDir, { recursive: true, force: true });

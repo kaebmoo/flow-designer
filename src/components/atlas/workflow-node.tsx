@@ -1,133 +1,107 @@
-import { Handle, Position } from "@xyflow/react";
-import type { NodeProps } from "@xyflow/react";
-import type { ChoiceOption, NodeKind, WorkflowNodeConfig } from "./workflow-scaffold-store";
-import { NODE_PRESENTATION } from "./workflow-node-presentation";
+/**
+ * A canvas node.
+ *
+ * One source handle and one target handle, always — there are no named output ports, because
+ * Atlas edges carry no handle and no label. Branching is expressed by drawing several outgoing
+ * edges and giving each its own condition in the edge inspector, and `sourceHandle` is not part
+ * of the semantic model at all.
+ */
 
-export type AtlasNodeData = {
+import { Handle, Position, type NodeProps } from "@xyflow/react";
+
+import { NODE_PRESENTATION } from "./workflow-node-presentation";
+import type { NodeKind } from "@/lib/workflow-graph";
+
+export interface CanvasNodeData extends Record<string, unknown> {
   kind: NodeKind;
-  label: string;
-  hint?: string;
-  config: WorkflowNodeConfig;
-  runState?: "queued" | "running" | "waiting" | "success" | "failed" | "skipped";
+  /** What the operator reads: a gate's label, otherwise the node id. */
+  title: string;
+  /** A derived one-liner — never stored, never sent. */
+  hint: string;
+  isStart: boolean;
+  /** True when local validation has an issue anchored to this node. */
+  hasIssue: boolean;
+  /**
+   * The runtime state Atlas reported for this node in the run being viewed, if any.
+   *
+   * Read straight from a run's `nodes` array. There is no timer anywhere near this: a node that
+   * looks like it is running is one Atlas says is running.
+   */
+  runState?: string;
+}
+
+/** Atlas's runtime node states (`atlas/db.py` free TEXT, so an unknown one stays neutral). */
+const RUN_STATE_RING: Record<string, string> = {
+  running: "border-primary",
+  waiting_for_human: "border-warning",
+  succeeded: "border-success",
+  failed: "border-destructive",
+  interrupted: "border-destructive",
+  skipped: "border-border opacity-60",
 };
 
-type BranchOption = { id: string; label: string };
-
-function textConfig(config: WorkflowNodeConfig, key: string, fallback = "") {
-  const value = config[key];
-  return typeof value === "string" || typeof value === "number" ? String(value) : fallback;
-}
-
-function decisionChoices(config: WorkflowNodeConfig): ChoiceOption[] {
-  const choices = config.choices;
-  return Array.isArray(choices) ? choices : [];
-}
-
-function branchOptions(data: AtlasNodeData): BranchOption[] {
-  if (data.kind === "condition") {
-    return [
-      { id: "condition:true", label: textConfig(data.config, "true_label", "matches") },
-      { id: "condition:false", label: textConfig(data.config, "false_label", "otherwise") },
-    ];
-  }
-  if (data.kind === "decision") {
-    return decisionChoices(data.config).map((choice) => ({
-      id: `choice:${choice.id}`,
-      label: choice.label,
-    }));
-  }
-  return [];
-}
-
-export function AtlasNode({ data, selected }: NodeProps) {
-  const d = data as unknown as AtlasNodeData;
-  const presentation = NODE_PRESENTATION[d.kind];
+export function WorkflowCanvasNode({ data, selected }: NodeProps) {
+  const node = data as CanvasNodeData;
+  const presentation = NODE_PRESENTATION[node.kind];
   const Icon = presentation.icon;
-  const branches = branchOptions(d);
-  const runTone =
-    d.runState === "running"
-      ? "border-primary shadow-[0_0_28px_color-mix(in_oklab,var(--color-primary)_28%,transparent)]"
-      : d.runState === "waiting"
-        ? "border-amber-300 shadow-[0_0_28px_rgb(252_211_77_/_16%)]"
-        : d.runState === "success"
-          ? "border-[var(--color-success)]/70"
-          : d.runState === "failed"
-            ? "border-destructive/80"
-            : d.runState === "skipped"
-              ? "border-border opacity-50"
-              : selected
-                ? "border-primary shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-primary)_12%,transparent)]"
-                : "border-[#314154]";
-  const stateDot =
-    d.runState === "running"
-      ? "animate-pulse bg-primary"
-      : d.runState === "waiting"
-        ? "animate-pulse bg-amber-300"
-        : d.runState === "success"
-          ? "bg-[var(--color-success)]"
-          : d.runState === "failed"
-            ? "bg-destructive"
-            : "bg-[#53677b]";
+
+  const ring = node.runState
+    ? (RUN_STATE_RING[node.runState] ?? "border-border")
+    : node.hasIssue
+      ? "border-destructive"
+      : selected
+        ? "border-primary"
+        : "border-border";
 
   return (
     <div
-      className={`group relative w-60 rounded-xl border bg-[#101b29] p-2.5 shadow-[0_14px_30px_rgba(0,0,0,0.22)] transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px ${runTone}`}
+      className={`group relative w-60 rounded-xl border-2 bg-card p-2.5 shadow-lg transition-colors ${ring}`}
+      data-node-kind={node.kind}
+      data-node-start={node.isStart ? "true" : "false"}
     >
-      {d.kind !== "trigger" && (
-        <Handle
-          type="target"
-          position={Position.Left}
-          className="!size-3 !border-2 !border-[#101b29] !bg-[#91a4b7]"
-        />
-      )}
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!size-3 !border-2 !border-card !bg-muted-foreground"
+      />
+
       <div className="flex items-center gap-2.5">
         <div className={`grid size-9 shrink-0 place-items-center rounded-lg ${presentation.tile}`}>
-          <Icon className="size-4" strokeWidth={2.25} />
+          <Icon className="size-4" strokeWidth={2.25} aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[13px] font-semibold tracking-[-0.01em] text-foreground">
-            {d.label}
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-[13px] font-semibold tracking-tight text-foreground">
+              {node.title}
+            </span>
+            {/*
+              The start marker is a badge on a real node, not a pseudo-node. Atlas's entry point
+              is `graph.start` — a field naming one of the four node types — so a "trigger" node
+              on the canvas would be a shape Atlas rejects on save.
+            */}
+            {node.isStart ? (
+              <span className="shrink-0 rounded border border-primary/40 bg-primary/15 px-1 py-px font-mono text-[9px] uppercase tracking-widest text-primary">
+                start
+              </span>
+            ) : null}
           </div>
           <div className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
-            {d.hint || presentation.description}
+            {node.hint || presentation.description}
           </div>
         </div>
-        <div className={`size-2 shrink-0 rounded-full ${stateDot}`} />
       </div>
 
-      {branches.length > 0 && (
-        <div className="mt-2 border-t border-[#2b3b4d] pt-1.5">
-          {branches.map((branch, index) => (
-            <div
-              key={branch.id}
-              className="relative flex h-5 items-center gap-1.5 pl-1 text-[10px] text-[#b7c5d2]"
-            >
-              <span className={`size-1.5 rounded-full ${presentation.accent}`} />
-              <span className="truncate">{branch.label}</span>
-              <Handle
-                id={branch.id}
-                type="source"
-                position={Position.Right}
-                style={{ top: `${70 + index * 20}px` }}
-                className="!size-3 !border-2 !border-[#101b29] !bg-[#91a4b7] group-hover:!bg-primary"
-              />
-            </div>
-          ))}
+      {node.runState ? (
+        <div className="mt-2 border-t border-border pt-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+          {node.runState}
         </div>
-      )}
+      ) : null}
 
-      {d.runState === "running" && (
-        <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-white/5">
-          <div className={`h-full w-1/2 animate-pulse ${presentation.accent}`} />
-        </div>
-      )}
-      {branches.length === 0 && (
-        <Handle
-          type="source"
-          position={Position.Right}
-          className="!size-3 !border-2 !border-[#101b29] !bg-[#91a4b7] group-hover:!bg-primary"
-        />
-      )}
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!size-3 !border-2 !border-card !bg-muted-foreground group-hover:!bg-primary"
+      />
     </div>
   );
 }

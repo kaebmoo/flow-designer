@@ -31,11 +31,18 @@ Read paths that now come from Atlas:
 - `/workflows/$id` and `/runs/$id` resolve through a route loader (SSR + a real Atlas 404); both define `errorComponent` and `notFoundComponent`.
 - `src/routes/_app.tsx` is the authenticated layout and verifies the live Atlas identity on every navigation.
 
+Mutation paths added at the end of Phase 3 (2026-07-20):
+
+- `src/lib/atlas-api.server.ts` gained one typed, fixed operation per Atlas mutation route; `src/lib/atlas-mutations.functions.ts` is their RPC boundary and `src/lib/atlas-mutations.ts` holds the client hooks and the single invalidation table.
+- `src/lib/workflow-graph.ts` is the semantic graph model — parser, serializer, validator, rename — shared by the editor, the server-side re-validation, and the tests.
+- `workflows.$id.tsx` renders the Atlas-native editor; `workflows.index.tsx` creates; `triggers.tsx`, `runs.$id.tsx`, `fleet.tsx`, and `workspaces.tsx` mutate through Atlas.
+- `src/routes/api.artifacts.$id.content.ts` is the one route handler: thin transport glue that streams artifact bytes with the bearer attached server-side.
+- The mock store and the timer-based simulator (`workflow-scaffold-store.ts`, `workflow-simulator.ts`) are **deleted**, not disabled.
+
 Still scaffold, with an owning phase:
 
-- `artifacts.tsx`, `triggers.tsx`, `deliveries.tsx`, `conversations.tsx`, `usage.tsx`, `audit.tsx`, and `users.tsx` contain local static arrays — **Phase 5**.
-- `workflow-editor.tsx` saves into Zustand and simulates execution with `setInterval`; it does not call Atlas, and no route renders it. Its mock store now lives beside it at `src/components/atlas/workflow-scaffold-store.ts` — **Phase 3**.
-- Mutations, SSE, trigger execution, and artifact download are unimplemented — **Phases 3 and 4**.
+- `artifacts.tsx`, `deliveries.tsx`, `conversations.tsx`, `usage.tsx`, `audit.tsx`, and `users.tsx` contain local static arrays — **Phase 5**.
+- SSE is unimplemented — **Phase 4**. Live run progress is a refetch, not a stream.
 
 ## Backend capabilities confirmed
 
@@ -123,7 +130,39 @@ Ground truth: `atlas/workflows.py` (`validate_workflow_graph` line 173, run loop
 
 The current mock scaffold still contains `kind: "approval"`. Phase 3 performs a **one-time scaffold migration** to the internal `human_gate` kind before the Atlas adapter replaces mock domain state. `approval` is not a permanent API alias or a round-trip mapping.
 
-**Round-trip fixtures are required before Phase 3.** Before wiring the editor's save/run to Atlas, add adapter fixtures that serialize each of the four native kinds and re-parse Atlas's stored graph back to the UI, asserting: `worker`/`manager`/`join`/`human_gate` survive 1:1; `join.mode`/`quorum` and `manager.schema` are always present; and edge conditions (`always`/`artifact_equals`/`artifact_in`/`manager_selected`/`human_selected`/`max_iterations_below`) round-trip. Any unknown Atlas node or condition type must **fail closed** in the UI, not be sent to Atlas.
+**Round-trip fixtures were the entry requirement for Phase 3, and they exist.** `tests/fixtures/workflow-graphs.ts` holds one graph that uses all four native kinds and all six condition types together — deliberately one graph rather than four, because the interesting rules are the ones that relate kinds to each other. `tests/unit/workflow-graph.test.ts` asserts `parse → serialize` is identity for it, for each kind alone, for each condition alone, and for every policy key at its maximum; `tests/contract/mutations.contract.test.ts` posts the same fixtures to a real Atlas and reads them back.
+
+Where the parser is strict and where it is not, and why the distinction matters:
+
+- **Fails closed on parse** — an unknown node type, an unknown condition type, any field the schema does not declare (which is how a React Flow `position` or an edge `label` can never reach Atlas), duplicate node ids, and a blank entry in a string list. These make the workflow unopenable, and the UI says so instead of loading the part it understood and deleting the rest on the next save.
+- **Opens, then flags** — rules the published schema adds but Atlas's runtime validator does not enforce: an artifact key that is not an identifier, an empty `artifact_in` list, a non-identifier node id. Atlas legitimately stores these (a pack import can write one), so refusing to open them would leave a workflow uneditable by the only tool that can fix it.
+
+## Mutation endpoint map (verified against Atlas `595ef62`)
+
+Every row was read out of `atlas/app.py`'s dispatcher and its handler, then re-checked by an independent pass. `PUT` and `DELETE` are genuinely routed (`atlas/app.py:164-174`); the complete `PUT` set is users, tokens, workflows, and workflow-triggers, and everything else updates by `POST` to the collection.
+
+| Action               | Method and path                                   | Success | Response envelope        | Notes                                                                                                         |
+| -------------------- | ------------------------------------------------- | ------- | ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Create workflow      | `POST /api/workflows`                             | 201     | `{workflow}`             | `graph` required; `name` optional server-side; a client-supplied `id` would be honoured, so we never send one |
+| Update workflow      | `PUT /api/workflows/{id}`                         | 200     | `{workflow}`             | Re-validates the merged graph and policy; `version` is client-controlled and never incremented by Atlas       |
+| Delete workflow      | `DELETE /api/workflows/{id}`                      | 200     | `{deleted: true}`        | Cascades triggers and runs                                                                                    |
+| Validate workflow    | `POST /api/workflows/{id}/validate`               | 200     | `{ok: true}`             | Needs a **stored** workflow; the only path that resolves worker/workspace references                          |
+| Start run            | `POST /api/workflow-runs`                         | 202     | `{run}`                  | `workflow_definition_id` required; `input` must be an object                                                  |
+| Pause / cancel run   | `POST /api/workflow-runs/{id}/{pause\|cancel}`    | 200     | `{run}`                  | Pause only from `running`; cancel from any non-terminal state                                                 |
+| Resume run           | `POST /api/workflow-runs/{id}/resume`             | 202     | `{run}`                  | `{retry_interrupted: true}` is **required** to resume `recovery_required`                                     |
+| Deliver run          | `POST /api/workflow-runs/{id}/deliver`            | 202     | `{delivery}`             | Only a succeeded or failed run, and only with a `_meta.reply.callback_url`                                    |
+| Approve / reject     | `POST /api/approvals/{id}/{approve\|reject}`      | 202/200 | `{approval, run}`        | Not nested further; `approve` is refused on a gate that declares choices                                      |
+| Choose               | `POST /api/approvals/{id}/choose`                 | 202     | `{approval, run}`        | Body key is `choice`                                                                                          |
+| Retry delivery       | `POST /api/deliveries/{id}/retry`                 | 202     | `{delivery}`             | Resets the row to pending and makes one attempt                                                               |
+| Trigger CRUD         | `POST` / `PUT` / `DELETE /api/workflow-triggers…` | 201/200 | `{trigger}`              | `enabled` comes back as SQLite `1`/`0`; enable/disable is `PUT {enabled}`; `config` is replaced wholesale     |
+| Fire trigger         | `POST /api/workflow-triggers/{id}/fire`           | 202     | `{trigger, event, run}`  | Manual, schedule, and webhook only                                                                            |
+| Worker upsert        | `POST /api/workers`                               | 201     | `{worker}`               | **Upsert** matched on `id` **or** `base_url`; a blank `token` preserves the stored one                        |
+| Worker delete / poll | `DELETE /api/workers/{id}`, `POST …/poll`         | 200     | `{deleted}` / `{worker}` | Delete cascades the worker's workspaces                                                                       |
+| Workspace upsert     | `POST /api/workspaces`                            | 201     | `{workspace}`            | Upsert matched on `id` or `(worker_id, workspace_key)`                                                        |
+| Cancel job           | `POST /api/jobs/{id}/cancel`                      | 200     | `{job}`                  | Resulting state is `cancel_requested`, not `cancelled`                                                        |
+| Artifact bytes       | `GET /api/artifacts/{id}/content`                 | 200     | **raw bytes**            | `file_ref` only; the ASCII `filename` is the literal string `download`                                        |
+
+Rejections are always a single `{"error": "<one sentence>"}` with status 400 — there is no error list and no field path. `mapAtlasValidationMessage` reads the subject back out of the sentence so a server rejection lands on the same node the local checks would have highlighted.
 
 ## Job event SSE contract
 

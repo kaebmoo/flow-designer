@@ -28,6 +28,7 @@ import { Route as AppWorkflowsIndexRouteImport } from './routes/_app/workflows.i
 import { Route as AppRunsIndexRouteImport } from './routes/_app/runs.index'
 import { Route as AppWorkflowsIdRouteImport } from './routes/_app/workflows.$id'
 import { Route as AppRunsIdRouteImport } from './routes/_app/runs.$id'
+import { Route as ApiArtifactsIdContentRouteImport } from './routes/api.artifacts.$id.content'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -123,6 +124,11 @@ const AppRunsIdRoute = AppRunsIdRouteImport.update({
   path: '/runs/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiArtifactsIdContentRoute = ApiArtifactsIdContentRouteImport.update({
+  id: '/api/artifacts/$id/content',
+  path: '/api/artifacts/$id/content',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -143,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/workflows/$id': typeof AppWorkflowsIdRoute
   '/runs/': typeof AppRunsIndexRoute
   '/workflows/': typeof AppWorkflowsIndexRoute
+  '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -163,6 +170,7 @@ export interface FileRoutesByTo {
   '/workflows/$id': typeof AppWorkflowsIdRoute
   '/runs': typeof AppRunsIndexRoute
   '/workflows': typeof AppWorkflowsIndexRoute
+  '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -185,6 +193,7 @@ export interface FileRoutesById {
   '/_app/workflows/$id': typeof AppWorkflowsIdRoute
   '/_app/runs/': typeof AppRunsIndexRoute
   '/_app/workflows/': typeof AppWorkflowsIndexRoute
+  '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -207,6 +216,7 @@ export interface FileRouteTypes {
     | '/workflows/$id'
     | '/runs/'
     | '/workflows/'
+    | '/api/artifacts/$id/content'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -227,6 +237,7 @@ export interface FileRouteTypes {
     | '/workflows/$id'
     | '/runs'
     | '/workflows'
+    | '/api/artifacts/$id/content'
   id:
     | '__root__'
     | '/'
@@ -248,12 +259,14 @@ export interface FileRouteTypes {
     | '/_app/workflows/$id'
     | '/_app/runs/'
     | '/_app/workflows/'
+    | '/api/artifacts/$id/content'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiArtifactsIdContentRoute: typeof ApiArtifactsIdContentRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -391,6 +404,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRunsIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/artifacts/$id/content': {
+      id: '/api/artifacts/$id/content'
+      path: '/api/artifacts/$id/content'
+      fullPath: '/api/artifacts/$id/content'
+      preLoaderRoute: typeof ApiArtifactsIdContentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -438,6 +458,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiArtifactsIdContentRoute: ApiArtifactsIdContentRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

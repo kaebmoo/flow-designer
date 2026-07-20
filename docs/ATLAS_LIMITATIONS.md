@@ -314,6 +314,105 @@ Backend follow-up:
 
 - If shared layout across users/devices is required, add a layout persistence capability in Atlas, kept separate from the semantic graph JSON.
 
+### P1 — Workflow validation reports one problem at a time, as prose
+
+Confirmed: every rule in `validate_workflow_graph`, `validate_workflow_references`, and
+`validate_workflow_policy` raises a bare `ValueError`, which the dispatcher turns into
+`{"error": "<one sentence>"}` with status 400 (`atlas/app.py:250-251`). There is no error list,
+no field path, and no machine-readable code — so a graph with five problems takes five round
+trips to fix, and the client cannot tell which node a message is about except by reading it.
+
+Frontend mitigation:
+
+- Validate locally against the same rule set before saving, so the user sees every problem at
+  once with each one anchored to its node, edge, or policy field.
+- Parse the subject back out of Atlas's sentence (`mapAtlasValidationMessage`) for the checks
+  only Atlas can do, and fall back to a graph-level message rather than guessing.
+
+Backend follow-up:
+
+- Return a list of `{code, message, path}` from `/validate` (and from create/update rejections)
+  instead of the first exception.
+
+### P1 — Worker and workspace writes are upserts keyed on a natural key
+
+Confirmed: there is no `PUT /api/workers/{id}` or `PUT /api/workspaces/{id}` (the only `PUT`
+routes are users, tokens, workflows, and workflow-triggers). `POST /api/workers` matches
+`WHERE id = ? OR base_url = ?` (`atlas/db.py:1966`) and `POST /api/workspaces` matches
+`WHERE id = ? OR (worker_id = ? AND workspace_key = ?)` (`atlas/db.py:2162-2165`); both answer
+`201` whether they inserted or updated. So "add a worker" at an existing `base_url` silently
+edits that worker, and the response cannot be used to tell which happened.
+
+Separately, `DELETE /api/workers/{id}` refuses a worker with job history but deletes one with
+workspaces and no jobs — cascading every workspace row with it
+(`workspaces.worker_id … ON DELETE CASCADE`, `atlas/db.py:211`), with no warning in the response.
+
+Frontend mitigation:
+
+- Detect the natural-key collision before submitting and say which worker will be edited.
+- Never offer "overwrite" while editing a different row; the two-row match is ambiguous in Atlas
+  and can violate the `base_url` unique constraint as a 500.
+- List the workspaces a worker delete will take with it, before confirming.
+
+Backend follow-up:
+
+- Add explicit `PUT` routes, or distinguish created-vs-updated in the response.
+- Reject or explicitly confirm a cascading worker delete.
+
+### P2 — A human gate has no approver and no deadline
+
+Confirmed: `humanGateNode` in `docs/specs/workflow-definition.schema.json` is
+`additionalProperties: false` with only `id`, `type`, `label`, `reason`, and `choices` — there is
+no assignee, role, or timeout field — and `atlas/workflows.py:986-999` parks the run in
+`waiting_for_human` with no deadline. Any identity holding `approvals.decide` (admin or
+operator) can decide any pending approval, and a gate waits indefinitely.
+
+Frontend mitigation:
+
+- Say so in the gate inspector rather than offering an approver or timeout field that would be
+  accepted by the form and dropped on save.
+- Present `policy.max_minutes` as the only time bound that exists.
+
+Backend follow-up:
+
+- Add per-gate assignment and expiry if approvals need to be routed or time-bounded.
+
+### P2 — Only a `file_ref` artifact has downloadable bytes, and its filename is not in the header
+
+Confirmed: `GET /api/artifacts/{id}/content` rejects any artifact whose `kind` is not
+`file_ref` with `400 artifact is not a file_ref` (`atlas/app.py:931-932`), and the
+`Content-Disposition` it sets uses the literal ASCII filename `download` with the real name only
+in the RFC 5987 `filename*` parameter (`atlas/app.py:939`). The whole file is read into memory
+with a fixed `Content-Length` and no range support (`atlas/app.py:936-946`).
+
+Frontend mitigation:
+
+- Offer a download only for `file_ref`; render the other kinds inline from the metadata route.
+- Build the `Content-Disposition` from the artifact's own `metadata.filename` when proxying.
+
+Backend follow-up:
+
+- Set a correct ASCII `filename`, and stream rather than buffer, if large artifacts are expected.
+
+### P2 — A trigger's workflow cannot be changed, and its config is replaced wholesale
+
+Confirmed: `update_workflow_trigger` persists only `name`, `type`, `config`, `enabled`,
+`last_fired_at`, and `next_fire_at` (`atlas/db.py:1499-1506`), so a `workflow_definition_id` in
+the body is silently ignored — but `_prepare_workflow_trigger` still validates it against the
+merged row, so sending an unknown one is a 400 for a field that would not have been saved. The
+`config` object is replaced, never deep-merged (`atlas/db.py:1511-1512`), and `next_fire_at` is
+recomputed only when the body carries `type` or `config` (`atlas/app.py:802-806`).
+
+Frontend mitigation:
+
+- Do not offer to move a trigger between workflows; state that Atlas cannot.
+- Send the whole config on every edit, and send `{enabled}` alone for enable/disable so a bare
+  toggle does not reschedule a daily trigger.
+
+Backend follow-up:
+
+- Either honour `workflow_definition_id` on update or reject it explicitly.
+
 ## Exit criteria for revisiting scale
 
 Move the architecture discussion back to Atlas before claiming higher scale when any of these become true:

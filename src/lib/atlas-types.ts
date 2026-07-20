@@ -323,6 +323,114 @@ export interface AtlasMetrics {
   time: string;
 }
 
+// ---------------------------------------------------------------------------
+// Mutation-era entities (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET/POST/PUT /api/workflow-triggers…` (`atlas/app.py:759-814`, `atlas/db.py:413-425`).
+ *
+ * `enabled` is the SQLite integer 1/0, **not** a JSON boolean — the column is `INTEGER` and
+ * `row_to_dict` decodes only `config` (`atlas/db.py:134-156`). Typing it as `boolean` here
+ * would make `enabled === true` silently false for an enabled trigger.
+ *
+ * The three `last_event_*` fields are present on the **list** route only; the by-id, create,
+ * and update routes are a plain `SELECT *` and omit them (`atlas/db.py:1493-1496`).
+ */
+export interface AtlasWorkflowTrigger {
+  id: string;
+  workflow_definition_id: string;
+  name: string;
+  type: string;
+  config: Record<string, unknown>;
+  enabled: number;
+  last_fired_at: string | null;
+  next_fire_at: string | null;
+  created_at: string;
+  updated_at: string;
+  last_event_state?: string | null;
+  last_event_error?: string | null;
+  last_event_at?: string | null;
+}
+
+/** `GET /api/workflow-triggers/{id}/events` (`atlas/db.py:427-435`). */
+export interface AtlasTriggerEvent {
+  id: string;
+  trigger_id: string;
+  run_id: string | null;
+  payload: Record<string, unknown>;
+  state: string;
+  error: string | null;
+  created_at: string;
+}
+
+/** `GET /api/deliveries`, `POST /api/deliveries/{id}/retry` (`atlas/db.py:520-533`). */
+export interface AtlasDelivery {
+  id: string;
+  run_id: string;
+  url: string;
+  correlation_id: string | null;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  delivered_at: string | null;
+}
+
+/**
+ * `GET /api/artifacts/{id}`, `GET /api/workflow-runs/{id}/artifacts` (`atlas/db.py:399-411`).
+ *
+ * `content` is a decoded JSON value when `kind === "json"` and a plain string otherwise
+ * (`_public_artifact`, `atlas/app.py:1239-1243`). For `kind === "file_ref"` it is the opaque
+ * upload id — the bytes come from `GET /api/artifacts/{id}/content`, which is the only Atlas
+ * route in this client that does not answer with JSON.
+ */
+export interface AtlasArtifact {
+  id: string;
+  run_id: string | null;
+  job_id: string | null;
+  key: string;
+  kind: string;
+  content: unknown;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The artifact kinds Atlas accepts (`atlas/db.py:22`). */
+export const ARTIFACT_KINDS = [
+  "text",
+  "json",
+  "markdown",
+  "file_ref",
+  "summary",
+  "decision",
+] as const;
+
+/** `POST /api/approvals/{id}/…` — the runner's return value *is* the whole body. */
+export interface AtlasApprovalDecision {
+  approval: AtlasApproval;
+  run: AtlasWorkflowRun;
+}
+
+/**
+ * `GET /api/workflow-runs/{id}/events` (`atlas/app.py:709-714`). Persisted history, not SSE.
+ *
+ * `id` is an `INTEGER PRIMARY KEY AUTOINCREMENT` (`atlas/db.py:369`), so unlike every other
+ * Atlas row it is a number — which is why these rows do not satisfy `isAtlasRow`.
+ */
+export interface AtlasWorkflowEvent {
+  id: number;
+  run_id: string;
+  seq: number;
+  event_type: string;
+  node_key: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
 /** Structural guard for any Atlas row: an object carrying a non-empty string `id`. */
 export function isAtlasRow(value: unknown): boolean {
   if (value === null || typeof value !== "object") return false;

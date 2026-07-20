@@ -71,7 +71,7 @@ test.describe("Atlas-backed reads", () => {
   test("fleet lists the worker Atlas actually holds", async ({ page }) => {
     await page.goto("/fleet");
 
-    await expect(page.getByRole("cell", { name: "Contract Worker" })).toBeVisible();
+    await expect(page.getByRole("cell", { name: /^Contract Worker\b/ })).toBeVisible();
     await expect(page.getByText("http://127.0.0.1:9")).toBeVisible();
     // A never-polled worker is `unknown` with no agent version — not a fabricated one.
     await expect(page.getByText("unknown").first()).toBeVisible();
@@ -108,18 +108,25 @@ test.describe("Atlas-backed reads", () => {
     await expect(page.getByText("Webhook Ingest")).toHaveCount(0);
   });
 
+  /**
+   * The seeded workflow no longer renders as a table of nodes.
+   *
+   * Its single node carries a `label`, which Atlas's own validator ignores but the published
+   * schema forbids, so the editor refuses to open it rather than loading the part it understood
+   * and deleting the rest on the next save. What this test still proves is the same thing it
+   * always did — the page resolves a real Atlas row through the loader and survives a reload —
+   * and `editor.spec.ts` covers the refusal itself.
+   */
   test("a workflow detail survives a full reload", async ({ page }) => {
     await page.goto(`/workflows/${seedIds().workflowId}`);
 
     await expect(page.getByRole("heading", { name: "Contract Workflow" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "n1" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "worker" })).toBeVisible();
+    await expect(page.getByText(/cannot be opened in the editor/)).toBeVisible();
 
     await page.reload();
 
     // Reload is the real test: the scaffold's in-memory store would have lost this.
     await expect(page.getByRole("heading", { name: "Contract Workflow" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "n1" })).toBeVisible();
   });
 
   test("a run detail survives a full reload", async ({ page }) => {
@@ -265,7 +272,7 @@ test("a viewer sees the same Atlas data, because Atlas grants every role `read`"
   await expect(page.getByText("Contract Workflow").first()).toBeVisible();
 
   await page.goto("/fleet");
-  await expect(page.getByRole("cell", { name: "Contract Worker" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: /^Contract Worker\b/ })).toBeVisible();
   await expect(page.getByText("Not allowed")).toHaveCount(0);
 
   await page.goto(`/workflows/${seedIds().workflowId}`);
@@ -319,7 +326,7 @@ test("a session that dies mid-visit redirects to sign-in instead of showing a br
 test("signing out drops the cached Atlas data, so the next session refetches", async ({ page }) => {
   await signIn(page, ADMIN_CREDENTIALS);
   await page.goto("/fleet");
-  await expect(page.getByRole("cell", { name: "Contract Worker" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: /^Contract Worker\b/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/auth$/);
@@ -333,7 +340,7 @@ test("signing out drops the cached Atlas data, so the next session refetches", a
 
   // Immediately — well inside the 10s stale window that a surviving cache would rely on.
   await page.goto("/fleet");
-  await expect(page.getByRole("cell", { name: "Contract Worker" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: /^Contract Worker\b/ })).toBeVisible();
 
   expect(readRequests.length).toBeGreaterThan(0);
 });
@@ -348,7 +355,7 @@ test("no Atlas bearer is observable from the browser on a data page", async ({ p
   page.on("request", (request) => requestUrls.push(request.url()));
 
   await page.goto("/fleet");
-  await expect(page.getByRole("cell", { name: "Contract Worker" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: /^Contract Worker\b/ })).toBeVisible();
 
   /**
    * Asserted on content rather than on emptiness.

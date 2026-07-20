@@ -1,36 +1,52 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 
-import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { PageHeader } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
+import { WorkflowEditor, type WorkflowDraft } from "@/components/atlas/workflow-editor";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { toClientAtlasError } from "@/lib/atlas-mappers";
-import { workflowQuery } from "@/lib/atlas-queries";
+import {
+  useDeleteWorkflow,
+  useSaveWorkflow,
+  useStartRun,
+  useValidateWorkflow,
+} from "@/lib/atlas-mutations";
+import { editableWorkflowQuery } from "@/lib/atlas-queries";
+import { mapAtlasValidationMessage, type ValidationIssue } from "@/lib/workflow-graph";
 
 /**
- * A single workflow definition, read from `GET /api/workflows/{id}`.
+ * The workflow editor, backed by Atlas.
  *
- * Read-only by design in Phase 2. The canvas editor is Phase 3 work: it saves, runs, and
- * simulates, and it still speaks the pre-Atlas nine-kind node vocabulary. Rendering it here
- * against real Atlas data would show an operator an editable canvas whose Save button does
- * nothing, so this page presents the stored graph as it is instead.
+ * Loading it is allowed to fail in a way the page has to respect: `graph.ok === false` means
+ * Atlas is storing a graph this editor's model cannot represent. Rather than loading the parts
+ * that parsed — which would delete the rest on the next save — the page refuses to edit and
+ * says why. That is the fail-closed rule made visible.
  */
 export const Route = createFileRoute("/_app/workflows/$id")({
-  /**
-   * The loader resolves the workflow during SSR, so a reload renders real data immediately and
-   * an unknown id becomes a genuine 404 instead of an empty page. Its return value is serialised
-   * to the browser and seeded into the query below as `initialData`.
-   */
   loader: async ({ context, params }) => {
     try {
-      return await context.queryClient.ensureQueryData(workflowQuery(params.id));
+      return await context.queryClient.ensureQueryData(editableWorkflowQuery(params.id));
     } catch (error) {
-      // Atlas's 404 is this route's not-found, not a crash. Every other failure — forbidden,
-      // timeout, Atlas down — is rethrown so `errorComponent` can tell the operator which.
+      // Atlas's 404 is this route's not-found, not a crash. Everything else — forbidden,
+      // timeout, Atlas down — is rethrown so `errorComponent` can say which.
       if (toClientAtlasError(error).kind === "not_found") throw notFound();
       throw error;
     }
   },
-  component: WorkflowDetail,
+  component: WorkflowEditorRoute,
   pendingComponent: () => <LoadingState label="Loading workflow" />,
   errorComponent: ({ error, reset }) => (
     <AtlasErrorState error={toClientAtlasError(error)} onRetry={reset} />
@@ -41,21 +57,118 @@ export const Route = createFileRoute("/_app/workflows/$id")({
   head: ({ params }) => ({ meta: [{ title: `Workflow ${params.id} · Atlas Control` }] }),
 });
 
-function WorkflowDetail() {
+function WorkflowEditorRoute() {
   const { id } = Route.useParams();
+  const navigate = useNavigate();
+
   /**
    * Seeded from the loader so hydration does not refetch.
    *
-   * The loader's `ensureQueryData` populates the *server's* QueryClient, and this app does not
-   * dehydrate that cache into the page. Without `initialData` the browser's client starts empty,
-   * so `useQuery` would suspend and re-request the workflow immediately after hydration —
-   * undoing the reason the loader exists. Router loader data *is* serialised to the client, so
-   * handing it over here gives SSR content and one request instead of two.
+   * The loader populates the *server's* QueryClient and this app does not dehydrate it, so
+   * without `initialData` the browser would start empty and immediately re-request — undoing
+   * the reason the loader exists.
    */
   const { data: workflow } = useQuery({
-    ...workflowQuery(id),
+    ...editableWorkflowQuery(id),
     initialData: Route.useLoaderData(),
   });
+
+  const save = useSaveWorkflow();
+  const validate = useValidateWorkflow();
+  const startRun = useStartRun();
+  const remove = useDeleteWorkflow();
+
+  const [validation, setValidation] = useState<{ ok: boolean; message: string } | null>(null);
+  /**
+   * Counts saves that landed, which is the signal the editor re-baselines on.
+   *
+   * `updated_at` cannot serve: Atlas stamps it to whole seconds, so a save that follows the
+   * previous write inside the same second returns an identical value and looks like nothing
+   * happened.
+   */
+  const [saveCount, setSaveCount] = useState(0);
+
+  /**
+   * Rejections from the server, anchored to a node, edge, or policy field.
+   *
+   * Two sources end up here. Our own server-side re-validation returns the full issue list with
+   * targets already attached; Atlas returns one sentence, which `mapAtlasValidationMessage`
+   * reads the subject out of. Either way the editor highlights the same thing the local checks
+   * would have.
+   */
+  // Memoised because it feeds the editor's `issues` memo, which feeds the React Flow node list:
+  // a fresh array on every render would defeat all of them and reconcile the whole canvas on
+  // every keystroke in an inspector field.
+  const serverIssues: ValidationIssue[] = useMemo(() => {
+    if (!save.error) return [];
+    if (save.error.rejection) return save.error.rejection.issues;
+    return save.error.kind === "validation" ? [mapAtlasValidationMessage(save.error.message)] : [];
+  }, [save.error]);
+
+  const onSave = (draft: WorkflowDraft) => {
+    setValidation(null);
+    save.mutate(
+      {
+        workflowId: id,
+        name: draft.name,
+        description: draft.description,
+        graph: draft.graph,
+        policy: draft.policy,
+        // The lost-update guard. The baseline comes from the editor, not from this query: a
+        // background refetch moves `workflow.updatedAt`, and using that would let someone else's
+        // save advance the value the guard compares against — passing the check and overwriting
+        // exactly the write it exists to protect.
+        expectedUpdatedAt: draft.expectedUpdatedAt ?? undefined,
+      },
+      { onSuccess: () => setSaveCount((count) => count + 1) },
+    );
+  };
+
+  if (!workflow.graph.ok) {
+    return (
+      <>
+        <PageHeader
+          title={workflow.name}
+          subtitle={workflow.description || "No description."}
+          meta={
+            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              {workflow.id} · v{workflow.version} · updated {workflow.updatedAtLabel}
+            </span>
+          }
+          actions={
+            <Link
+              to="/runs"
+              search={{ limit: 100, workflow: workflow.id, state: undefined }}
+              className="inline-flex items-center rounded border border-border bg-secondary/40 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:bg-secondary"
+            >
+              View runs
+            </Link>
+          }
+        />
+        <div className="flex-1 overflow-y-auto px-8 py-6">
+          <div
+            role="alert"
+            className="max-w-2xl rounded-lg border border-warning/40 bg-warning/10 px-4 py-3"
+          >
+            <h2 className="text-sm font-semibold text-foreground">
+              This workflow cannot be opened in the editor
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Atlas is storing a graph that uses something this editor does not model:{" "}
+              <span className="font-mono text-foreground">{workflow.graph.reason}</span>
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Editing it here would mean saving back only the part that was understood, deleting the
+              rest. It is left untouched instead. It can still be run, and its runs can still be
+              inspected.
+            </p>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const { graph, policy } = workflow.graph;
 
   return (
     <>
@@ -63,125 +176,107 @@ function WorkflowDetail() {
         title={workflow.name}
         subtitle={workflow.description || "No description."}
         meta={
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusPill tone={workflow.status.tone}>{workflow.status.label}</StatusPill>
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              {workflow.id} · v{workflow.version} · updated {workflow.updatedAt}
-            </span>
-          </div>
+          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            {workflow.id} · v{workflow.version} · updated {workflow.updatedAtLabel}
+          </span>
         }
         actions={
-          <Link
-            to="/runs"
-            search={{ limit: 100, workflow: workflow.id, state: undefined }}
-            className="inline-flex items-center rounded border border-border bg-secondary/40 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:bg-secondary"
-          >
-            View runs
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/runs"
+              search={{ limit: 100, workflow: workflow.id, state: undefined }}
+              className="inline-flex items-center rounded border border-border bg-secondary/40 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:bg-secondary"
+            >
+              View runs
+            </Link>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" size="sm" variant="outline" disabled={remove.isPending}>
+                  Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete “{workflow.name}”?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Atlas removes the definition and cascades its triggers and run history. This
+                    cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep it</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() =>
+                      remove.mutate(
+                        { workflowId: id },
+                        { onSuccess: () => navigate({ to: "/workflows", search: { limit: 100 } }) },
+                      )
+                    }
+                  >
+                    Delete workflow
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         }
       />
 
-      <div className="flex-1 overflow-y-auto px-8 py-6">
-        {/*
-          Editing is Phase 3. Saying so beats leaving an operator to discover it by clicking.
-        */}
-        <p className="mb-6 rounded-lg border border-dashed border-border bg-secondary/20 px-4 py-3 text-xs text-muted-foreground">
-          Read-only view of the graph Atlas has stored. Editing, validation, and running a workflow
-          are not wired to Atlas yet.
+      {remove.error ? (
+        <p role="alert" className="bg-destructive/10 px-8 py-2 text-xs text-destructive">
+          {remove.error.message}
         </p>
+      ) : null}
 
-        <section className="mb-8">
-          <h2 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Nodes ({workflow.graphNodes.length})
-          </h2>
-          <DataTable
-            rows={workflow.graphNodes}
-            rowKey={(n) => n.id}
-            empty="This workflow's graph has no nodes."
-            columns={[
-              {
-                key: "id",
-                header: "Node",
-                render: (n) => (
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs text-primary">{n.id}</span>
-                    {n.isStart ? (
-                      <span className="rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest text-primary">
-                        start
-                      </span>
-                    ) : null}
-                  </div>
-                ),
-              },
-              {
-                key: "type",
-                header: "Type",
-                render: (n) => <span className="font-mono text-xs">{n.type}</span>,
-              },
-              {
-                key: "label",
-                header: "Label",
-                render: (n) => <span className="text-sm">{n.label}</span>,
-              },
-            ]}
-          />
-        </section>
-
-        <section className="mb-8">
-          <h2 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Edges ({workflow.graphEdges.length})
-          </h2>
-          <DataTable
-            rows={workflow.graphEdges}
-            rowKey={(e) => e.id}
-            empty="This workflow's graph has no edges."
-            columns={[
-              {
-                key: "from",
-                header: "From",
-                render: (e) => <span className="font-mono text-xs">{e.from}</span>,
-              },
-              {
-                key: "to",
-                header: "To",
-                render: (e) => <span className="font-mono text-xs">{e.to}</span>,
-              },
-              {
-                key: "condition",
-                header: "Condition",
-                className: "text-right",
-                render: (e) => (
-                  <span className="font-mono text-xs text-muted-foreground">{e.condition}</span>
-                ),
-              },
-            ]}
-          />
-        </section>
-
-        <section>
-          <h2 className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            Policy
-          </h2>
-          <DataTable
-            rows={workflow.policy}
-            rowKey={(p) => p.key}
-            empty="Atlas stored no policy for this workflow; its executor defaults apply."
-            columns={[
-              {
-                key: "key",
-                header: "Key",
-                render: (p) => <span className="font-mono text-xs">{p.key}</span>,
-              },
-              {
-                key: "value",
-                header: "Value",
-                className: "text-right",
-                render: (p) => <span className="font-mono text-xs">{p.value}</span>,
-              },
-            ]}
-          />
-        </section>
-      </div>
+      <WorkflowEditor
+        // Keyed on the workflow alone. Adding the timestamp would remount on every successful
+        // save — discarding anything typed while the save was in flight — and on every refetch
+        // that pulled in someone else's write, silently replacing the operator's draft with it.
+        // The editor handles both cases itself: it re-baselines against what it sent, and warns
+        // when the server moved underneath it.
+        key={workflow.id}
+        workflowId={workflow.id}
+        graphVersion={workflow.version}
+        initialName={workflow.name}
+        initialDescription={workflow.description}
+        initialGraph={graph}
+        initialPolicy={policy}
+        savedAt={workflow.updatedAt}
+        saveCount={saveCount}
+        saving={save.isPending}
+        serverIssues={serverIssues}
+        saveError={save.error ? save.error.message : null}
+        onSave={onSave}
+        validating={validate.isPending}
+        atlasValidation={validation}
+        onValidateWithAtlas={(draft) => {
+          setValidation(null);
+          validate.mutate(
+            { workflowId: id, graph: draft.graph, policy: draft.policy },
+            {
+              onSuccess: () =>
+                setValidation({
+                  ok: true,
+                  message:
+                    "Atlas accepted this graph, including its worker and workspace references.",
+                }),
+              onError: (error) => setValidation({ ok: false, message: error.message }),
+            },
+          );
+        }}
+        running={startRun.isPending}
+        onRun={() =>
+          startRun.mutate(
+            { workflowDefinitionId: id },
+            {
+              // Atlas answers with the real run row, so the id in this URL is Atlas's — not a
+              // number minted in the browser the way the scaffold did it.
+              onSuccess: (run) => navigate({ to: "/runs/$id", params: { id: run.id } }),
+              onError: (error) => setValidation({ ok: false, message: error.message }),
+            },
+          )
+        }
+      />
     </>
   );
 }

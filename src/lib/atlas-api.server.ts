@@ -20,6 +20,10 @@ import {
   isAtlasRowListEnvelope,
   isAtlasUser,
   readAtlasErrorMessage,
+  type AtlasApproval,
+  type AtlasApprovalDecision,
+  type AtlasArtifact,
+  type AtlasDelivery,
   type AtlasErrorKind,
   type AtlasJob,
   type AtlasJobListRow,
@@ -30,8 +34,10 @@ import {
   type AtlasUser,
   type AtlasWorker,
   type AtlasWorkflowDefinition,
+  type AtlasWorkflowEvent,
   type AtlasWorkflowRun,
   type AtlasWorkflowRunDetail,
+  type AtlasWorkflowTrigger,
   type AtlasWorkspace,
   type AtlasWorkspaceListRow,
 } from "./atlas-types";
@@ -106,7 +112,7 @@ function defaultMessageForKind(kind: AtlasErrorKind): string {
 }
 
 interface AtlasRequestOptions {
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PUT" | "DELETE";
   path: `/api/${string}`;
   /**
    * Fixed query parameters for this operation.
@@ -142,9 +148,10 @@ async function atlasRequest(options: AtlasRequestOptions): Promise<unknown> {
     headers.authorization = `Bearer ${options.token}`;
   }
 
-  // Atlas reads bodies by Content-Length, so a POST always carries an explicit JSON body —
-  // `{}` when there is nothing to send — rather than no body at all.
-  const hasBody = options.method === "POST";
+  // Atlas reads bodies by Content-Length, so a POST/PUT always carries an explicit JSON body —
+  // `{}` when there is nothing to send — rather than no body at all. DELETE carries none,
+  // which is also why it needs no desync workaround: there are no leftover bytes to strand.
+  const hasBody = options.method === "POST" || options.method === "PUT";
   if (hasBody) {
     headers["content-type"] = "application/json";
     /**
@@ -156,6 +163,12 @@ async function atlasRequest(options: AtlasRequestOptions): Promise<unknown> {
      * bytes and comes back as a 501 HTML page — corrupting an unrelated later request rather
      * than the rejected one. Reproduced against Atlas 595ef62; closing the connection after
      * every POST removes it entirely.
+     *
+     * Phase 3 widened the exposure rather than narrowing it: several mutation routes never
+     * read the body **on the success path** either — `pause`, `cancel`, `deliver`, `approve`,
+     * `reject`, and `delivery retry` all skip `_read_json()` (`atlas/app.py:718-751, 839-843`)
+     * — so the `{}` this client must send by Content-Length is stranded on a *200*, not only
+     * on a rejection. The same header covers both.
      *
      * ponytail: costs one TCP handshake per mutation on a private network. Drop this header
      * once Atlas drains the request body on its rejection paths.
@@ -569,4 +582,790 @@ export async function atlasGetJob(
   });
 
   return expectShape<{ job: AtlasJob }>(payload, (value) => isAtlasRowEnvelope(value, "job")).job;
+}
+
+// ---------------------------------------------------------------------------
+// Read operations added in Phase 3, for the surfaces mutations act on.
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /api/approvals?limit=&state=&run_id=` — newest-first.
+ *
+ * Needed as its own call because `GET /api/workflow-runs/{id}` truncates its embedded
+ * `approvals` at Atlas's default 100 with no truncation signal (`atlas/app.py:671`).
+ */
+export async function atlasListApprovals(
+  token: string,
+  params: { limit?: number; state?: string; runId?: string } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasApproval[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/approvals",
+    token,
+    query: {
+      limit: clampAtlasLimit(params.limit),
+      state: params.state || undefined,
+      run_id: params.runId || undefined,
+    },
+    ...options,
+  });
+
+  return expectShape<{ approvals: AtlasApproval[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "approvals"),
+  ).approvals;
+}
+
+/** `GET /api/deliveries?limit=&run_id=&status=`. Requires the `deliveries.read` permission. */
+export async function atlasListDeliveries(
+  token: string,
+  params: { limit?: number; runId?: string; status?: string } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasDelivery[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/deliveries",
+    token,
+    query: {
+      limit: clampAtlasLimit(params.limit),
+      run_id: params.runId || undefined,
+      status: params.status || undefined,
+    },
+    ...options,
+  });
+
+  return expectShape<{ deliveries: AtlasDelivery[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "deliveries"),
+  ).deliveries;
+}
+
+/**
+ * `GET /api/workflow-runs/{id}/artifacts` — every artifact of the run.
+ *
+ * Deliberately unbounded on Atlas's side: the route iterates the full set by rowid keyset so a
+ * run whose nodes collected more than a page is not silently truncated (`atlas/app.py:679-681`).
+ */
+export async function atlasListRunArtifacts(
+  token: string,
+  runId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasArtifact[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: `/api/workflow-runs/${encodeURIComponent(runId)}/artifacts`,
+    token,
+    ...options,
+  });
+
+  return expectShape<{ artifacts: AtlasArtifact[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "artifacts"),
+  ).artifacts;
+}
+
+/** `GET /api/artifacts/{id}` — metadata plus inline content for every kind but `file_ref`. */
+export async function atlasGetArtifact(
+  token: string,
+  artifactId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasArtifact> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: `/api/artifacts/${encodeURIComponent(artifactId)}`,
+    token,
+    ...options,
+  });
+
+  return expectShape<{ artifact: AtlasArtifact }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "artifact"),
+  ).artifact;
+}
+
+/**
+ * `GET /api/workflow-runs/{id}/events?limit=` — persisted run history.
+ *
+ * Not SSE and not resumable: there is no `after` cursor, only `limit` (default 500). Live
+ * progress is Phase 4's per-job SSE; this is the durable record that survives a reload.
+ *
+ * These rows carry an integer `id`, so the row-envelope guards that require a string id do not
+ * apply and the shape is checked directly.
+ */
+export async function atlasListRunEvents(
+  token: string,
+  runId: string,
+  params: { limit?: number } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowEvent[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: `/api/workflow-runs/${encodeURIComponent(runId)}/events`,
+    token,
+    query: { limit: clampAtlasLimit(params.limit) },
+    ...options,
+  });
+
+  return expectShape<{ events: AtlasWorkflowEvent[] }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      Array.isArray((value as Record<string, unknown>).events),
+  ).events;
+}
+
+/** `GET /api/workflow-triggers?limit=&workflow_definition_id=`. */
+export async function atlasListWorkflowTriggers(
+  token: string,
+  params: { limit?: number; workflowDefinitionId?: string } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowTrigger[]> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/workflow-triggers",
+    token,
+    query: {
+      limit: clampAtlasLimit(params.limit),
+      workflow_definition_id: params.workflowDefinitionId || undefined,
+    },
+    ...options,
+  });
+
+  return expectShape<{ triggers: AtlasWorkflowTrigger[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "triggers"),
+  ).triggers;
+}
+
+// ---------------------------------------------------------------------------
+// Mutations (Phase 3).
+//
+// Same rule as the reads: one exported function per Atlas route, method and path baked in.
+// Nothing here retries — a retried mutation against an API with no idempotency key is how a
+// workflow gets started twice. Retry is the user's explicit choice, made in the UI.
+// ---------------------------------------------------------------------------
+
+/** What Atlas persists for a workflow definition. Layout state is structurally absent. */
+export interface AtlasWorkflowWrite {
+  name: string;
+  description?: string;
+  graph: Record<string, unknown>;
+  policy: Record<string, unknown>;
+}
+
+/**
+ * `POST /api/workflows` — 201.
+ *
+ * `id` is deliberately never sent even though Atlas would honour a client-supplied primary key
+ * (`atlas/db.py:1065`): the id is Atlas's to mint, and letting the browser choose one invites a
+ * collision the UI cannot detect. `triggers` is likewise not sent — Atlas validates the key but
+ * never persists it (`atlas/app.py:1277`), so sending it would look like it worked.
+ */
+export async function atlasCreateWorkflow(
+  token: string,
+  workflow: AtlasWorkflowWrite,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowDefinition> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/workflows",
+    token,
+    body: {
+      name: workflow.name,
+      description: workflow.description ?? "",
+      graph: workflow.graph,
+      policy: workflow.policy,
+    },
+    ...options,
+  });
+
+  return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "workflow"),
+  ).workflow;
+}
+
+/**
+ * `PUT /api/workflows/{id}` — 200.
+ *
+ * Atlas re-validates the merged graph and policy, then persists whichever keys the body
+ * carries (`atlas/app.py:592-599`).
+ *
+ * `version` is deliberately **not** sent. It is a client-controlled column that Atlas never
+ * increments on its own (`atlas/db.py:1102-1123`), so it is not a concurrency token and
+ * bumping it on every save would only invalidate the locally stored layout, which is keyed by
+ * it. Atlas offers no ETag and no `If-Match`, so the lost-update guard lives in the caller and
+ * compares the server-set `updated_at` instead.
+ */
+export async function atlasUpdateWorkflow(
+  token: string,
+  workflowId: string,
+  workflow: AtlasWorkflowWrite,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowDefinition> {
+  const payload = await atlasRequest({
+    method: "PUT",
+    path: `/api/workflows/${encodeURIComponent(workflowId)}`,
+    token,
+    body: {
+      name: workflow.name,
+      description: workflow.description ?? "",
+      graph: workflow.graph,
+      policy: workflow.policy,
+    },
+    ...options,
+  });
+
+  return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "workflow"),
+  ).workflow;
+}
+
+/** `DELETE /api/workflows/{id}` — 200 `{"deleted": true}`; 404 when it was already gone. */
+export async function atlasDeleteWorkflow(
+  token: string,
+  workflowId: string,
+  options: AtlasCallOptions = {},
+): Promise<void> {
+  const payload = await atlasRequest({
+    method: "DELETE",
+    path: `/api/workflows/${encodeURIComponent(workflowId)}`,
+    token,
+    ...options,
+  });
+
+  expectShape<{ deleted: true }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      (value as Record<string, unknown>).deleted === true,
+  );
+}
+
+/**
+ * `POST /api/workflows/{id}/validate` — 200 `{"ok": true}`, or 400 with one message.
+ *
+ * The workflow must already exist: the handler looks it up first and 404s otherwise
+ * (`atlas/app.py:608-610`). This is the *only* way to get Atlas's reference checks —
+ * `validate_workflow_references` resolves `worker_id`/`workspace_id`/`allowed_*_ids` against
+ * Atlas's own tables (`atlas/workflows.py:304`), which no client can reproduce.
+ *
+ * Atlas raises one `ValueError` at a time, so a rejection is a single string, never a list.
+ */
+export async function atlasValidateWorkflow(
+  token: string,
+  workflowId: string,
+  candidate: { graph: Record<string, unknown>; policy: Record<string, unknown> },
+  options: AtlasCallOptions = {},
+): Promise<void> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/workflows/${encodeURIComponent(workflowId)}/validate`,
+    token,
+    body: { graph: candidate.graph, policy: candidate.policy },
+    ...options,
+  });
+
+  expectShape<{ ok: true }>(
+    payload,
+    (value) =>
+      value !== null && typeof value === "object" && (value as Record<string, unknown>).ok === true,
+  );
+}
+
+/** `POST /api/workflow-runs` — 202 with the persisted run, including its real Atlas id. */
+export async function atlasStartWorkflowRun(
+  token: string,
+  params: { workflowDefinitionId: string; input?: Record<string, unknown> },
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowRun> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/workflow-runs",
+    token,
+    body: {
+      workflow_definition_id: params.workflowDefinitionId,
+      input: params.input ?? {},
+    },
+    ...options,
+  });
+
+  return expectShape<{ run: AtlasWorkflowRun }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "run"),
+  ).run;
+}
+
+/** The run lifecycle actions Atlas exposes under `POST /api/workflow-runs/{id}/{action}`. */
+export type AtlasRunAction = "pause" | "resume" | "cancel";
+
+/**
+ * `POST /api/workflow-runs/{id}/{pause|resume|cancel}` — returns the updated run.
+ *
+ * `retryInterrupted` matters only for `resume`, and only for a run in `recovery_required`:
+ * Atlas refuses with "workflow run requires explicit retry_interrupted authorization" unless
+ * the flag is `true` (`atlas/workflows.py:480-482`). It is a deliberate authorization step —
+ * retrying an interrupted node can duplicate work that a remote worker may still be doing —
+ * so it is never defaulted on.
+ */
+export async function atlasRunAction(
+  token: string,
+  runId: string,
+  action: AtlasRunAction,
+  params: { retryInterrupted?: boolean } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowRun> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/workflow-runs/${encodeURIComponent(runId)}/${action}`,
+    token,
+    body: action === "resume" ? { retry_interrupted: params.retryInterrupted === true } : {},
+    ...options,
+  });
+
+  return expectShape<{ run: AtlasWorkflowRun }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "run"),
+  ).run;
+}
+
+/** `POST /api/workflow-runs/{id}/deliver` — 202. Only a succeeded/failed run is deliverable. */
+export async function atlasDeliverRun(
+  token: string,
+  runId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasDelivery> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/workflow-runs/${encodeURIComponent(runId)}/deliver`,
+    token,
+    body: {},
+    ...options,
+  });
+
+  return expectShape<{ delivery: AtlasDelivery }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "delivery"),
+  ).delivery;
+}
+
+/**
+ * `POST /api/approvals/{id}/{approve|reject|choose}`.
+ *
+ * The runner's return value is the whole body — `{approval, run}` — rather than a nested
+ * envelope (`atlas/workflows.py:652`, emitted directly at `atlas/app.py:747`).
+ *
+ * Atlas splits the decision by whether the gate declares choices: `approve` is rejected with
+ * "approval requires a branch choice" when it does (`atlas/workflows.py:628-629`), and
+ * `choose` with "approval does not declare branch choices" when it does not
+ * (`atlas/workflows.py:657-658`). The caller picks the right one from the approval row.
+ */
+export async function atlasDecideApproval(
+  token: string,
+  approvalId: string,
+  decision: { kind: "approve" } | { kind: "reject" } | { kind: "choose"; choice: string },
+  options: AtlasCallOptions = {},
+): Promise<AtlasApprovalDecision> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/approvals/${encodeURIComponent(approvalId)}/${decision.kind}`,
+    token,
+    body: decision.kind === "choose" ? { choice: decision.choice } : {},
+    ...options,
+  });
+
+  return expectShape<AtlasApprovalDecision>(
+    payload,
+    (value) => isAtlasRowEnvelope(value, "approval") && isAtlasRowEnvelope(value, "run"),
+  );
+}
+
+/** `POST /api/deliveries/{id}/retry` — 202. Atlas resets the row to pending and tries once. */
+export async function atlasRetryDelivery(
+  token: string,
+  deliveryId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasDelivery> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/deliveries/${encodeURIComponent(deliveryId)}/retry`,
+    token,
+    body: {},
+    ...options,
+  });
+
+  return expectShape<{ delivery: AtlasDelivery }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "delivery"),
+  ).delivery;
+}
+
+/** What a trigger write carries. `workflow_definition_id` is required on create. */
+export interface AtlasTriggerWrite {
+  workflowDefinitionId: string;
+  name: string;
+  type: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+}
+
+/** `POST /api/workflow-triggers` — 201. */
+export async function atlasCreateWorkflowTrigger(
+  token: string,
+  trigger: AtlasTriggerWrite,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowTrigger> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/workflow-triggers",
+    token,
+    body: {
+      workflow_definition_id: trigger.workflowDefinitionId,
+      name: trigger.name,
+      type: trigger.type,
+      enabled: trigger.enabled,
+      config: trigger.config,
+    },
+    ...options,
+  });
+
+  return expectShape<{ trigger: AtlasWorkflowTrigger }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "trigger"),
+  ).trigger;
+}
+
+/**
+ * `PUT /api/workflow-triggers/{id}` — 200. Partial: only the keys sent are persisted.
+ *
+ * Two Atlas behaviours the caller has to know about:
+ *  - `config` is replaced wholesale, never deep-merged (`atlas/db.py:1511-1512`).
+ *  - `next_fire_at` is recomputed only when the body carries `type` or `config`
+ *    (`atlas/app.py:802-806`), so a bare enable/disable keeps the existing schedule slot.
+ *
+ * There is no dedicated enable/disable route: `{ enabled }` alone is how it is done, which is
+ * also why `enabled` is separable from the rest of the write here.
+ */
+export async function atlasUpdateWorkflowTrigger(
+  token: string,
+  triggerId: string,
+  patch: { name?: string; type?: string; enabled?: boolean; config?: Record<string, unknown> },
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowTrigger> {
+  const body: Record<string, unknown> = {};
+  if (patch.name !== undefined) body.name = patch.name;
+  if (patch.type !== undefined) body.type = patch.type;
+  if (patch.enabled !== undefined) body.enabled = patch.enabled;
+  if (patch.config !== undefined) body.config = patch.config;
+
+  const payload = await atlasRequest({
+    method: "PUT",
+    path: `/api/workflow-triggers/${encodeURIComponent(triggerId)}`,
+    token,
+    body,
+    ...options,
+  });
+
+  return expectShape<{ trigger: AtlasWorkflowTrigger }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "trigger"),
+  ).trigger;
+}
+
+/** `DELETE /api/workflow-triggers/{id}` — 200. Cascades the trigger's event history. */
+export async function atlasDeleteWorkflowTrigger(
+  token: string,
+  triggerId: string,
+  options: AtlasCallOptions = {},
+): Promise<void> {
+  const payload = await atlasRequest({
+    method: "DELETE",
+    path: `/api/workflow-triggers/${encodeURIComponent(triggerId)}`,
+    token,
+    ...options,
+  });
+
+  expectShape<{ deleted: true }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      (value as Record<string, unknown>).deleted === true,
+  );
+}
+
+/**
+ * `POST /api/workflow-triggers/{id}/fire` — 202.
+ *
+ * Only `manual`, `schedule`, and `webhook` may be fired by hand; Atlas rejects the three
+ * event-driven types with "<type> triggers are fired by Atlas events" (`atlas/app.py:774-775`).
+ * The response is the trigger service's own result object, not a row envelope.
+ */
+export async function atlasFireWorkflowTrigger(
+  token: string,
+  triggerId: string,
+  params: { payload?: Record<string, unknown>; dedupeKey?: string } = {},
+  options: AtlasCallOptions = {},
+): Promise<Record<string, unknown>> {
+  const result = await atlasRequest({
+    method: "POST",
+    path: `/api/workflow-triggers/${encodeURIComponent(triggerId)}/fire`,
+    token,
+    body: {
+      payload: params.payload ?? {},
+      ...(params.dedupeKey === undefined ? {} : { dedupe_key: params.dedupeKey }),
+    },
+    ...options,
+  });
+
+  return expectShape<Record<string, unknown>>(
+    result,
+    (value) => value !== null && typeof value === "object",
+  );
+}
+
+/**
+ * `POST /api/workers` — 201. An **upsert**, not a create.
+ *
+ * Atlas matches on `id` OR `base_url` (`atlas/db.py:1966`) and answers 201 either way, so this
+ * one route is both "add worker" and "edit worker" — there is no `PUT /api/workers/{id}`. The
+ * conflict target being `base_url` matters: adding a worker at a URL that already exists
+ * silently edits that worker rather than creating a second one.
+ *
+ * A blank `token` leaves the stored credential untouched (`atlas/db.py:1972-1974`), which is
+ * what lets the UI edit a worker without ever handling its secret.
+ */
+export async function atlasUpsertWorker(
+  token: string,
+  worker: {
+    id?: string;
+    name: string;
+    base_url: string;
+    role?: string;
+    tags?: string[];
+    token?: string;
+  },
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorker> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/workers",
+    token,
+    body: {
+      ...(worker.id === undefined ? {} : { id: worker.id }),
+      name: worker.name,
+      base_url: worker.base_url,
+      role: worker.role ?? "",
+      tags: worker.tags ?? [],
+      // Omitted rather than sent empty, so an edit cannot blank an existing credential.
+      ...(worker.token ? { token: worker.token } : {}),
+    },
+    ...options,
+  });
+
+  return expectShape<{ worker: AtlasWorker }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "worker"),
+  ).worker;
+}
+
+/**
+ * `DELETE /api/workers/{id}` — 200.
+ *
+ * Atlas refuses a worker that has job history, but a worker with workspaces and no jobs
+ * deletes silently and takes every workspace row with it
+ * (`workspaces.worker_id … ON DELETE CASCADE`, `atlas/db.py:211`). The caller must say so
+ * before asking for confirmation.
+ */
+export async function atlasDeleteWorker(
+  token: string,
+  workerId: string,
+  options: AtlasCallOptions = {},
+): Promise<void> {
+  const payload = await atlasRequest({
+    method: "DELETE",
+    path: `/api/workers/${encodeURIComponent(workerId)}`,
+    token,
+    ...options,
+  });
+
+  expectShape<{ deleted: true }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      (value as Record<string, unknown>).deleted === true,
+  );
+}
+
+/** `POST /api/workers/{id}/poll` — refreshes one worker's capability snapshot. */
+export async function atlasPollWorker(
+  token: string,
+  workerId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorker> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/workers/${encodeURIComponent(workerId)}/poll`,
+    token,
+    body: {},
+    // A poll dials the worker itself, so it inherits that machine's latency, not Atlas's.
+    timeoutMs: options.timeoutMs ?? 30_000,
+    signal: options.signal,
+  });
+
+  return expectShape<{ worker: AtlasWorker }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "worker"),
+  ).worker;
+}
+
+/** `POST /api/workers/poll` — polls every worker, sequentially, on Atlas's side. */
+export async function atlasPollAllWorkers(
+  token: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorker[]> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/workers/poll",
+    token,
+    body: {},
+    timeoutMs: options.timeoutMs ?? 60_000,
+    signal: options.signal,
+  });
+
+  return expectShape<{ workers: AtlasWorker[] }>(payload, (value) =>
+    isAtlasRowListEnvelope(value, "workers"),
+  ).workers;
+}
+
+/**
+ * `POST /api/workspaces` — 201. Also an upsert: Atlas matches on `id`, or on the
+ * `(worker_id, workspace_key)` pair (`atlas/db.py:2162-2165`). There is no `PUT`.
+ */
+export async function atlasUpsertWorkspace(
+  token: string,
+  workspace: {
+    id?: string;
+    worker_id: string;
+    workspace_key: string;
+    workspace_dir: string;
+    company?: string;
+    tags?: string[];
+  },
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkspace> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/workspaces",
+    token,
+    body: {
+      ...(workspace.id === undefined ? {} : { id: workspace.id }),
+      worker_id: workspace.worker_id,
+      workspace_key: workspace.workspace_key,
+      workspace_dir: workspace.workspace_dir,
+      company: workspace.company ?? "",
+      tags: workspace.tags ?? [],
+    },
+    ...options,
+  });
+
+  return expectShape<{ workspace: AtlasWorkspace }>(payload, (value) =>
+    isAtlasRowEnvelope(value, "workspace"),
+  ).workspace;
+}
+
+/** `DELETE /api/workspaces/{id}` — 200. Jobs that referenced it keep a null `workspace_id`. */
+export async function atlasDeleteWorkspace(
+  token: string,
+  workspaceId: string,
+  options: AtlasCallOptions = {},
+): Promise<void> {
+  const payload = await atlasRequest({
+    method: "DELETE",
+    path: `/api/workspaces/${encodeURIComponent(workspaceId)}`,
+    token,
+    ...options,
+  });
+
+  expectShape<{ deleted: true }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      (value as Record<string, unknown>).deleted === true,
+  );
+}
+
+/**
+ * `POST /api/jobs/{id}/cancel` — 200 with the job row.
+ *
+ * The returned `state` is the literal `"cancel_requested"`, not `"cancelled"`
+ * (`atlas/db.py:2412` writes both the flag and the state in one statement). Cancelling an
+ * already-terminal job is a silent no-op that returns the row unchanged.
+ */
+export async function atlasCancelJob(
+  token: string,
+  jobId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasJob> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/jobs/${encodeURIComponent(jobId)}/cancel`,
+    token,
+    body: {},
+    ...options,
+  });
+
+  return expectShape<{ job: AtlasJob }>(payload, (value) => isAtlasRowEnvelope(value, "job")).job;
+}
+
+/**
+ * `GET /api/artifacts/{id}/content` — the only Atlas route here that is not JSON.
+ *
+ * Atlas serves raw bytes with a `Content-Disposition` whose ASCII `filename` is the literal
+ * string `download` (`atlas/app.py:939`), and it serves them only for `kind === "file_ref"`.
+ * The bytes are returned rather than parsed, so a route handler can stream them to the browser
+ * with a filename taken from the artifact's own metadata.
+ *
+ * This bypasses `atlasRequest` because that function's contract is "the response is JSON or it
+ * is a protocol error" — which is exactly right for every other route and exactly wrong here.
+ */
+export async function atlasDownloadArtifact(
+  token: string,
+  artifactId: string,
+  options: AtlasCallOptions = {},
+): Promise<{ bytes: ArrayBuffer; contentType: string }> {
+  const { atlasApiOrigin } = getServerEnv();
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${atlasApiOrigin}/api/artifacts/${encodeURIComponent(artifactId)}/content`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${token}` },
+        signal,
+        redirect: "error",
+      },
+    );
+  } catch (cause) {
+    if (timeoutSignal.aborted) {
+      throw new AtlasError("timeout", defaultMessageForKind("timeout"), { cause });
+    }
+    if (options.signal?.aborted) throw cause;
+    throw new AtlasError("network", defaultMessageForKind("network"), { cause });
+  }
+
+  if (!response.ok) {
+    // A failure on this route still answers with Atlas's JSON error envelope.
+    const kind = atlasErrorKindForStatus(response.status);
+    let atlasMessage: string | undefined;
+    try {
+      atlasMessage = readAtlasErrorMessage(await response.json());
+    } catch {
+      atlasMessage = undefined;
+    }
+    throw new AtlasError(kind, atlasMessage ?? defaultMessageForKind(kind), {
+      status: response.status,
+      fromAtlas: atlasMessage !== undefined,
+    });
+  }
+
+  return {
+    bytes: await response.arrayBuffer(),
+    contentType: response.headers.get("content-type") ?? "application/octet-stream",
+  };
 }

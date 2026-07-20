@@ -9,8 +9,17 @@
  * lands with the editor work in Phase 3; nothing here writes.
  */
 
+import {
+  parseWorkflowGraph,
+  parseWorkflowPolicy,
+  type JsonObject,
+  type WorkflowGraph,
+  type WorkflowPolicy,
+} from "./workflow-graph";
 import type {
   AtlasApproval,
+  AtlasArtifact,
+  AtlasDelivery,
   AtlasErrorKind,
   AtlasJob,
   AtlasJobListRow,
@@ -21,9 +30,11 @@ import type {
   AtlasUser,
   AtlasWorker,
   AtlasWorkflowDefinition,
+  AtlasWorkflowEvent,
   AtlasWorkflowGraph,
   AtlasWorkflowRun,
   AtlasWorkflowRunDetail,
+  AtlasWorkflowTrigger,
   AtlasWorkspaceListRow,
 } from "./atlas-types";
 
@@ -472,6 +483,31 @@ export function toWorkflowDetailView(workflow: AtlasWorkflowDefinition): Workflo
   return { ...toWorkflowView(workflow), startNodeId: start, graphNodes, graphEdges, policy };
 }
 
+/**
+ * One node Atlas found in flight when it restarted (`counters.recovery.interrupted[]`,
+ * `atlas/workflows.py:546-552`).
+ *
+ * `callbackPending` is the entry that decides whether a retry is merely a re-run or a
+ * duplication: Atlas sets it when the node's job is a callback job that is still executing on
+ * the remote worker, so authorizing a retry submits a *second* job for work already underway.
+ */
+export interface RunInterruptedNodeView {
+  nodeKey: string;
+  jobId: string | null;
+  attempt: number | null;
+  callbackPending: boolean;
+}
+
+/** `counters.recovery`, present only once Atlas has marked a run `recovery_required`. */
+export interface RunRecoveryView {
+  reason: string | null;
+  /** Atlas's own operator guidance. Shown verbatim rather than paraphrased. */
+  warning: string | null;
+  interrupted: RunInterruptedNodeView[];
+  /** True once a previous resume authorized a retry, so a second one would duplicate again. */
+  retryAuthorizedAt: string | null;
+}
+
 export interface RunView {
   id: string;
   name: string;
@@ -483,6 +519,50 @@ export interface RunView {
   durationMs: number | null;
   error: string | null;
   currentNodes: string[];
+  /**
+   * `input._meta.reply.callback_url`, read exactly as Atlas's `_reply_of` reads it
+   * (`atlas/outbound.py:457-459`). Its absence is why `POST /deliver` 400s, so the UI can name
+   * the reason instead of offering a button that cannot succeed.
+   */
+  replyCallbackUrl: string | null;
+  recovery: RunRecoveryView | null;
+}
+
+function readRecoveryCounters(counters: Record<string, unknown>): RunRecoveryView | null {
+  const recovery = counters.recovery;
+  if (recovery === null || typeof recovery !== "object") return null;
+  const record = recovery as Record<string, unknown>;
+  const interrupted = Array.isArray(record.interrupted) ? record.interrupted : [];
+  return {
+    reason: typeof record.reason === "string" ? record.reason : null,
+    warning: typeof record.warning === "string" ? record.warning : null,
+    retryAuthorizedAt:
+      typeof record.retry_authorized_at === "string"
+        ? formatAtlasTimestamp(record.retry_authorized_at)
+        : null,
+    interrupted: interrupted.flatMap((entry) => {
+      if (entry === null || typeof entry !== "object") return [];
+      const item = entry as Record<string, unknown>;
+      if (typeof item.node_key !== "string") return [];
+      return [
+        {
+          nodeKey: item.node_key,
+          jobId: typeof item.job_id === "string" ? item.job_id : null,
+          attempt: typeof item.attempt === "number" ? item.attempt : null,
+          callbackPending: item.callback_pending === true,
+        },
+      ];
+    }),
+  };
+}
+
+function readReplyCallbackUrl(input: Record<string, unknown>): string | null {
+  const meta = input._meta;
+  if (meta === null || typeof meta !== "object") return null;
+  const reply = (meta as Record<string, unknown>).reply;
+  if (reply === null || typeof reply !== "object") return null;
+  const url = (reply as Record<string, unknown>).callback_url;
+  return typeof url === "string" && url.length > 0 ? url : null;
 }
 
 /**
@@ -504,6 +584,8 @@ export function toRunView(run: AtlasWorkflowRun): RunView {
     durationMs: atlasDurationMs(run.started_at, run.finished_at),
     error: run.error,
     currentNodes: run.current_nodes ?? [],
+    replyCallbackUrl: readReplyCallbackUrl(run.input ?? {}),
+    recovery: readRecoveryCounters(run.counters ?? {}),
   };
 }
 
@@ -743,5 +825,268 @@ export function toMetricsView(metrics: AtlasMetrics): MetricsView {
     artifacts: Number(metrics.artifacts) || 0,
     atlasVersion: metrics.version,
     generatedAt: formatAtlasTimestamp(metrics.time),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 view models: the editable workflow, triggers, deliveries, artifacts, events.
+// ---------------------------------------------------------------------------
+
+/**
+ * A workflow as the *editor* needs it, rather than as the read-only detail page renders it.
+ *
+ * `graph` is a result, not a value. Atlas stores whatever any client wrote — including graphs
+ * with fields this editor's model has no place for — and the correct response to one of those
+ * is to refuse to edit it, not to load the parts that parsed and `PUT` the remainder back,
+ * silently deleting the rest. Carrying the refusal as data means the reason survives the
+ * server-function boundary and can be shown to the user.
+ */
+export type WorkflowEditableGraph =
+  | { ok: true; graph: WorkflowGraph; policy: WorkflowPolicy }
+  | { ok: false; reason: string };
+
+export interface WorkflowEditableView {
+  id: string;
+  name: string;
+  description: string;
+  version: number;
+  status: string;
+  /**
+   * Atlas's raw `updated_at`, not a formatted one.
+   *
+   * This is the lost-update guard. Atlas has no ETag and no `If-Match`, and `version` is a
+   * client-controlled column it never increments, so the server-set `updated_at` is the only
+   * value that actually changes when someone else writes. It has to stay in wire form to be
+   * comparable.
+   */
+  updatedAt: string;
+  updatedAtLabel: string;
+  graph: WorkflowEditableGraph;
+}
+
+export function toWorkflowEditableView(workflow: AtlasWorkflowDefinition): WorkflowEditableView {
+  const graph = parseWorkflowGraph(workflow.graph ?? {});
+  const policy = parseWorkflowPolicy(workflow.policy ?? {});
+
+  const editable: WorkflowEditableGraph = !graph.ok
+    ? { ok: false, reason: graph.reason }
+    : !policy.ok
+      ? { ok: false, reason: policy.reason }
+      : { ok: true, graph: graph.value, policy: policy.value };
+
+  return {
+    id: workflow.id,
+    name: workflow.name,
+    description: workflow.description ?? "",
+    version: Number(workflow.version) || 1,
+    status: workflow.status ?? "draft",
+    updatedAt: workflow.updated_at,
+    updatedAtLabel: formatAtlasTimestamp(workflow.updated_at),
+    graph: editable,
+  };
+}
+
+export interface TriggerView {
+  id: string;
+  workflowDefinitionId: string;
+  name: string;
+  type: string;
+  typeLabel: string;
+  /** Atlas stores this as SQLite 1/0, so it is coerced here rather than at every call site. */
+  enabled: boolean;
+  /** The raw config object, kept intact so the trigger form can round-trip it. */
+  config: JsonObject;
+  /** A one-line human summary of `config`, derived and stored nowhere. */
+  summary: string;
+  lastFiredAt: string;
+  nextFireAt: string;
+  /** Present on the list route only; the by-id, create, and update routes omit it. */
+  lastEventState: StatusView | null;
+  lastEventError: string | null;
+}
+
+/** The six trigger types Atlas accepts (`atlas/workflows.py:59`). */
+export const TRIGGER_TYPES = [
+  "manual",
+  "schedule",
+  "webhook",
+  "workflow_run_completed",
+  "artifact_created",
+  "worker_status_changed",
+] as const;
+export type TriggerType = (typeof TRIGGER_TYPES)[number];
+
+/** The three types an operator may fire by hand (`atlas/app.py:774`). */
+export const MANUALLY_FIREABLE_TRIGGER_TYPES: readonly string[] = ["manual", "schedule", "webhook"];
+
+const TRIGGER_TYPE_LABELS: Record<string, string> = {
+  manual: "Manual",
+  schedule: "Schedule",
+  webhook: "Webhook",
+  workflow_run_completed: "Workflow run completed",
+  artifact_created: "Artifact created",
+  worker_status_changed: "Worker status changed",
+};
+
+function describeTriggerConfig(type: string, config: JsonObject): string {
+  switch (type) {
+    case "schedule": {
+      if (typeof config.interval_minutes === "number") {
+        return `Every ${config.interval_minutes} minute(s)`;
+      }
+      if (typeof config.daily_time === "string") return `Daily at ${config.daily_time}`;
+      return "No schedule configured";
+    }
+    case "workflow_run_completed": {
+      const parts = [
+        typeof config.source_workflow_definition_id === "string"
+          ? `from ${config.source_workflow_definition_id}`
+          : null,
+        typeof config.state === "string" ? `state ${config.state}` : null,
+      ].filter(Boolean);
+      return parts.length > 0 ? `Any run ${parts.join(", ")}` : "Any completed run";
+    }
+    case "artifact_created": {
+      const parts = [
+        typeof config.key === "string" ? `key ${config.key}` : null,
+        typeof config.kind === "string" ? `kind ${config.kind}` : null,
+        typeof config.source_workflow_definition_id === "string"
+          ? `from ${config.source_workflow_definition_id}`
+          : null,
+      ].filter(Boolean);
+      return parts.length > 0 ? `Artifact ${parts.join(", ")}` : "Any artifact";
+    }
+    case "worker_status_changed": {
+      const parts = [
+        typeof config.worker_id === "string" ? `worker ${config.worker_id}` : null,
+        typeof config.status === "string" ? `status ${config.status}` : null,
+      ].filter(Boolean);
+      return parts.length > 0 ? parts.join(", ") : "Any worker status change";
+    }
+    case "webhook":
+      return "Fired by POST to its Atlas fire endpoint";
+    default:
+      return "Fired by hand";
+  }
+}
+
+export function toTriggerView(trigger: AtlasWorkflowTrigger): TriggerView {
+  const config: JsonObject =
+    trigger.config !== null && typeof trigger.config === "object"
+      ? (trigger.config as JsonObject)
+      : {};
+  return {
+    id: trigger.id,
+    workflowDefinitionId: trigger.workflow_definition_id,
+    name: trigger.name,
+    type: trigger.type,
+    typeLabel: TRIGGER_TYPE_LABELS[trigger.type] ?? trigger.type,
+    enabled: Boolean(trigger.enabled),
+    config,
+    summary: describeTriggerConfig(trigger.type, config),
+    lastFiredAt: formatAtlasTimestamp(trigger.last_fired_at),
+    nextFireAt: formatAtlasTimestamp(trigger.next_fire_at),
+    lastEventState: trigger.last_event_state ? toStatusView(trigger.last_event_state) : null,
+    lastEventError: trigger.last_event_error ?? null,
+  };
+}
+
+export interface DeliveryView {
+  id: string;
+  runId: string;
+  url: string;
+  status: StatusView;
+  attempts: number;
+  maxAttempts: number;
+  /** True once Atlas will not retry on its own; the UI only then offers a manual retry. */
+  attemptsExhausted: boolean;
+  lastError: string | null;
+  correlationId: string | null;
+  createdAt: string;
+  deliveredAt: string;
+}
+
+export function toDeliveryView(delivery: AtlasDelivery): DeliveryView {
+  const attempts = Number(delivery.attempts) || 0;
+  const maxAttempts = Number(delivery.max_attempts) || 0;
+  return {
+    id: delivery.id,
+    runId: delivery.run_id,
+    url: delivery.url,
+    status: toStatusView(delivery.status),
+    attempts,
+    maxAttempts,
+    attemptsExhausted: maxAttempts > 0 && attempts >= maxAttempts,
+    lastError: delivery.last_error,
+    correlationId: delivery.correlation_id,
+    createdAt: formatAtlasTimestamp(delivery.created_at),
+    deliveredAt: formatAtlasTimestamp(delivery.delivered_at),
+  };
+}
+
+export interface ArtifactView {
+  id: string;
+  key: string;
+  kind: string;
+  /** Only a `file_ref` artifact has bytes behind `GET /api/artifacts/{id}/content`. */
+  downloadable: boolean;
+  filename: string | null;
+  mediaType: string | null;
+  sizeBytes: number | null;
+  /** Inline content for the text-shaped kinds, already stringified. Null for `file_ref`. */
+  preview: string | null;
+  jobId: string | null;
+  createdAt: string;
+}
+
+export function toArtifactView(artifact: AtlasArtifact): ArtifactView {
+  const metadata =
+    artifact.metadata !== null && typeof artifact.metadata === "object" ? artifact.metadata : {};
+  const isFile = artifact.kind === "file_ref";
+  return {
+    id: artifact.id,
+    key: artifact.key,
+    kind: artifact.kind,
+    downloadable: isFile,
+    filename: typeof metadata.filename === "string" ? metadata.filename : null,
+    mediaType: typeof metadata.media_type === "string" ? metadata.media_type : null,
+    sizeBytes: typeof metadata.size === "number" ? metadata.size : null,
+    preview: isFile
+      ? null
+      : typeof artifact.content === "string"
+        ? artifact.content
+        : JSON.stringify(artifact.content, null, 2),
+    jobId: artifact.job_id,
+    createdAt: formatAtlasTimestamp(artifact.created_at),
+  };
+}
+
+export interface RunEventView {
+  /** `run_id:seq` — stable and unique, unlike the autoincrement id across runs. */
+  id: string;
+  seq: number;
+  type: string;
+  nodeKey: string | null;
+  detail: string | null;
+  createdAt: string;
+}
+
+/**
+ * Atlas's persisted run history, rendered as rows.
+ *
+ * The UI does not author narrative text for these: it shows Atlas's own `event_type` and the
+ * payload it recorded. Inventing a sentence per event type is how a log stops matching what
+ * actually happened.
+ */
+export function toRunEventView(event: AtlasWorkflowEvent): RunEventView {
+  const payload = event.payload !== null && typeof event.payload === "object" ? event.payload : {};
+  const keys = Object.keys(payload);
+  return {
+    id: `${event.run_id}:${event.seq}`,
+    seq: Number(event.seq) || 0,
+    type: event.event_type,
+    nodeKey: event.node_key,
+    detail: keys.length === 0 ? null : JSON.stringify(payload),
+    createdAt: formatAtlasTimestamp(event.created_at),
   };
 }

@@ -1,8 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 
 import { PageHeader, StatusPill } from "@/components/atlas/page";
+import { Button } from "@/components/ui/button";
+import { useCreateWorkflow } from "@/lib/atlas-mutations";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import { WindowNotice } from "@/components/atlas/window";
 import { ATLAS_LIMIT_OPTIONS, parseLimitSearch } from "@/lib/atlas-search";
@@ -26,21 +29,54 @@ export const Route = createFileRoute("/_app/workflows/")({
 /**
  * Workflow definitions, read from `GET /api/workflows?limit=`.
  *
- * Create/delete are mutations and land in Phase 3, so the scaffold's "New workflow", template
- * cards, and per-card delete button are gone rather than left as controls that do nothing.
- * The scaffold's "runs/24h" and "% ok" figures are also gone: Atlas stores neither on a
- * workflow definition, and there is no aggregate endpoint that supplies them per workflow.
+ * The scaffold's "runs/24h" and "% ok" figures are gone: Atlas stores neither on a workflow
+ * definition, and there is no aggregate endpoint that supplies them per workflow.
+ *
+ * "New workflow" creates the smallest graph Atlas accepts and opens it. There is no client-side
+ * draft state: a workflow that exists only in the browser could not be validated (Atlas checks
+ * a *stored* workflow by id) or run, so it would be a second, weaker kind of workflow to
+ * explain. Creating it immediately means everything on the editor works from the first click.
  */
 function WorkflowsIndex() {
   const { limit } = Route.useSearch();
   const navigate = Route.useNavigate();
+  const routerNavigate = useNavigate();
   const workflows = useQuery(workflowsQuery({ limit }));
+  const create = useCreateWorkflow();
 
   return (
     <>
       <PageHeader
         title="Workflows"
         subtitle="Workflow definitions stored in Atlas."
+        actions={
+          <Button
+            type="button"
+            size="sm"
+            disabled={create.isPending}
+            onClick={() =>
+              create.mutate(
+                {
+                  name: "Untitled workflow",
+                  description: "",
+                  graph: {
+                    start: "worker_1",
+                    nodes: [{ id: "worker_1", type: "worker", prompt: "" }],
+                    edges: [],
+                  },
+                  policy: {},
+                },
+                {
+                  onSuccess: (workflow) =>
+                    routerNavigate({ to: "/workflows/$id", params: { id: workflow.id } }),
+                },
+              )
+            }
+          >
+            <Plus className="mr-1.5 size-3.5" aria-hidden="true" />
+            {create.isPending ? "Creating…" : "New workflow"}
+          </Button>
+        }
         meta={
           <div className="flex items-center gap-1">
             <span className="mr-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -64,6 +100,13 @@ function WorkflowsIndex() {
         }
       />
       <div className="flex-1 overflow-y-auto px-8 py-6">
+        {/* Outside the list branches on purpose: creating the first workflow fails from the
+            empty state, which is exactly where the message would otherwise be invisible. */}
+        {create.error ? (
+          <p role="alert" className="mb-4 text-xs text-destructive">
+            {create.error.message}
+          </p>
+        ) : null}
         {workflows.isPending ? (
           <LoadingState label="Loading workflows" />
         ) : workflows.isError ? (

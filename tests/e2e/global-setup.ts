@@ -21,8 +21,22 @@ export const APP_ORIGIN = `http://127.0.0.1:${APP_PORT}`;
  */
 export const SEED_FILE = "test-results/e2e-seed.json";
 
-export function readSeed(): SeededAtlas {
-  return JSON.parse(readFileSync(SEED_FILE, "utf-8")) as SeededAtlas;
+/**
+ * The seed, plus the throwaway Atlas's origin and an admin bearer for it.
+ *
+ * Handing the tests a way to talk to Atlas directly is what lets a single spec build the exact
+ * fixture it needs — a graph shape the UI cannot draw, say — without adding rows to the shared
+ * seed that every other spec's assertions would then have to account for. The instance is a
+ * temp database on an ephemeral port that is destroyed at teardown, and `test-results/` is
+ * gitignored, so nothing here outlives the run.
+ */
+export interface E2ESeed extends SeededAtlas {
+  atlasOrigin: string;
+  adminToken: string;
+}
+
+export function readSeed(): E2ESeed {
+  return JSON.parse(readFileSync(SEED_FILE, "utf-8")) as E2ESeed;
 }
 
 let atlas: AtlasInstance | undefined;
@@ -65,7 +79,10 @@ export default async function globalSetup() {
 
   const seeded = await seedAtlas(atlas.origin, token);
   mkdirSync(dirname(SEED_FILE), { recursive: true });
-  writeFileSync(SEED_FILE, JSON.stringify(seeded, null, 2));
+  writeFileSync(
+    SEED_FILE,
+    JSON.stringify({ ...seeded, atlasOrigin: atlas.origin, adminToken: token }, null, 2),
+  );
 
   devServer = spawn(
     "./node_modules/.bin/vite",

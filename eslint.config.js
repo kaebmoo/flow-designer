@@ -44,9 +44,20 @@ export default tseslint.config(
      * code reaching it would ship all of that to the browser. Only `*.server.ts` itself and
      * the `*.functions.ts` RPC wrappers — whose bodies the bundler replaces with a network
      * call — may import it. Tests run server-side and are exempt.
+     *
+     * The third exemption is a *server-only route file*: one whose sole `createFileRoute`
+     * property is `server`. TanStack Start prunes such a subtree out of the client route tree
+     * entirely and deletes the `server` node from the client build, so its imports never reach
+     * the browser. ESLint cannot see that, so each such file is listed by name rather than
+     * exempting `src/routes/api.*` wholesale — adding a `component` to one of these files must
+     * stay a decision someone makes on purpose.
      */
     files: ["src/**/*.{ts,tsx}"],
-    ignores: ["src/**/*.server.ts", "src/**/*.functions.ts"],
+    ignores: [
+      "src/**/*.server.ts",
+      "src/**/*.functions.ts",
+      "src/routes/api.artifacts.$id.content.ts",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
