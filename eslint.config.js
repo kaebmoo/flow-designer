@@ -58,6 +58,8 @@ export default tseslint.config(
       "src/**/*.functions.ts",
       "src/routes/api.artifacts.$id.content.ts",
       "src/routes/api.jobs.$id.events.ts",
+      "src/routes/api.exports.audit-csv.ts",
+      "src/routes/api.exports.usage-csv.ts",
     ],
     rules: {
       "no-restricted-imports": [
