@@ -47,6 +47,8 @@ export const queryKeys = {
    */
   runEvents: (runId: string, params: { limit: number }) =>
     ["atlas", "runs", "events", runId, params] as const,
+  /** Prefix over every event window of one run — Phase 4's narrowest live invalidation. */
+  runEventsAll: (runId: string) => ["atlas", "runs", "events", runId] as const,
   runArtifacts: (runId: string) => ["atlas", "runs", "artifacts", runId] as const,
 
   approvals: () => ["atlas", "approvals"] as const,

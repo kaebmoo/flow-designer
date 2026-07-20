@@ -3,6 +3,8 @@ import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { RunCanvas } from "@/components/atlas/run-canvas";
+import { RunLiveSection } from "@/components/atlas/run-live";
 import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
 import {
   AlertDialog,
@@ -1064,12 +1066,30 @@ function EventsSection({ runId }: { runId: string }) {
 // Page
 // ---------------------------------------------------------------------------
 
+/**
+ * Data-layer polling interval while the run is live (Phase 4).
+ *
+ * Per-job SSE already triggers a refetch on state-shaped events, but not every transition has
+ * a streaming job behind it — a human gate waits on a person, a manager decision routes
+ * between nodes, and the moment between one node finishing and the next job starting has no
+ * open stream at all. A bounded poll of the persisted run covers those gaps. It stops the
+ * moment the run is terminal.
+ */
+const RUN_POLL_MS = 5_000;
+
 function RunDetail() {
   const { id } = Route.useParams();
   /**
    * Seeded from the loader so hydration does not refetch — see the note in `workflows.$id.tsx`.
    */
-  const { data: detail } = useQuery({ ...runQuery(id), initialData: Route.useLoaderData() });
+  const { data: detail } = useQuery({
+    ...runQuery(id),
+    initialData: Route.useLoaderData(),
+    refetchInterval: (query) => {
+      const state = query.state.data?.run.state.label;
+      return state !== undefined && !TERMINAL_RUN_STATES.has(state) ? RUN_POLL_MS : false;
+    },
+  });
   const { run, nodes, edges, approvals } = detail;
 
   /** Atlas's own record of where the run is, and the only source of node highlighting here. */
@@ -1114,6 +1134,31 @@ function RunDetail() {
 
         <RecoveryPanel run={run} />
         <RunControls run={run} />
+
+        <section className="mb-8">
+          <SectionHeading>Run graph</SectionHeading>
+          {detail.graphSnapshot === null ? (
+            <p className="rounded-lg border border-border bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+              This run carries no graph snapshot, so there is no canvas to draw. The runtime nodes
+              below are still the authoritative record.
+            </p>
+          ) : detail.graphSnapshot.ok ? (
+            <RunCanvas
+              graph={detail.graphSnapshot.graph}
+              runtimeNodes={nodes}
+              runtimeEdges={edges}
+            />
+          ) : (
+            <p className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-xs leading-relaxed text-foreground">
+              The graph this run started on uses something this canvas does not model:{" "}
+              <span className="font-mono">{detail.graphSnapshot.reason}</span>. Drawing only the
+              part that parsed would misrepresent the run, so the canvas is not shown; the runtime
+              node table below is complete.
+            </p>
+          )}
+        </section>
+
+        <RunLiveSection detail={detail} />
 
         <div className="mb-8 grid gap-3 md:grid-cols-4">
           <Field label="Finished" value={run.finishedAt} />

@@ -58,6 +58,7 @@ export function WorkflowCanvasNode({ data, selected }: NodeProps) {
       className={`group relative w-60 rounded-xl border-2 bg-card p-2.5 shadow-lg transition-colors ${ring}`}
       data-node-kind={node.kind}
       data-node-start={node.isStart ? "true" : "false"}
+      data-run-state={node.runState ?? undefined}
     >
       <Handle
         type="target"

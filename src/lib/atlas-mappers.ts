@@ -664,11 +664,25 @@ export function toApprovalView(approval: AtlasApproval): ApprovalView {
   };
 }
 
+/**
+ * The graph a run started on, parsed for the run canvas — or a stated refusal.
+ *
+ * Sourced from the run row's `graph_snapshot`, not from the current workflow definition: the
+ * definition may have been edited or deleted since, and highlighting runtime state onto a
+ * different graph would be a lie. Parsed with the same fail-closed parser the editor uses; an
+ * unparseable snapshot renders as its reason, never as the fraction that parsed.
+ */
+export type RunGraphSnapshot =
+  | { ok: true; graph: WorkflowGraph }
+  | { ok: false; reason: string }
+  | null;
+
 export interface RunDetailView {
   run: RunView;
   nodes: RuntimeNodeView[];
   edges: RuntimeEdgeView[];
   approvals: ApprovalView[];
+  graphSnapshot: RunGraphSnapshot;
   /**
    * True when Atlas returned exactly its un-overridable 100-approval cap for this run, which
    * is the only signal available that the list may be truncated — the response carries no
@@ -680,12 +694,19 @@ export interface RunDetailView {
 /** Atlas's hard cap on the approvals embedded in a run detail response (`atlas/app.py:671`). */
 export const RUN_DETAIL_APPROVALS_CAP = 100;
 
+function toRunGraphSnapshot(run: AtlasWorkflowRun): RunGraphSnapshot {
+  if (run.graph_snapshot === null || run.graph_snapshot === undefined) return null;
+  const parsed = parseWorkflowGraph(run.graph_snapshot);
+  return parsed.ok ? { ok: true, graph: parsed.value } : { ok: false, reason: parsed.reason };
+}
+
 export function toRunDetailView(detail: AtlasWorkflowRunDetail): RunDetailView {
   return {
     run: toRunView(detail.run),
     nodes: detail.nodes.map(toRuntimeNodeView),
     edges: detail.edges.map(toRuntimeEdgeView),
     approvals: detail.approvals.map(toApprovalView),
+    graphSnapshot: toRunGraphSnapshot(detail.run),
     approvalsMayBeTruncated: detail.approvals.length >= RUN_DETAIL_APPROVALS_CAP,
   };
 }

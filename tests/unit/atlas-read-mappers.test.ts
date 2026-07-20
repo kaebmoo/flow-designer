@@ -382,6 +382,51 @@ describe("toRunDetailView", () => {
     ).toBe(false);
   });
 
+  /**
+   * Phase 4: the run canvas draws the snapshot the run *started on*, parsed with the same
+   * fail-closed parser as the editor. A snapshot the model cannot represent must surface its
+   * reason — drawing only the fraction that parsed would misrepresent the run.
+   */
+  it("parses a well-formed graph snapshot for the run canvas", () => {
+    const view = toRunDetailView({
+      run: {
+        ...run,
+        graph_snapshot: {
+          start: "n1",
+          nodes: [{ id: "n1", type: "worker" }],
+          edges: [],
+        },
+      },
+      nodes: [],
+      edges: [],
+      approvals: [],
+    });
+    expect(view.graphSnapshot).toMatchObject({ ok: true });
+    if (view.graphSnapshot?.ok) {
+      expect(view.graphSnapshot.graph.start).toBe("n1");
+      expect(view.graphSnapshot.graph.nodes).toHaveLength(1);
+    }
+  });
+
+  it("fails closed on an unparseable snapshot, keeping the reason", () => {
+    // The shared fixture's snapshot node has no `type`, which the parser refuses.
+    const view = toRunDetailView({ run, nodes: [], edges: [], approvals: [] });
+    expect(view.graphSnapshot).toMatchObject({ ok: false });
+    if (view.graphSnapshot && !view.graphSnapshot.ok) {
+      expect(view.graphSnapshot.reason.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("maps an absent snapshot (pre-migration rows) to null, not to a parse failure", () => {
+    const view = toRunDetailView({
+      run: { ...run, graph_snapshot: null },
+      nodes: [],
+      edges: [],
+      approvals: [],
+    });
+    expect(view.graphSnapshot).toBeNull();
+  });
+
   it("distinguishes an unrecorded edge condition from a false one", () => {
     const base = {
       id: "wfe_1",

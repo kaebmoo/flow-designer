@@ -207,8 +207,9 @@ export interface AtlasWorkflowRun {
   started_at: string | null;
   finished_at: string | null;
   updated_at: string;
-  graph_snapshot: AtlasWorkflowGraph;
-  policy_snapshot: Record<string, unknown>;
+  /** Nullable defensively: rows written before Atlas migration 004 have no snapshot. */
+  graph_snapshot: AtlasWorkflowGraph | null;
+  policy_snapshot: Record<string, unknown> | null;
 }
 
 /** A runtime node of a run (`atlas/app.py:669`, `atlas/db.py:340-356`). Ordered oldest-first. */
