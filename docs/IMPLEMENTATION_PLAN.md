@@ -1,6 +1,6 @@
 # Atlas Control Plane Web UI completion plan
 
-Status: implemented through Phase 3; Phase 4–6 remain planned
+Status: implemented through Phase 4; Phase 5–6 remain planned
 
 Date: 2026-07-20
 
@@ -133,9 +133,9 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 
 ### Exit criteria
 
-- Refreshing a running job does not lose persisted events.
-- Duplicate/reordered events do not duplicate log lines or regress state.
-- A terminated stream still leaves a correct historical run view.
+- Refreshing a running job does not lose persisted events. — **met** (browser test reloads mid-run; persisted run events and Atlas runtime state survive, the stream reattaches by replay).
+- Duplicate/reordered events do not duplicate log lines or regress state. — **met** (stream unit tests; contract tests resume a live stream mid-run against real Atlas with no duplicates).
+- A terminated stream still leaves a correct historical run view. — **met** (terminal `close` stops all reconnects; the persisted events section and runtime tables remain the record, asserted after completion and after a further reload).
 - **Gate:** user confirms Phase 5 start.
 
 ## Phase 5 — Domain pages and operational UX

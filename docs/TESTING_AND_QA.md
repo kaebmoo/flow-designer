@@ -1,21 +1,21 @@
 # Testing and QA strategy
 
-Status: implemented through Phase 3 and reconciled on 2026-07-20.
+Status: implemented through Phase 4 and reconciled on 2026-07-21.
 
 ## Runners and scripts
 
 - **Unit, contract, and future stream tests:** Vitest.
 - **Browser acceptance:** Playwright against an isolated local Atlas instance.
 
-| Script                  | Purpose                                                           |
-| ----------------------- | ----------------------------------------------------------------- |
-| `bun run typecheck`     | TypeScript (`tsc --noEmit`)                                       |
-| `bun run lint`          | ESLint                                                            |
-| `bun run format:check`  | Prettier                                                          |
-| `bun run test`          | Unit tests                                                        |
-| `bun run test:contract` | Contract tests against real isolated Atlas                        |
-| `bun run test:stream`   | Reserved for Phase 4; passes with no tests until streaming exists |
-| `bun run test:e2e`      | Playwright acceptance suite                                       |
+| Script                  | Purpose                                                |
+| ----------------------- | ------------------------------------------------------ |
+| `bun run typecheck`     | TypeScript (`tsc --noEmit`)                            |
+| `bun run lint`          | ESLint                                                 |
+| `bun run format:check`  | Prettier                                               |
+| `bun run test`          | Unit tests                                             |
+| `bun run test:contract` | Contract tests against real isolated Atlas             |
+| `bun run test:stream`   | Phase 4 SSE adapter/transport tests (fails when empty) |
+| `bun run test:e2e`      | Playwright acceptance suite                            |
 
 The package manager is Bun 1.3.14, as pinned by `package.json` and `bun.lock`. Production
 runtime selection remains a deployment decision in `CONFIGURATION.md`.
@@ -57,7 +57,7 @@ Run against a real Atlas instance or a fixture server generated from the Atlas O
 
 Mock-only tests are not sufficient for the release gate.
 
-### Stream tests (Phase 4)
+### Stream tests
 
 - initial event replay
 - text and terminal events

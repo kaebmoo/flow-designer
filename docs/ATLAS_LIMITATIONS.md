@@ -34,11 +34,20 @@ Backend follow-up:
 
 Confirmed: the only `text/event-stream` handler is per-**job** (`GET /api/jobs/{job_id}/events`), with an `after=<seq>` replay cursor and a terminal `event: close` — but **no heartbeat**. Workflow-**run** events are poll-only persisted JSON (`GET /api/workflow-runs/{run_id}/events`, `limit`-only, no `after`/cursor). There is no unified live stream for a whole workflow graph.
 
+**Found while implementing Phase 4 (2026-07-21):** the job stream costs Atlas one handler
+thread _per connected client_ for the stream's whole lifetime, and each such thread polls
+SQLite every 0.4 s (`atlas/app.py:948-977`: a `while True` over `get_job_events_after` with
+`time.sleep(0.4)`). There is no shared fan-out — ten open browser tabs on one job are ten
+threads running ten identical queries. The 0.4 s poll is also the stream's latency floor.
+
 Frontend mitigation:
 
 - Subscribe to per-job streams (per runtime-node `job_id`) for text/output.
 - Refetch run detail after state-changing events; guard idle streams against proxy timeouts since there is no heartbeat.
 - Show a reconnecting/gap state instead of claiming complete live history.
+- Bound concurrent streams per page (the run detail page holds at most 4) and close every
+  stream on unmount and on terminal `close`, so abandoned tabs never pin Atlas threads. The
+  same-origin proxy route propagates a browser disconnect to Atlas as an upstream abort.
 
 Backend follow-up:
 

@@ -1,6 +1,6 @@
 # Atlas backend integration contract
 
-Status: contract verified and implemented through Phase 3
+Status: contract verified and implemented through Phase 4
 
 Date inspected: 2026-07-20
 
@@ -40,10 +40,15 @@ Mutation paths added at the end of Phase 3 (2026-07-20):
 - `src/routes/api.artifacts.$id.content.ts` is the one route handler: thin transport glue that streams artifact bytes with the bearer attached server-side.
 - The mock store and the timer-based simulator (`workflow-scaffold-store.ts`, `workflow-simulator.ts`) are **deleted**, not disabled.
 
+Streaming paths added in Phase 4 (2026-07-21):
+
+- `src/routes/api.jobs.$id.events.ts` is the second route handler: thin transport glue that relays Atlas's per-job SSE with the bearer attached server-side. `src/lib/atlas-api.server.ts` gained the one typed stream operation behind it (`atlasOpenJobEventStream`).
+- `src/lib/job-stream.ts` is the typed stream client — SSE parsing, seq dedupe, exclusive-`after` resume, verified gap crossing, bounded backoff, and the transport idle watchdog — consumed through `src/lib/use-job-stream.ts`.
+- `runs.$id.tsx` combines per-job SSE (per running node's `job_id`) with persisted run refetch, renders the run's `graph_snapshot` as a read-only canvas highlighted from runtime node state, and keeps the live log bounded (500 events in memory, 150 rows in the DOM).
+
 Still scaffold, with an owning phase:
 
 - `artifacts.tsx`, `deliveries.tsx`, `conversations.tsx`, `usage.tsx`, `audit.tsx`, and `users.tsx` contain local static arrays — **Phase 5**.
-- SSE is unimplemented — **Phase 4**. Live run progress is a refetch, not a stream.
 
 ## Backend capabilities confirmed
 

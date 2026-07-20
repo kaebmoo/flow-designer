@@ -12,7 +12,7 @@ Use this checklist with the phase gate in `docs/IMPLEMENTATION_PLAN.md`. Check i
 - [x] Server-only Atlas clients, session helpers, and secrets are in `*.server.ts`; `createServerFn` RPC wrappers are in `*.functions.ts`.
 - [x] Each private server function validates the flow-designer session and calls a typed, fixed Atlas operation; Atlas alone authorizes it (a route `beforeLoad` is UI-only).
 - [x] The Atlas bearer token is never in browser code, `localStorage`, or a URL query string. (Client bundle scanned with positive controls; browser test asserts empty `localStorage`/`sessionStorage`, an httpOnly cookie, and no token in any request URL.)
-- [ ] Thin stream route glue contains no domain logic or secrets. — _not applicable through Phase 2; no stream glue exists until Phase 4._
+- [x] Thin stream route glue contains no domain logic or secrets. (Phase 4's `src/routes/api.jobs.$id.events.ts` validates the session, validates `after` as the single permitted query parameter, opens one typed fixed Atlas operation, and relays the byte stream — no frame is parsed or rewritten, nothing is cached, and the bearer is attached server-side only.)
 - [ ] Design tokens are used; no new hardcoded color classes. — The Phase 3 audit found none in `workflow-editor.tsx` or `workflow-node.tsx`; the repo-wide cleanup remains a Phase 6 responsibility, so this global rule stays unticked.
 - [x] Loader routes have `errorComponent` and `notFoundComponent`. (`/auth`, `/_app`, and the two Phase 2 detail routes `/workflows/$id` and `/runs/$id`; all four have both.)
 - [x] Existing user changes and Lovable history are preserved. (Commit `e509e79` left intact; no rebase, amend, squash, or force-push in either phase. The untracked `graphify-out/` directory was left alone and not committed.)
@@ -305,15 +305,82 @@ The diff was reviewed by independent agents against the Atlas source, then the f
 
 ## Phase 4 — Live events
 
-- [ ] SSE connects through a same-origin authenticated transport (no bearer in the browser/query string).
-- [ ] Resume uses `after=<last seq>`; `event: close` ends normal streams; EOF-without-close reconnects with bounded backoff.
-- [ ] Event dedupe by `id`/`seq` is tested (duplicate and out-of-order).
-- [ ] Idle-stream handling accounts for Atlas having no heartbeat.
-- [ ] Run progress combines per-job SSE (per node `job_id`) with run refetch (no assumed unified stream).
-- [ ] Long logs remain bounded/virtualized.
-- [ ] Run state is authoritative after refresh.
-- [ ] Canvas highlights runtime state from Atlas.
+- [x] SSE connects through a same-origin authenticated transport (no bearer in the browser/query string). (`src/routes/api.jobs.$id.events.ts` adds `Authorization` server-side from the sealed cookie; the browser URL carries only `after`. The client bundle was re-scanned for server symbols and `token=` after the build.)
+- [x] Resume uses `after=<last seq>`; `event: close` ends normal streams; EOF-without-close reconnects with bounded backoff. (`src/lib/job-stream.ts`; `after` is passed as the _confirmed_ cursor — exclusive on Atlas's side — and the close frame's `last_seq + 1` id is explicitly never adopted as that cursor. Backoff is 1s·2ⁿ capped at 30s for at most 6 automatic attempts, then a manual Retry control.)
+- [x] Event dedupe by `id`/`seq` is tested (duplicate and out-of-order). (Stream unit tests cover duplicate frames, out-of-order commit without state regression, and the gap policy: the cursor crosses a hole only after a reconnect replay from the same cursor confirms the rows do not exist, and the crossing is surfaced with a gap notice plus an authoritative refetch.)
+- [x] Idle-stream handling accounts for Atlas having no heartbeat. (Transport-only watchdog: 15s of silence displays `stale`, 45s reconnects from the confirmed cursor. It never invents an event and never touches node state; idle is never treated as terminal.)
+- [x] Run progress combines per-job SSE (per node `job_id`) with run refetch (no assumed unified stream). (`RunLiveSection` subscribes to the job behind each `running` runtime node — at most 4 concurrent streams — and state-shaped events, terminal closes, and gaps invalidate exactly this run's detail and events queries. A 5s poll of run detail while the run is non-terminal covers nodes with no job, e.g. a waiting human gate.)
+- [x] Long logs remain bounded/virtualized. (Hard caps in code: 500 events retained per stream (`JOB_STREAM_EVENT_CAP`), 150 rows rendered (`VISIBLE_LOG_ROWS`); overflow is compacted and stated in the UI. A browser test streams 600 events and asserts the DOM stays within the cap.)
+- [x] Run state is authoritative after refresh. (Browser test reloads mid-run: persisted run events are still on the page, runtime state comes from Atlas, and the live stream reattaches by replaying from seq 0 through the proxy.)
+- [x] Canvas highlights runtime state from Atlas. (`RunCanvas` draws the run's own `graph_snapshot` — parsed fail-closed like the editor; an unparseable snapshot renders its reason, an absent one says so — and colours nodes solely from Atlas's runtime node states. A browser test watches a genuinely running job flip `running → succeeded` from Atlas events, with no timer anywhere in the path.)
 - [ ] **Gate:** user confirms Phase 5 start.
+
+### Phase 4 verification evidence (2026-07-21)
+
+Atlas commit tested: `595ef62`. Baseline before Phase 4: **`4bc8bdc`**. Instances: isolated temp
+databases on ephemeral ports (one per suite invocation) — no developer or production Atlas data
+touched. Contract and browser suites additionally run a **thClaws-compatible stub worker**
+(`tests/fixtures/thclaws-stub.ts`) so a job has a genuinely _running_, deterministic lifecycle;
+the stub substitutes for a worker, never for Atlas — Atlas dials it, writes real `job_events`
+rows, and serves its own SSE. No mock SSE server exists anywhere in the tests.
+
+Every row is a whole-repository result and an actual process exit code.
+
+| Check                   | Exit | Result                                                                           |
+| ----------------------- | ---- | -------------------------------------------------------------------------------- |
+| `bun run typecheck`     | 0    | 0 errors repo-wide                                                               |
+| `bun run lint`          | 0    | 0 errors; 6 pre-existing `react-refresh` warnings, unchanged since Phase 1       |
+| `bun run format:check`  | 0    | all files formatted                                                              |
+| `bun run test`          | 0    | 307 passed (298 at Phase 3)                                                      |
+| `bun run test:contract` | 0    | 111 passed, 3 skipped, against a real isolated Atlas (106 + 3 at Phase 3)        |
+| `bun run test:stream`   | 0    | 22 passed — the `--passWithNoTests` escape hatch was **removed** from the script |
+| `bun run test:e2e`      | 0    | 67 passed (63 at Phase 3)                                                        |
+| `bun run build`         | 0    | succeeded                                                                        |
+| `git diff --check`      | 0    | clean                                                                            |
+
+Additional checks against the tree at this commit:
+
+| Check                                       | Result                                                                                                                                                    |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client imports of `*.server.ts`             | none — the SSE route joins the artifact route on the ESLint exemption list for server-only route files                                                    |
+| Atlas token in the client bundle            | none — `.output/public` scanned for `SESSION_SECRET`, `ATLAS_API_ORIGIN`, `atlasToken`, `fd_session`, `token=`                                            |
+| Atlas token in a URL / `localStorage`       | none — the stream URL carries only `after`; no storage API is touched by any Phase 4 module                                                               |
+| Timer-driven node state or simulated events | none — timers exist only as bounded backoff, the transport idle watchdog, and the run detail's 5s data-layer poll; all are cleared on unmount/close/error |
+| `src/routeTree.gen.ts` edited by hand       | no — regenerated by the router plugin when the SSE route was added                                                                                        |
+| `graphify-out/`                             | untouched, not committed                                                                                                                                  |
+
+### Stream test coverage (required list → test)
+
+All in `tests/stream/` (synthetic frames + fake clock; adapter and transport behaviour only)
+unless marked contract/browser (real Atlas, no mock SSE server):
+
+- replay from `after` / `after` exclusive — unit ("connects with after=…"), contract ("treats after as an exclusive lower bound", asserted against real Atlas replays)
+- duplicate event — unit ("drops duplicate seqs without duplicating log lines")
+- out-of-order events — unit ("reorders out-of-order frames without regressing state")
+- gap detection and refetch when unclosable — unit ("crosses an unclosable gap only after a reconnect replay confirms it, then refetches")
+- terminal close — unit ("treats event: close as terminal…"), contract (close frame shape, `id = last_seq + 1`, `{state}`, stream EOF after close)
+- EOF without close → reconnect — unit; contract resumes a live mid-run stream with `after` and receives no duplicates
+- bounded exponential backoff and retry limit — unit ("backs off exponentially with a bound, then stops with a working manual Retry")
+- idle stream / stale state — unit (stale display, watchdog reconnect), browser ("a silent stream is shown stale, not terminal, and recovers" — 25s genuinely silent worker)
+- 401 mid-stream — unit ("stops on a 401 without reconnecting…"; the existing three 401 guard layers are untouched — the stream only triggers a read whose 401 the guards already own)
+- terminal then no reconnect — unit (close arms no timer; 5 minutes of fake time produce no request)
+- unknown event type ignored safely with diagnostic marker — unit (committed with `known: false`, stream continues); malformed frames are counted and never advance the cursor
+- bounded live log memory — unit (600 events into a 50-cap buffer), browser (600 events, DOM row cap held)
+- production stream path — contract drives `JobEventStream` itself against real Atlas bytes to terminal; browser tests consume the real proxy route end-to-end
+
+### What Phase 4 deliberately did not do
+
+- **No unified run SSE, and no fake heartbeat.** Run progress is per-job SSE + persisted refetch, exactly as Atlas offers it.
+- **The live panel exists only while its node is running.** Once Atlas reports the node terminal, the panel yields to the persisted run events section, which is the authoritative record (the stream buffer is a bounded window, not an archive).
+- **Phase 5 pages untouched:** Artifacts, Deliveries, Conversations, Usage, Audit, Users, Settings still render their placeholder notices; no design-token cleanup (Phase 6).
+
+### Pre-existing test breakage found (not Phase 4's, fixed in tests only)
+
+The Phase 3 baseline commit `4bc8bdc` ("feat: add starter workflow examples") renamed the
+editor palette labels (`Worker/Manager/Join/Approval` → `AI Task/AI Decision/Wait for
+branches/Human decision`) without updating `tests/e2e/editor.spec.ts`, so 8 editor browser
+tests failed at the Phase 4 baseline before any Phase 4 change. The spec's selectors were
+updated to the current labels; no application code was changed for this.
 
 ## Phase 5 — Operational pages
 
