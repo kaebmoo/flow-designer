@@ -93,7 +93,7 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 - **Entry requirement:** land round-trip graph fixtures (serialize → Atlas → parse back) for each of the four native node kinds before wiring save/run (see the compatibility matrix in `BACKEND_INTEGRATION.md`).
 - Fleet add/edit/poll actions call Atlas.
 - Workflow create/update/delete calls Atlas.
-- Replace the legacy mock scaffold with the `human_gate` graph model. Keep “Approval” only as
+- Replace the legacy mock scaffold with the `human_gate` graph model. Keep “Human decision” only as
   its display label and do not retain an `approval` API alias. No data migration is required:
   Phase 2 deleted the mock store before any persisted legacy value could reach Atlas.
 - Canvas palette exposes **only** the four Atlas-native node types (`worker`, `manager`, `join`, `human_gate`). Conditions are edited in the **edge inspector**; fan-out is **multiple outgoing edges**; loops are **guarded back-edges**; triggers are managed in a **separate trigger panel**, never in `graph.nodes`. Do not introduce `condition`/`loop`/`fanout`/`trigger` pseudo-nodes or round-trip machinery to convert them. The scaffold's ninth kind, `decision`, also goes: it is a `human_gate` that declares `choices`, not a kind of its own.

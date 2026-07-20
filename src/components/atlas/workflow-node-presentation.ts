@@ -4,8 +4,8 @@
  * Five of the scaffold's nine entries are gone because Atlas has no such node type: `trigger`
  * is a separate resource, `condition` is an edge property, `loop` is a guarded cycle, and
  * `fanout` is simply more than one outgoing edge. `approval` was the scaffold's name for what
- * Atlas calls `human_gate`; the internal kind is now Atlas's, and "Approval" survives only as
- * the label an operator reads.
+ * Atlas calls `human_gate`; the internal kind is now Atlas's, while the UI uses the clearer
+ * "Human decision" label.
  *
  * Colours are design tokens, not literals, so the canvas follows the theme like the rest of the
  * app. The icons the removed kinds used are reused where their meaning survived: `GitBranch`
@@ -28,29 +28,29 @@ export interface NodePresentation {
 
 export const NODE_PRESENTATION: Record<NodeKind, NodePresentation> = {
   worker: {
-    label: "Worker",
-    description: "Runs a prompt on a connected worker",
+    label: "AI Task",
+    description: "Runs an instruction on a connected worker",
     icon: Cpu,
     tile: "border border-primary/25 bg-primary/15 text-primary",
     accent: "bg-primary",
   },
   manager: {
-    label: "Manager",
-    description: "Lets a model choose which path to take",
+    label: "AI Decision",
+    description: "Chooses which connected path runs next",
     icon: Sparkles,
     tile: "border border-accent/25 bg-accent/15 text-accent",
     accent: "bg-accent",
   },
   join: {
-    label: "Join",
-    description: "Waits for upstream branches to arrive",
+    label: "Wait for branches",
+    description: "Waits for branches before continuing",
     icon: Merge,
     tile: "border border-success/25 bg-success/15 text-success",
     accent: "bg-success",
   },
   human_gate: {
-    label: "Approval",
-    description: "Pauses until a person decides",
+    label: "Human decision",
+    description: "Pauses for approval or a choice",
     icon: ShieldCheck,
     tile: "border border-warning/25 bg-warning/15 text-warning",
     accent: "bg-warning",

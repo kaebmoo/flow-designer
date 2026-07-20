@@ -108,7 +108,7 @@ function newNode(id: string, kind: NodeKind): GraphNode {
     case "join":
       return { id, type: "join", mode: "all" };
     case "human_gate":
-      return { id, type: "human_gate", label: "Approval" };
+      return { id, type: "human_gate", label: "Human decision" };
   }
 }
 

@@ -406,14 +406,22 @@ export function NodeInspector({
       ) : null}
 
       {node.type === "join" ? (
-        <Section title="Join">
+        <Section title="Wait for branches">
           <Field
             label="Mode"
             hint="all waits for every upstream branch; any continues on the first; quorum waits for a count."
           >
             <Choose
               value={node.mode}
-              options={JOIN_MODES.map((mode) => ({ value: mode, label: mode }))}
+              options={JOIN_MODES.map((mode) => ({
+                value: mode,
+                label:
+                  mode === "all"
+                    ? "All branches"
+                    : mode === "any"
+                      ? "Any branch"
+                      : "A set number of branches",
+              }))}
               onChange={(mode) =>
                 onChange(
                   mode === "quorum"
@@ -479,9 +487,10 @@ function HumanGateFields({
   onChange: (next: GraphNode) => void;
 }) {
   const choices = node.choices ?? [];
+  const sectionTitle = choices.length > 0 ? "Ask for a choice" : "Request approval";
 
   return (
-    <Section title="Approval gate">
+    <Section title={sectionTitle}>
       <Field label="Label" hint="What the person deciding sees.">
         <Input
           value={node.label ?? ""}

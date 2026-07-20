@@ -11,6 +11,8 @@ import { WindowNotice } from "@/components/atlas/window";
 import { ATLAS_LIMIT_OPTIONS, parseLimitSearch } from "@/lib/atlas-search";
 import { toClientAtlasError } from "@/lib/atlas-mappers";
 import { workflowsQuery } from "@/lib/atlas-queries";
+import { serializeWorkflowGraph, serializeWorkflowPolicy } from "@/lib/workflow-graph";
+import { WORKFLOW_EXAMPLES, type WorkflowExample } from "@/lib/workflow-examples";
 
 export const Route = createFileRoute("/_app/workflows/")({
   /**
@@ -44,6 +46,31 @@ function WorkflowsIndex() {
   const workflows = useQuery(workflowsQuery({ limit }));
   const create = useCreateWorkflow();
 
+  const createWorkflow = (example?: WorkflowExample) => {
+    const template = example
+      ? {
+          name: example.name,
+          description: example.description,
+          graph: serializeWorkflowGraph(example.graph),
+          policy: serializeWorkflowPolicy(example.policy),
+        }
+      : {
+          name: "Untitled workflow",
+          description: "",
+          graph: {
+            start: "worker_1",
+            nodes: [{ id: "worker_1", type: "worker", prompt: "" }],
+            edges: [],
+          },
+          policy: {},
+        };
+
+    create.mutate(template, {
+      onSuccess: (workflow) =>
+        routerNavigate({ to: "/workflows/$id", params: { id: workflow.id } }),
+    });
+  };
+
   return (
     <>
       <PageHeader
@@ -54,24 +81,7 @@ function WorkflowsIndex() {
             type="button"
             size="sm"
             disabled={create.isPending}
-            onClick={() =>
-              create.mutate(
-                {
-                  name: "Untitled workflow",
-                  description: "",
-                  graph: {
-                    start: "worker_1",
-                    nodes: [{ id: "worker_1", type: "worker", prompt: "" }],
-                    edges: [],
-                  },
-                  policy: {},
-                },
-                {
-                  onSuccess: (workflow) =>
-                    routerNavigate({ to: "/workflows/$id", params: { id: workflow.id } }),
-                },
-              )
-            }
+            onClick={() => createWorkflow()}
           >
             <Plus className="mr-1.5 size-3.5" aria-hidden="true" />
             {create.isPending ? "Creating…" : "New workflow"}
@@ -107,6 +117,53 @@ function WorkflowsIndex() {
             {create.error.message}
           </p>
         ) : null}
+        <section className="mb-8" aria-labelledby="starter-workflows-heading">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2
+                id="starter-workflows-heading"
+                className="text-sm font-bold uppercase tracking-wider"
+              >
+                Starter workflows
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Four Atlas-native examples you can create and customize.
+              </p>
+            </div>
+            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Ready to use
+            </span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {WORKFLOW_EXAMPLES.map((example) => (
+              <div
+                key={example.id}
+                className="flex min-h-48 flex-col rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/35"
+              >
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-bold leading-snug">{example.name}</h3>
+                  <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                    {example.description}
+                  </p>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                    {example.graph.nodes.length} steps · {example.graph.edges.length} paths
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={create.isPending}
+                    onClick={() => createWorkflow(example)}
+                  >
+                    {create.isPending ? "Creating…" : "Create example"}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
         {workflows.isPending ? (
           <LoadingState label="Loading workflows" />
         ) : workflows.isError ? (
