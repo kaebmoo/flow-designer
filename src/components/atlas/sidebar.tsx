@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import {
   LayoutDashboard,
@@ -62,6 +63,7 @@ export function AtlasSidebar({ identity }: { identity?: IdentityView }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const isActive = (to: string) => path === to || (to !== "/dashboard" && path.startsWith(to));
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [signingOut, setSigningOut] = useState(false);
 
   async function onSignOut() {
@@ -72,6 +74,16 @@ export function AtlasSidebar({ identity }: { identity?: IdentityView }) {
       // fails, so the user ends up signed out either way.
       await logoutFn();
     } finally {
+      /**
+       * Drop every cached Atlas response before leaving.
+       *
+       * `router.invalidate()` only invalidates router loader data; the TanStack Query cache
+       * survives it and survives the navigation, because the QueryClient lives for the life of
+       * the page. Without this, signing out and signing in as someone else in the same tab
+       * renders the *previous* user's workers, runs, and jobs from cache until each query
+       * happens to go stale — data the new identity may not be entitled to see.
+       */
+      queryClient.clear();
       await router.invalidate();
       await router.navigate({ to: "/auth" });
       setSigningOut(false);

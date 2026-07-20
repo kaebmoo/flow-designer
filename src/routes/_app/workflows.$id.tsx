@@ -1,4 +1,4 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
@@ -17,8 +17,8 @@ import { workflowQuery } from "@/lib/atlas-queries";
 export const Route = createFileRoute("/_app/workflows/$id")({
   /**
    * The loader resolves the workflow during SSR, so a reload renders real data immediately and
-   * an unknown id becomes a genuine 404 instead of an empty canvas. It hands the result to the
-   * same query cache the component reads, so there is no second fetch after hydration.
+   * an unknown id becomes a genuine 404 instead of an empty page. Its return value is serialised
+   * to the browser and seeded into the query below as `initialData`.
    */
   loader: async ({ context, params }) => {
     try {
@@ -43,7 +43,19 @@ export const Route = createFileRoute("/_app/workflows/$id")({
 
 function WorkflowDetail() {
   const { id } = Route.useParams();
-  const { data: workflow } = useSuspenseQuery(workflowQuery(id));
+  /**
+   * Seeded from the loader so hydration does not refetch.
+   *
+   * The loader's `ensureQueryData` populates the *server's* QueryClient, and this app does not
+   * dehydrate that cache into the page. Without `initialData` the browser's client starts empty,
+   * so `useQuery` would suspend and re-request the workflow immediately after hydration —
+   * undoing the reason the loader exists. Router loader data *is* serialised to the client, so
+   * handing it over here gives SSR content and one request instead of two.
+   */
+  const { data: workflow } = useQuery({
+    ...workflowQuery(id),
+    initialData: Route.useLoaderData(),
+  });
 
   return (
     <>

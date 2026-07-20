@@ -16,12 +16,18 @@ import { runsQuery } from "@/lib/atlas-queries";
  * filters the window the server already returned. That distinction is stated in the UI rather
  * than hidden, because filtering a 25-row window is not the same as querying all runs in a
  * state — and a user who assumed otherwise would draw the wrong conclusion from an empty table.
+ *
+ * The list mirrors Atlas's own run-state vocabulary, including `recovery_required`, which Atlas
+ * writes when it restarts while a node is in flight (`atlas/workflows.py:567,599`). That state
+ * is exactly the one an operator most needs to filter for, and omitting the chip would leave
+ * those runs findable only by scrolling.
  */
 const RUN_STATES = [
   "running",
   "queued",
   "paused",
   "waiting_for_human",
+  "recovery_required",
   "succeeded",
   "failed",
   "cancelled",

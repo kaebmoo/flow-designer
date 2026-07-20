@@ -12,7 +12,19 @@ import { readSeed } from "./global-setup";
  * the production read path works.
  */
 
-const seed = readSeed();
+/**
+ * Read lazily, not at module scope.
+ *
+ * `readSeed()` at import time makes the seed file a precondition for *collecting* the file, so
+ * `playwright test --list` — and any mode that does not run `globalSetup` — dies with ENOENT and
+ * reports "0 tests in 0 files" rather than a missing-setup error. Resolving it inside the tests
+ * keeps collection independent of the fixture.
+ */
+let cachedSeed: ReturnType<typeof readSeed> | undefined;
+function seedIds() {
+  cachedSeed ??= readSeed();
+  return cachedSeed;
+}
 
 async function signIn(page: Page, creds: typeof ADMIN_CREDENTIALS) {
   await page.goto("/auth");
@@ -46,8 +58,14 @@ test.describe("Atlas-backed reads", () => {
    * to a `read` role, so the number must not reappear from anywhere.
    */
   test("the dashboard no longer claims a fabricated success rate", async ({ page }) => {
-    await expect(page.getByText("98.1%")).toHaveCount(0);
+    // Wait for Atlas data to render FIRST. A zero-count assertion is satisfied on its first
+    // poll, so checking it against a still-loading page would pass no matter what the page
+    // eventually shows.
+    await expect(page.getByText(/aggregates as of \d{4}-\d{2}-\d{2}/)).toBeVisible();
     await expect(page.getByText(/no 24-hour success-rate aggregate/i)).toBeVisible();
+
+    await expect(page.getByText("98.1%")).toHaveCount(0);
+    await expect(page.getByText("214 runs")).toHaveCount(0);
   });
 
   test("fleet lists the worker Atlas actually holds", async ({ page }) => {
@@ -91,7 +109,7 @@ test.describe("Atlas-backed reads", () => {
   });
 
   test("a workflow detail survives a full reload", async ({ page }) => {
-    await page.goto(`/workflows/${seed.workflowId}`);
+    await page.goto(`/workflows/${seedIds().workflowId}`);
 
     await expect(page.getByRole("heading", { name: "Contract Workflow" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "n1" })).toBeVisible();
@@ -105,24 +123,27 @@ test.describe("Atlas-backed reads", () => {
   });
 
   test("a run detail survives a full reload", async ({ page }) => {
-    await page.goto(`/runs/${seed.runId}`);
+    await page.goto(`/runs/${seedIds().runId}`);
 
-    await expect(page.getByRole("heading", { name: seed.runId })).toBeVisible();
+    await expect(page.getByRole("heading", { name: seedIds().runId })).toBeVisible();
     await expect(page.getByText("Runtime nodes")).toBeVisible();
 
     await page.reload();
-    await expect(page.getByRole("heading", { name: seed.runId })).toBeVisible();
+    await expect(page.getByRole("heading", { name: seedIds().runId })).toBeVisible();
   });
 
   test("runs list links to a run and filters by workflow through Atlas", async ({ page }) => {
-    await page.goto(`/runs?workflow=${seed.workflowId}`);
+    await page.goto(`/runs?workflow=${seedIds().workflowId}`);
 
-    await expect(page.getByRole("link", { name: seed.runId })).toBeVisible();
+    await expect(page.getByRole("link", { name: seedIds().runId })).toBeVisible();
     await expect(page.getByText(/Filtered to workflow/)).toBeVisible();
 
     // A workflow Atlas has no runs for must produce an empty table, not the unfiltered list.
+    // The empty-state row is the positive signal that the query resolved; without waiting for
+    // it, the zero-count check below would pass during the loading window regardless.
     await page.goto("/runs?workflow=wfd_no_such_definition");
-    await expect(page.getByRole("link", { name: seed.runId })).toHaveCount(0);
+    await expect(page.getByText("Atlas has recorded no workflow runs.")).toBeVisible();
+    await expect(page.getByRole("link", { name: seedIds().runId })).toHaveCount(0);
   });
 
   test("the job pane opens from the URL and survives a reload", async ({ page }) => {
@@ -130,16 +151,34 @@ test.describe("Atlas-backed reads", () => {
     await expect(page.getByText("Contract fixture job.").first()).toBeVisible();
 
     await page.getByText("Contract fixture job.").first().click();
-    await expect(page).toHaveURL(new RegExp(`job=${seed.jobId}`));
-    await expect(page.getByRole("heading", { name: seed.jobId })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`job=${seedIds().jobId}`));
+    await expect(page.getByRole("heading", { name: seedIds().jobId })).toBeVisible();
 
     await page.reload();
     // The selection lives in the URL, so the pane comes back with real Atlas data.
-    await expect(page.getByRole("heading", { name: seed.jobId })).toBeVisible();
+    await expect(page.getByRole("heading", { name: seedIds().jobId })).toBeVisible();
     await expect(page.getByText("Contract fixture job.").first()).toBeVisible();
 
     // The scaffold's canned "Streamed Output" transcript is gone.
     await expect(page.getByText("Extracted 12 priority signals")).toHaveCount(0);
+  });
+
+  /**
+   * A full window is the only truncation signal Atlas offers, and the UI's claim changes because
+   * of it. Nothing else exercises `mayHaveMore`.
+   */
+  test("a full window is reported as possibly truncated, a partial one is not", async ({
+    page,
+  }) => {
+    // One workflow is seeded, so limit=1 fills the window exactly.
+    await page.goto("/workflows?limit=1");
+    await expect(page.getByText(/window is full, so older entries may exist/i)).toBeVisible();
+
+    await page.goto("/workflows?limit=25");
+    await expect(page.getByText(/window is full, so older entries may exist/i)).toHaveCount(0);
+    await expect(
+      page.getByText(/this is a window rather than a confirmed complete list/i),
+    ).toBeVisible();
   });
 
   test("a state filter is applied to the loaded window and says so", async ({ page }) => {
@@ -189,8 +228,21 @@ test.describe("Atlas-backed reads", () => {
       "run_00214",
     ];
 
-    for (const path of ["/dashboard", "/fleet", "/workspaces", "/workflows", "/runs", "/jobs"]) {
+    // Each page is paired with a string that only appears once its Atlas query has resolved.
+    // Reading `body.textContent` while a page still shows its loading state would find no mock
+    // data for the trivial reason that it has rendered nothing at all.
+    const pages = [
+      ["/dashboard", /aggregates as of \d{4}-\d{2}-\d{2}/],
+      ["/fleet", /1 worker registered/],
+      ["/workspaces", /1 workspace mapped/],
+      ["/workflows", /Atlas reports no total/],
+      ["/runs", /Showing the \d+ newest runs/],
+      ["/jobs", /Showing the \d+ newest jobs/],
+    ] as const;
+
+    for (const [path, ready] of pages) {
       await page.goto(path);
+      await expect(page.getByText(ready)).toBeVisible();
       const body = (await page.locator("body").textContent()) ?? "";
       for (const mock of mockStrings) {
         expect(body, `${path} rendered mock data: ${mock}`).not.toContain(mock);
@@ -216,8 +268,41 @@ test("a viewer sees the same Atlas data, because Atlas grants every role `read`"
   await expect(page.getByRole("cell", { name: "Contract Worker" })).toBeVisible();
   await expect(page.getByText("Not allowed")).toHaveCount(0);
 
-  await page.goto(`/workflows/${seed.workflowId}`);
+  await page.goto(`/workflows/${seedIds().workflowId}`);
   await expect(page.getByRole("heading", { name: "Contract Workflow" })).toBeVisible();
+});
+
+/**
+ * Signing out must drop every cached Atlas response, not just the session cookie.
+ *
+ * The QueryClient lives for the life of the page, so it survives sign-out and the navigation to
+ * /auth. Without an explicit `clear()`, signing back in as a different identity inside the
+ * 10-second stale window re-renders the previous user's data straight from cache.
+ *
+ * Asserted on network behaviour rather than on pixels, because both identities are entitled to
+ * the same rows here: what proves the cache was dropped is that the second visit re-requests the
+ * data at all. With a warm cache and a fresh `staleTime`, it would issue nothing.
+ */
+test("signing out drops the cached Atlas data, so the next session refetches", async ({ page }) => {
+  await signIn(page, ADMIN_CREDENTIALS);
+  await page.goto("/fleet");
+  await expect(page.getByRole("cell", { name: "Contract Worker" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/auth$/);
+
+  await signIn(page, VIEWER_CREDENTIALS);
+
+  const readRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("_serverFn")) readRequests.push(request.url());
+  });
+
+  // Immediately — well inside the 10s stale window that a surviving cache would rely on.
+  await page.goto("/fleet");
+  await expect(page.getByRole("cell", { name: "Contract Worker" })).toBeVisible();
+
+  expect(readRequests.length).toBeGreaterThan(0);
 });
 
 /**

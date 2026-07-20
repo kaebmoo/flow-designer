@@ -91,10 +91,41 @@ describe("toClientAtlasError", () => {
   it("falls back to a generic server error for anything unrecognised", () => {
     expect(toClientAtlasError(new Error("kaboom secret detail"))).toEqual({
       kind: "server",
-      message: "Something went wrong talking to Atlas.",
+      message: "Atlas failed to process the request.",
     });
     expect(toClientAtlasError(undefined).kind).toBe("server");
   });
+
+  /**
+   * Atlas's dispatcher ends in `except Exception as exc: {"error": str(exc)}`
+   * (`atlas/app.py:256`), so a 500's message is a raw Python exception string. It can name the
+   * database file, an internal field, or a filesystem path, and it tells the operator nothing
+   * actionable — so it must not reach the browser.
+   */
+  it("drops Atlas's raw 5xx exception text instead of forwarding it to the browser", () => {
+    const leaky = new AtlasError(
+      "server",
+      "unable to open database file: /srv/atlas/data/atlas.sqlite",
+      { status: 500, fromAtlas: true },
+    );
+
+    const client = toClientAtlasError(leaky);
+    expect(client.kind).toBe("server");
+    expect(client.message).toBe("Atlas failed to process the request.");
+    expect(JSON.stringify(client)).not.toContain("atlas.sqlite");
+    expect(JSON.stringify(client)).not.toContain("/srv/");
+  });
+
+  /** Messages Atlas wrote *for* the caller still pass through — they are the actionable ones. */
+  it.each(["validation", "forbidden", "not_found", "conflict"] as const)(
+    "preserves Atlas's own %s message",
+    (kind) => {
+      const error = new AtlasError(kind, "workflow graph nodes must be a non-empty list");
+      expect(toClientAtlasError(error).message).toBe(
+        "workflow graph nodes must be a non-empty list",
+      );
+    },
+  );
 });
 
 describe("describeAtlasError", () => {

@@ -177,10 +177,32 @@ describe.skipIf(!available)("Atlas read contract", () => {
       expect(error.status).toBe(404);
     });
 
-    /** Atlas clamps `?limit`; asking for zero must not produce an empty page by accident. */
-    it("clamps a limit below Atlas's minimum instead of returning nothing", async () => {
-      const workflows = await atlasListWorkflows(adminToken, { limit: 0 });
-      expect(workflows).toHaveLength(1);
+    /**
+     * Pins Atlas's clamp as a *contract fact*, by asserting on the wire rather than on the
+     * result.
+     *
+     * Asserting only that `limit: 0` still returns rows would pass with the client's clamp
+     * removed, because Atlas clamps `0` to `1` itself (`atlas/app.py:79-87`) — a test that
+     * cannot fail. What actually matters is that the client and Atlas agree on the window that
+     * was applied, so this checks the value that left the client and the rows that came back.
+     */
+    it("sends a clamped limit on the wire and Atlas honours exactly that window", async () => {
+      const urls: string[] = [];
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        urls.push(String(input));
+        return realFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        await expect(atlasListWorkflows(adminToken, { limit: 0 })).resolves.toHaveLength(1);
+        await expect(atlasListWorkflows(adminToken, { limit: 10_001 })).resolves.toHaveLength(1);
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+
+      expect(new URL(urls[0]!).searchParams.get("limit")).toBe("1");
+      expect(new URL(urls[1]!).searchParams.get("limit")).toBe("10000");
     });
   });
 

@@ -1,4 +1,4 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
@@ -45,7 +45,10 @@ function Field({ label, value }: { label: string; value: string }) {
 
 function RunDetail() {
   const { id } = Route.useParams();
-  const { data: detail } = useSuspenseQuery(runQuery(id));
+  /**
+   * Seeded from the loader so hydration does not refetch — see the note in `workflows.$id.tsx`.
+   */
+  const { data: detail } = useQuery({ ...runQuery(id), initialData: Route.useLoaderData() });
   const { run, nodes, edges, approvals } = detail;
 
   return (

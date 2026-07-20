@@ -95,11 +95,28 @@ export function isClientAtlasError(value: unknown): value is ClientAtlasError {
  * Atlas origin or embed a socket error; copying only `kind` and `message` guarantees none of
  * that, and no credential, leaves the server.
  */
+/** Copy substituted for a `server` failure, in place of Atlas's own 5xx text. */
+const SERVER_FAILURE_MESSAGE = "Atlas failed to process the request.";
+
 export function toClientAtlasError(value: unknown): ClientAtlasError {
   if (isClientAtlasError(value)) {
+    /**
+     * A 5xx message is dropped rather than forwarded.
+     *
+     * Atlas's dispatcher ends in an unfiltered `except Exception as exc: {"error": str(exc)}`
+     * (`atlas/app.py:256`), so the `error` field of a 500 is a raw Python exception string — a
+     * `sqlite3.OperationalError` naming the database file, a `KeyError` naming an internal
+     * field, a filesystem path. That is server-internal detail an unprivileged browser session
+     * should not receive, and it tells the operator nothing actionable either. Every other kind
+     * (validation, forbidden, not_found, conflict) carries a message Atlas wrote *for* the
+     * caller, so those pass through unchanged.
+     */
+    if (value.kind === "server") {
+      return { kind: "server", message: SERVER_FAILURE_MESSAGE };
+    }
     return { kind: value.kind, message: value.message };
   }
-  return { kind: "server", message: "Something went wrong talking to Atlas." };
+  return { kind: "server", message: SERVER_FAILURE_MESSAGE };
 }
 
 export interface ErrorPresentation {
