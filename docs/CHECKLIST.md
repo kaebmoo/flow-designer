@@ -643,36 +643,42 @@ subsequently closed the backend auth P0, but the frontend adoption matrix below 
 exact production origins/secret store are still unset. Full matrix and operator handoff:
 `RELEASE_READINESS.md`, `RELEASE_NOTES_PHASE_7.md`, and `runbooks/release.md`.
 
-## Atlas `82207f7` adoption — Planned
+## Atlas `82207f7` adoption — Completed; production blocked
 
 Discovery evidence (2026-07-21): Atlas `main` was clean at `82207f7`; its hermetic gate was
 GREEN. The unchanged flow-designer contract suite passed 136 + 3 skipped against it, which proves
 compatibility but not adoption.
 
-- [ ] API types/guards are pinned to `82207f7` and cover session metadata, Retry-After, token
+- [x] API types/guards are pinned to `82207f7` and cover session metadata, Retry-After, token
       purpose/expiry, workflow default reply, and workflow-event page envelopes.
-- [ ] Login warns before Atlas session expiry and honors real 429 Retry-After without automatic
+- [x] Login warns before Atlas session expiry and honors real 429 Retry-After without automatic
       credential retry.
-- [ ] An unsaved semantic workflow draft survives an auth redirect in per-tab storage without
+- [x] An unsaved semantic workflow draft survives an auth redirect in per-tab storage without
       storing a bearer.
-- [ ] Admin token UI shows immutable purpose, expiry/current-session/lifecycle state, and can
+- [x] Admin token UI shows immutable purpose, expiry/current-session/lifecycle state, and can
       request an optional future API-token expiry while keeping the raw token copy-once.
-- [ ] Workflow default reply can be created/read/updated/cleared without dropping additive
+- [x] Workflow default reply can be created/read/updated/cleared without dropping additive
       unknown keys.
-- [ ] Real Atlas proves default inheritance, run override, trigger inheritance, current
+- [x] Real Atlas proves default inheritance, run override, trigger inheritance, current
       allowlist rejection, and inherited delivery.
-- [ ] Editor saves use `expected_version`; one of two stale concurrent saves gets Atlas 409 and
+- [x] Editor saves use `expected_version`; one of two stale concurrent saves gets Atlas 409 and
       local work remains available.
-- [ ] A successful version-incrementing save preserves local node positions and viewport.
-- [ ] Workflow-run events page by `next_after`/`has_more`, remain ordered/deduped, and render a
+- [x] A successful version-incrementing save preserves local node positions and viewport.
+- [x] Workflow-run events page by `next_after`/`has_more`, remain ordered/deduped, and render a
       bounded window.
-- [ ] SSE keepalive comments reset transport health without rendering or moving the cursor;
+- [x] SSE keepalive comments reset transport health without rendering or moving the cursor;
       valid retry hints are bounded.
-- [ ] The forced POST/PUT `Connection: close` workaround is removed and repeated rejected POSTs
+- [x] The forced POST/PUT `Connection: close` workaround is removed and repeated rejected POSTs
       still pass against real Atlas.
-- [ ] Full unit/contract/stream/browser/remote-like/build/bundle matrix passes against
+- [x] Full unit/contract/stream/browser/remote-like/build/bundle matrix passes against
       `82207f7` and release evidence is updated.
-- [ ] **Gate:** release owner reviews the new matrix and makes a fresh ship/no-ship decision.
+- [x] **Gate:** release owner reviews the new matrix and makes a fresh ship/no-ship decision: **no
+      production ship** until deployment inputs and operational drills are recorded.
+
+Adoption evidence (2026-07-21): `bun run test` 414 passed; `bun run test:contract` 143 passed / 3
+skipped; `bun run test:stream` 27 passed; `bun run test:e2e` 98 passed; remote-like Node 24.14.0
+1 passed; canary build and `bun run scan:bundle` clean across 57 files. The contract and browser
+commands used the correctly escalated localhost runner when sandbox policy rejected `listen`.
 
 Detailed slices and acceptance criteria: `ATLAS_82207F7_ADOPTION_PLAN.md`. Ready-to-run coding
 instructions: `ATLAS_82207F7_CODING_PROMPT.md`.

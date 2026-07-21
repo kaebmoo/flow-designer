@@ -45,10 +45,16 @@ function replayHeaders(captured: Record<string, string>): Record<string, string>
   return headers;
 }
 
+function loginBodyForAttempt(body: string, attempt: string): string {
+  const payload = JSON.parse(body) as Record<string, unknown>;
+  return JSON.stringify({ ...payload, username: `csrf-capture-${attempt}` });
+}
+
 /** Captures the login RPC's URL, body, and headers by driving the real form once. */
 async function captureLoginRpc(page: Page) {
   await gotoAuthHydrated(page);
-  await page.getByLabel("Username").fill(ADMIN_CREDENTIALS.username);
+  const username = `csrf-capture-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await page.getByLabel("Username").fill(username);
   // A wrong password on purpose: the capture needs the request shape, not a session.
   await page.getByLabel("Password").fill("csrf-capture-wrong-password");
   const [request] = await Promise.all([
@@ -71,37 +77,40 @@ test("CSRF: the login mutation accepts same-origin and rejects cross-site metada
   baseURL,
 }) => {
   const rpc = await captureLoginRpc(page);
-  const post = (headers: Record<string, string>) =>
+  const post = (headers: Record<string, string>, attempt: string) =>
     request.post(rpc.url, {
       headers: { ...rpc.headers, ...headers },
-      data: rpc.body,
+      // Atlas 82207f7 rate-limits failed logins by username + peer IP. Each replay is testing
+      // CSRF metadata, not rate limiting, so use a throwaway username per request to keep this
+      // security fixture isolated from the real limiter and from later browser specs.
+      data: loginBodyForAttempt(rpc.body, attempt),
     });
 
   // Same-origin Sec-Fetch-Site: the function executes (bad credentials are a 200 envelope,
   // not a CSRF rejection).
-  const sameOrigin = await post({ "sec-fetch-site": "same-origin" });
+  const sameOrigin = await post({ "sec-fetch-site": "same-origin" }, "same-origin");
   expect(sameOrigin.status()).toBe(200);
 
   // A browser-issued cross-site request always carries Sec-Fetch-Site: cross-site.
-  const crossSite = await post({ "sec-fetch-site": "cross-site" });
+  const crossSite = await post({ "sec-fetch-site": "cross-site" }, "cross-site");
   expect(crossSite.status()).toBe(403);
   const crossSiteBody = await crossSite.text();
   expect(crossSiteBody).not.toContain("incorrect");
 
   // Legacy browsers without Sec-Fetch-Site fall back to Origin matching.
-  const evilOrigin = await post({ origin: "https://evil.example" });
+  const evilOrigin = await post({ origin: "https://evil.example" }, "evil-origin");
   expect(evilOrigin.status()).toBe(403);
 
-  const goodOrigin = await post({ origin: baseURL! });
+  const goodOrigin = await post({ origin: baseURL! }, "good-origin");
   expect(goodOrigin.status()).toBe(200);
 
   // The normalisation rule, exercised end-to-end: PUBLIC_ORIGIN comparison is by URL origin,
   // so an Origin header that differs only in case still matches.
-  const casedOrigin = await post({ origin: baseURL!.toUpperCase() });
+  const casedOrigin = await post({ origin: baseURL!.toUpperCase() }, "cased-origin");
   expect(casedOrigin.status()).toBe(200);
 
   // Referer is the last fallback for browsers that send neither of the first two.
-  const goodReferer = await post({ referer: `${baseURL}/auth` });
+  const goodReferer = await post({ referer: `${baseURL}/auth` }, "good-referer");
   expect(goodReferer.status()).toBe(200);
 });
 

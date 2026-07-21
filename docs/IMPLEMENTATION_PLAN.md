@@ -204,7 +204,7 @@ frontend has not adopted/requalified its additive contracts. Exact production or
 secret-store selection also remain operator inputs. The current candidate remains suitable for
 local/controlled demo use, not production shipment.
 
-## Atlas `82207f7` adoption pass — Planned
+## Atlas `82207f7` adoption pass — Completed; production blocked
 
 Authoritative execution plan: `ATLAS_82207F7_ADOPTION_PLAN.md`. This pass adopts:
 
@@ -216,5 +216,6 @@ Authoritative execution plan: `ATLAS_82207F7_ADOPTION_PLAN.md`. This pass adopts
 - removal of the obsolete forced-close mutation transport workaround.
 
 The pass is deliberately not a new backend or workflow executor. Atlas remains read-only for the
-frontend task and remains the source of truth. Production gating resumes only after all adoption
-slices and the full release matrix pass against `82207f7`.
+frontend task and remains the source of truth. All adoption slices and the full release matrix now
+pass against `82207f7`; production remains blocked by the exact deployment and operational inputs
+listed in `RELEASE_READINESS.md`.

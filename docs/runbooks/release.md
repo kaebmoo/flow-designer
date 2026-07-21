@@ -76,6 +76,19 @@ server reads them at runtime.
 Confirm the build log says `Nitro (preset: node-server)` for a self-hosted release. Inside a
 Lovable build, the Lovable wrapper intentionally forces its Cloudflare target instead.
 
+## Atlas `82207f7` adoption handoff (2026-07-21)
+
+The frontend adoption and requalification pass targets clean Atlas `82207f7` and leaves the Atlas
+checkout read-only. Final evidence is recorded in `RELEASE_READINESS.md`: unit `414 passed`, real
+Atlas contract `143 passed` with 3 intentional skips, stream `27 passed`, browser `98 passed`,
+remote-like Node `v24.14.0` `1 passed`, and a clean 57-file canary bundle scan.
+
+This is a code/test handoff, not a production approval. Before shipping, record the exact
+`PUBLIC_ORIGIN`, private `ATLAS_API_ORIGIN`, generated `SESSION_SECRET` in the production secret
+store, proxy SSE buffering/idle settings (>45 seconds), backup destination/retention, a restore
+drill, and the log sink. Keep Atlas as one primary and do not push or deploy from this adoption
+task.
+
 Before tagging or deploying, also confirm:
 
 - `git diff --check` exits 0;

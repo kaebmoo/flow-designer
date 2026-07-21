@@ -137,7 +137,9 @@ export function AtlasErrorState({
 
   useEffect(() => {
     if (error.kind === "unauthorized") {
-      void router.navigate({ to: "/auth" });
+      // A dead authenticated route must not remain one Back away: pushing /auth would revisit
+      // the same protected query, receive 401 again, and create a redirect loop.
+      void router.navigate({ to: "/auth", replace: true });
     }
   }, [error.kind, router]);
 

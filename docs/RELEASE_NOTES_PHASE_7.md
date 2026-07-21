@@ -2,6 +2,24 @@
 
 Release state: **candidate verified; production blocked**
 
+## Atlas `82207f7` adoption addendum (2026-07-21)
+
+The frontend adoption pass is complete against clean Atlas `82207f7` (Atlas remained read-only).
+It adds session expiry/429 UX, token lifecycle metadata, nullable workflow `default_reply`,
+`expected_version` conflict handling with semantic draft recovery, cursor-paged run history, and
+SSE `retry`/keepalive transport handling. The implementation is split across commits `6619542`,
+`ef83d08`, `701027d`, and `8671e08`; the final test-fixture/redirect corrections are in the
+follow-up handoff commit.
+
+Final evidence: unit `414 passed`; real-Atlas contract `143 passed, 3 skipped`; stream `27
+passed`; browser `98 passed`; remote-like Node `v24.14.0` `1 passed`; production build and
+canary bundle scan passed (`57` public files clean); lint exited 0 with 8 warnings; formatting,
+typecheck, and `git diff --check` passed.
+
+Decision: **no production ship**. Exact `PUBLIC_ORIGIN`, private `ATLAS_API_ORIGIN`, production
+secret-store value, proxy buffering/timeout configuration, backup/restore drill, and log sink are
+still deployment/operator inputs. Local and controlled-demo use is ready; no push was performed.
+
 > **Backend status update (2026-07-21):** These notes record the Phase 7 candidate tested against
 > Atlas `595ef62`. Atlas `82207f7` subsequently implemented expiry/capping/rate limiting plus
 > additive workflow/event/HTTP contracts. The old backend P0 is closed, but this candidate remains

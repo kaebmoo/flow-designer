@@ -1,6 +1,7 @@
 # Testing and QA strategy
 
-Status: implemented through Phase 7 and reconciled on 2026-07-21.
+Status: Atlas `82207f7` adoption and requalification completed on 2026-07-21; production remains
+blocked on deployment/operator inputs.
 
 ## Runners and scripts
 
@@ -126,18 +127,19 @@ Full results: typecheck/lint/format/build exit 0; unit 391; real-Atlas contract 
 stream 24; browser 94; remote-like 1 on Node v24.14.0; canary bundle scan clean across 57 public
 files.
 
-## Atlas `82207f7` pre-adoption evidence (2026-07-21)
+## Atlas `82207f7` adoption evidence (2026-07-21)
 
-Atlas's own `./scripts/gate.sh` completed GREEN at clean commit `82207f7`. The existing
-flow-designer real-Atlas contract suite also completed with 136 passed and 3 skipped. This is a
-backward-compatibility baseline only: none of the existing assertions requires the new session
-metadata, Retry-After header, token purpose/expiry, `default_reply`, `expected_version`, run-event
-cursor envelope, keepalive comment, or rejected-body connection behavior.
+Atlas's own `./scripts/gate.sh` completed GREEN at clean commit `82207f7`. The adoption pass then
+added and ran the new assertions: full unit `414 passed`, real-Atlas contract `143 passed and 3
+skipped`, stream `27 passed`, browser `98 passed`, and remote-like Node `v24.14.0` `1 passed`.
+The canary bundle scan covered 57 public files and was clean. The historical 136 + 3 result is
+backward-compatibility evidence only; the new tests require session metadata, Retry-After, token
+purpose/expiry, `default_reply`, `expected_version`, cursor pages, keepalive activity, and the
+safe rejected-body transport behavior.
 
-The mandatory additions and mutation targets for the coding pass are recorded in
-`ATLAS_82207F7_ADOPTION_PLAN.md` under “Required test matrix additions”. Do not replace those
-real-Atlas checks with response fixtures; fixtures are appropriate only for malformed-boundary
-and clock-controlled unit cases.
+The mandatory additions and mutation targets are now implemented in the adoption commits recorded
+in `RELEASE_READINESS.md`. Real Atlas remains required for wire/inheritance/conflict/stream claims;
+fixtures remain limited to malformed-boundary and clock-controlled unit cases.
 
 ## Phase 6 evidence and strategy additions (2026-07-21)
 

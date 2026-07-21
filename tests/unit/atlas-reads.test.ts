@@ -125,7 +125,7 @@ describe("request construction", () => {
   });
 
   it("percent-encodes an id so a crafted value cannot alter the path", async () => {
-    const fetchMock = stubFetch({ workflow: { id: "x" } });
+    const fetchMock = stubFetch({ workflow: { id: "x", version: 1 } });
 
     await atlasGetWorkflow(TOKEN, "../../api/users");
 

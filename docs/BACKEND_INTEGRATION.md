@@ -1,15 +1,16 @@
 # Atlas backend integration contract
 
-Status: Phase 7 implementation is verified against `595ef62`; Atlas `82207f7` adoption is planned
+Status: Atlas `82207f7` adoption is implemented and requalified on 2026-07-21; production release
+still requires deployment/operator inputs recorded in `RELEASE_READINESS.md`.
 
 Date inspected: 2026-07-21
 
 Atlas checkout: `/Users/seal/Documents/GitHub/atlas-control-plane`
 
 Current Atlas commit inspected: `82207f7` (verified clean; Atlas gate GREEN). The existing
-flow-designer implementation remains certified against `595ef62`; current compatibility tests
-pass against `82207f7`, but adoption of its additive contracts is still planned in
-`ATLAS_82207F7_ADOPTION_PLAN.md`.
+flow-designer implementation is certified against the additive contracts used by this frontend;
+the historical `595ef62` matrix remains compatibility evidence only. The logical adoption commits
+are recorded in `RELEASE_READINESS.md`.
 
 Primary backend references:
 
