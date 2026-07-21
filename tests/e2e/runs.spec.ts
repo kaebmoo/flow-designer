@@ -511,10 +511,16 @@ test.describe("run detail", () => {
     await events.getByRole("button", { name: "25", exact: true }).click();
     await expect(events).toContainText("exclusive sequence cursor");
 
-    // A header row plus the bounded history cap — never an unbounded list.
-    const rendered = await events.getByRole("row").count();
-    expect(rendered).toBeGreaterThan(1);
-    expect(rendered).toBeLessThanOrEqual(501);
+    // Switching the window size is a different query (not a cursor advance), so it genuinely
+    // loads rather than reusing the previous window's rows as a placeholder. Poll rather than
+    // read the count once: there is a real (correct) loading frame between the click and the
+    // new page landing.
+    await expect
+      .poll(async () => events.getByRole("row").count(), {
+        message: "a header row plus the bounded history cap — never an unbounded list",
+      })
+      .toBeGreaterThan(1);
+    expect(await events.getByRole("row").count()).toBeLessThanOrEqual(501);
   });
 
   /**

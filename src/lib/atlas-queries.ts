@@ -7,7 +7,7 @@
  * error handling stay identical everywhere the same data is read.
  */
 
-import { keepPreviousData, queryOptions } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 
 import { isClientAtlasError, type ClientAtlasError } from "./atlas-mappers";
 import {
@@ -240,7 +240,25 @@ export function runEventsQuery(runId: string, params: { limit: number; after: nu
       ),
     // Cursor pages have distinct keys. Keep the completed page visible while the next exclusive
     // cursor fetch is in flight, so loading another page appends instead of blanking the table.
-    placeholderData: keepPreviousData,
+    //
+    // `keepPreviousData` alone would do this for *any* key change on this observer, not just a
+    // cursor advance — switching the run or the window-size selection is a different query
+    // entirely and should show a real loading state, not the previous run/window's rows passed
+    // off as a placeholder. Only reuse data when the previous query was the same run and the
+    // same page size; otherwise fall through to the normal pending state.
+    placeholderData: (previousData, previousQuery) => {
+      const previousParams = previousQuery?.queryKey[4] as
+        | { limit: number; after: number }
+        | undefined;
+      if (
+        !previousQuery ||
+        previousQuery.queryKey[3] !== runId ||
+        previousParams?.limit !== params.limit
+      ) {
+        return undefined;
+      }
+      return previousData;
+    },
     ...shared,
   });
 }
