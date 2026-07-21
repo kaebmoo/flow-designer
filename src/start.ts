@@ -1,6 +1,8 @@
 import { createStart, createCsrfMiddleware, createMiddleware } from "@tanstack/react-start";
 
+import { matchesConfiguredOrigin } from "./lib/csrf-origin";
 import { renderErrorPage } from "./lib/error-page";
+import { logServerError } from "./lib/safe-error-log";
 
 /**
  * CSRF protection for server functions.
@@ -22,19 +24,9 @@ import { renderErrorPage } from "./lib/error-page";
  */
 const csrfMiddleware = createCsrfMiddleware({
   filter: (ctx) => ctx.handlerType === "serverFn",
-  origin: (value) => {
-    const configured = process.env.PUBLIC_ORIGIN?.trim();
-    if (!configured) return false;
-    // Both sides are normalised through URL before comparing. A browser `Origin` header is
-    // always a bare, lowercased origin, whereas `PUBLIC_ORIGIN` may be written with a trailing
-    // slash, mixed case, or an explicit default port. Comparing the raw strings would reject
-    // every server function on an otherwise correct deployment.
-    try {
-      return new URL(value).origin === new URL(configured).origin;
-    } catch {
-      return false;
-    }
-  },
+  // Normalisation lives in `matchesConfiguredOrigin` (src/lib/csrf-origin.ts), pure so the
+  // rule is unit-tested; `PUBLIC_ORIGIN` is read per request rather than at module load.
+  origin: (value) => matchesConfiguredOrigin(value, process.env.PUBLIC_ORIGIN),
 });
 
 const errorMiddleware = createMiddleware().server(async ({ next }) => {
@@ -44,7 +36,9 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
     if (error != null && typeof error === "object" && "statusCode" in error) {
       throw error;
     }
-    console.error(error);
+    // Safe diagnostic only: a raw `console.error(error)` would print the cause chain, which
+    // for an AtlasError can name the private Atlas origin or carry Atlas's raw 5xx text.
+    logServerError("request", error);
     return new Response(renderErrorPage(), {
       status: 500,
       headers: { "content-type": "text/html; charset=utf-8" },

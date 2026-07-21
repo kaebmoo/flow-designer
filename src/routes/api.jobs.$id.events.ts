@@ -17,31 +17,9 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 
-import { atlasOpenJobEventStream, isAtlasError } from "@/lib/atlas-api.server";
-import type { AtlasErrorKind } from "@/lib/atlas-types";
+import { atlasOpenJobEventStream } from "@/lib/atlas-api.server";
 import { requireAtlasToken } from "@/lib/auth.server";
-
-const STATUS_FOR_KIND: Record<AtlasErrorKind, number> = {
-  validation: 400,
-  unauthorized: 401,
-  forbidden: 403,
-  not_found: 404,
-  conflict: 409,
-  rate_limited: 429,
-  server: 502,
-  timeout: 504,
-  network: 502,
-  protocol: 502,
-};
-
-/** Atlas's own status and message, forwarded as plain text — this route invents neither. */
-function errorResponse(error: unknown): Response {
-  const headers = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
-  if (isAtlasError(error)) {
-    return new Response(error.message, { status: STATUS_FOR_KIND[error.kind], headers });
-  }
-  return new Response("The event stream could not be opened.", { status: 500, headers });
-}
+import { transportBadRequest, transportErrorResponse } from "@/lib/transport-error.server";
 
 /**
  * `after` is the one query parameter Atlas accepts on this route, and it is validated here at
@@ -63,10 +41,7 @@ export const Route = createFileRoute("/api/jobs/$id/events")({
           const token = await requireAtlasToken();
           const after = parseAfter(new URL(request.url).searchParams.get("after"));
           if (after === null) {
-            return new Response("after must be a non-negative integer.", {
-              status: 400,
-              headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
-            });
+            return transportBadRequest("after must be a non-negative integer.");
           }
 
           // `request.signal` aborts when the browser goes away, which cancels the upstream
@@ -84,7 +59,7 @@ export const Route = createFileRoute("/api/jobs/$id/events")({
             },
           });
         } catch (error) {
-          return errorResponse(error);
+          return transportErrorResponse(error, "The event stream could not be opened.");
         }
       },
     },

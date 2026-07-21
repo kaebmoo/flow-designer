@@ -19,22 +19,9 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 
-import { atlasDownloadArtifact, atlasGetArtifact, isAtlasError } from "@/lib/atlas-api.server";
-import type { AtlasErrorKind } from "@/lib/atlas-types";
+import { atlasDownloadArtifact, atlasGetArtifact } from "@/lib/atlas-api.server";
 import { requireAtlasToken } from "@/lib/auth.server";
-
-const STATUS_FOR_KIND: Record<AtlasErrorKind, number> = {
-  validation: 400,
-  unauthorized: 401,
-  forbidden: 403,
-  not_found: 404,
-  conflict: 409,
-  rate_limited: 429,
-  server: 502,
-  timeout: 504,
-  network: 502,
-  protocol: 502,
-};
+import { transportErrorResponse } from "@/lib/transport-error.server";
 
 /**
  * Reduces a filename to something safe to place inside a quoted header parameter.
@@ -50,15 +37,6 @@ function asciiFilename(name: string): string {
     .replace(/["]/g, "_")
     .trim();
   return cleaned.length > 0 ? cleaned.slice(0, 120) : "artifact";
-}
-
-/** Atlas's own status and message, forwarded as plain text — this route invents neither. */
-function errorResponse(error: unknown): Response {
-  const headers = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
-  if (isAtlasError(error)) {
-    return new Response(error.message, { status: STATUS_FOR_KIND[error.kind], headers });
-  }
-  return new Response("The download could not be completed.", { status: 500, headers });
 }
 
 export const Route = createFileRoute("/api/artifacts/$id/content")({
@@ -88,7 +66,7 @@ export const Route = createFileRoute("/api/artifacts/$id/content")({
             },
           });
         } catch (error) {
-          return errorResponse(error);
+          return transportErrorResponse(error, "The download could not be completed.");
         }
       },
     },

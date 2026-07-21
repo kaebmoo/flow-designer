@@ -14,58 +14,36 @@
 
 import { createFileRoute } from "@tanstack/react-router";
 
-import { atlasExportAuditCsv, isAtlasError } from "@/lib/atlas-api.server";
+import { atlasExportAuditCsv } from "@/lib/atlas-api.server";
 import { parseDateBoundary } from "@/lib/atlas-dates";
 import { clampAtlasLimit } from "@/lib/atlas-limits";
-import type { AtlasErrorKind } from "@/lib/atlas-types";
 import { requireAtlasToken } from "@/lib/auth.server";
-
-const STATUS_FOR_KIND: Record<AtlasErrorKind, number> = {
-  validation: 400,
-  unauthorized: 401,
-  forbidden: 403,
-  not_found: 404,
-  conflict: 409,
-  rate_limited: 429,
-  server: 502,
-  timeout: 504,
-  network: 502,
-  protocol: 502,
-};
-
-function errorResponse(error: unknown): Response {
-  const headers = { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" };
-  if (isAtlasError(error)) {
-    /**
-     * An Atlas 5xx message is a raw Python exception string that can name the database file
-     * or an internal path; substitute the same generic copy `toClientAtlasError` uses. Every
-     * other kind carries a message Atlas wrote *for* the caller and passes through.
-     */
-    const message =
-      error.kind === "server" ? "Atlas failed to process the request." : error.message;
-    return new Response(message, { status: STATUS_FOR_KIND[error.kind], headers });
-  }
-  if (error instanceof Error && error.message) {
-    return new Response(error.message, { status: 400, headers });
-  }
-  return new Response("The export could not be completed.", { status: 500, headers });
-}
+import { transportBadRequest, transportErrorResponse } from "@/lib/transport-error.server";
 
 export const Route = createFileRoute("/api/exports/audit-csv")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        // The three parameters Atlas accepts, validated as untrusted input; nothing else from
+        // the query string is forwarded. Validated in its own block so the only messages a 400
+        // can carry are the rule-describing ones the date/limit validators themselves write —
+        // an unexpected internal throw must not be echoed as if it were input feedback.
+        let params: { limit: number | undefined; from: string | undefined; to: string | undefined };
+        const url = new URL(request.url);
         try {
-          // Authentication happens here — this URL is reachable directly over HTTP.
-          const token = await requireAtlasToken();
-          const url = new URL(request.url);
-          // The three parameters Atlas accepts, validated as untrusted input; nothing else
-          // from the query string is forwarded.
-          const params = {
+          params = {
             limit: clampAtlasLimit(Number(url.searchParams.get("limit") ?? "") || undefined),
             from: parseDateBoundary(url.searchParams.get("from"), "from"),
             to: parseDateBoundary(url.searchParams.get("to"), "to"),
           };
+        } catch (error) {
+          return transportBadRequest(
+            error instanceof Error ? error.message : "Invalid export parameters.",
+          );
+        }
+        try {
+          // Authentication happens here — this URL is reachable directly over HTTP.
+          const token = await requireAtlasToken();
           // Relay Atlas's byte stream: nothing is buffered here, so a large export costs
           // this server a pipe, not the whole file in memory. A client disconnect aborts
           // the upstream read through the request signal.
@@ -78,7 +56,7 @@ export const Route = createFileRoute("/api/exports/audit-csv")({
             },
           });
         } catch (error) {
-          return errorResponse(error);
+          return transportErrorResponse(error, "The export could not be completed.");
         }
       },
     },

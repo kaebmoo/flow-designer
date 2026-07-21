@@ -35,9 +35,13 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
   const router = useRouter();
   useEffect(() => {
+    // Browser-only by construction (useEffect): the error object here is data the browser
+    // already holds post-redaction, so logging it locally adds no exposure. During SSR this
+    // component must not log — the server-side pipeline logs the same failure through
+    // `logServerError`, which redacts what a raw dump would leak.
+    console.error(error);
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
 
