@@ -198,3 +198,20 @@ Fixing that "critical" finding turned out to require correcting the diagnosis, n
 Commits: `1a34544` (run-events placeholder), `cfd7c38` (malformed-guard tests), `aaec1e0`
 (layout-test fix and diagnosis correction). No Atlas source was changed and no push was
 performed.
+
+## Third review pass (2026-07-21, evening)
+
+A further review of `6619542..HEAD` found two P2s, closed by `24a377f`: the token-expiry
+picker's `min` was a UTC string fed to a `datetime-local` input (interpreted as local time, so
+operators east of Greenwich could pick an already-past moment that Atlas then rejected on
+submit), and `readSemanticWorkflowDraft` restored `defaultReply` from `sessionStorage` without
+validating it (a corrupt/stale entry could feed the next save a payload Atlas rejects). Both are
+targeted fixes: the `min` is now built from local wall-clock components (server-side
+`optionalFutureUtc` remains the real boundary), and drafts failing `isAtlasWorkflowDefaultReply`
+are cleared on sight.
+
+Requalified at `24a377f`: unit `441 passed`; contract `143 passed, 3 skipped`; stream `27
+passed`; browser `99 passed`; typecheck/format/build clean; lint 0 errors, 8 warnings; bundle
+scan clean (58 files, positive control present). Production decision unchanged — **do not ship**
+until deployment/operator inputs (origins, secret store, proxy, backup/restore drill, log sink)
+are recorded.
