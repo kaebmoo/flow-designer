@@ -34,6 +34,7 @@ test("HTTPS public origin keeps Atlas private and secures every browser transpor
 }) => {
   const seed = readPhase7Seed();
   expect(baseURL).toBe(PUBLIC_ORIGIN);
+  expect(seed.nodeVersion).toMatch(/^v24\./);
 
   const browserRequests: string[] = [];
   page.on("request", (candidate) => browserRequests.push(candidate.url()));

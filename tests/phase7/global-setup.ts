@@ -23,6 +23,7 @@ interface Phase7Seed {
   artifactId: string;
   artifactBody: string;
   jobId: string;
+  nodeVersion: string;
 }
 
 export function readPhase7Seed(): Phase7Seed {
@@ -166,10 +167,6 @@ export default async function globalSetup() {
   await waitForTerminalJob(atlas.origin, token, seeded.jobId);
 
   mkdirSync(dirname(SEED_FILE), { recursive: true });
-  writeFileSync(
-    SEED_FILE,
-    JSON.stringify({ atlasOrigin: atlas.origin, jobId: seeded.jobId, ...artifact }, null, 2),
-  );
 
   const appEnv = {
     ...process.env,
@@ -190,7 +187,25 @@ export default async function globalSetup() {
     throw new Error(`phase 7 production build failed:\n${build.stdout}\n${build.stderr}`);
   }
 
-  app = spawn("node", [".output/server/index.mjs"], {
+  const nodeBinary = process.env.PHASE7_NODE_BINARY ?? "node";
+  const nodeVersionResult = spawnSync(nodeBinary, ["--version"], { encoding: "utf-8" });
+  const nodeVersion = nodeVersionResult.stdout.trim();
+  if (nodeVersionResult.status !== 0 || !/^v24\./.test(nodeVersion)) {
+    throw new Error(
+      `Phase 7 requires Node 24.x, got ${nodeVersion || "an unreadable version"}. ` +
+        "Set PHASE7_NODE_BINARY to a Node 24 executable.",
+    );
+  }
+  writeFileSync(
+    SEED_FILE,
+    JSON.stringify(
+      { atlasOrigin: atlas.origin, jobId: seeded.jobId, nodeVersion, ...artifact },
+      null,
+      2,
+    ),
+  );
+
+  app = spawn(nodeBinary, [".output/server/index.mjs"], {
     cwd: process.cwd(),
     env: appEnv,
     stdio: ["ignore", "pipe", "pipe"],
