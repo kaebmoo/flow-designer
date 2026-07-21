@@ -5,6 +5,8 @@ import {
   atlasErrorKindForStatus,
   atlasCreateWorkflow,
   atlasGetMe,
+  atlasListApiTokens,
+  atlasListRunEvents,
   atlasLogin,
   atlasLogout,
   atlasUpdateWorkflow,
@@ -398,5 +400,109 @@ describe("response contract enforcement", () => {
       token: "raw-bearer",
       user: ADMIN_USER,
     });
+  });
+});
+
+/**
+ * Slice 1 of the `82207f7` adoption added `isAtlasSession`/`isAtlasWorkflowEventPage`/
+ * `isAtlasApiToken` but shipped without a regression test proving any of them actually reject a
+ * malformed payload rather than merely looking correct by inspection.
+ */
+describe("malformed additive fields fail closed", () => {
+  it.each([
+    ["an empty token_id", { token_id: "", expires_at: "2030-01-01T00:00:00Z" }],
+    ["an unparsable expires_at", { token_id: "tok_1", expires_at: "not-a-date" }],
+    ["a non-string expires_at", { token_id: "tok_1", expires_at: 123 }],
+    ["a non-object session", "tok_1"],
+  ])("rejects a login session with %s", async (_case, session) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ token: "raw-bearer", user: ADMIN_USER, session })),
+    );
+    const error = await atlasLogin({ username: "a", password: "b" }).catch((e) => e);
+    expect(error).toBeInstanceOf(AtlasError);
+    expect(error.kind).toBe("protocol");
+  });
+
+  it("accepts a login with no session field at all (Atlas may omit it)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ token: "raw-bearer", user: ADMIN_USER })),
+    );
+    await expect(atlasLogin({ username: "a", password: "b" })).resolves.toMatchObject({
+      token: "raw-bearer",
+    });
+  });
+
+  it("accepts a well-formed session", async () => {
+    const session = { token_id: "tok_1", expires_at: "2030-01-01T00:00:00Z" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ token: "raw-bearer", user: ADMIN_USER, session })),
+    );
+    await expect(atlasLogin({ username: "a", password: "b" })).resolves.toMatchObject({ session });
+  });
+
+  it.each([
+    [
+      "next_after behind the exclusive after cursor",
+      { events: [], after: 10, next_after: 5, has_more: false },
+    ],
+    ["a negative after cursor", { events: [], after: -1, next_after: -1, has_more: false }],
+    ["has_more as a non-boolean", { events: [], after: 0, next_after: 0, has_more: "false" }],
+    ["events as a non-array", { events: "none", after: 0, next_after: 0, has_more: false }],
+  ])("rejects a run-events page with %s", async (_case, page) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(page)));
+    const error = await atlasListRunEvents("tok", "wfr_1").catch((e) => e);
+    expect(error).toBeInstanceOf(AtlasError);
+    expect(error.kind).toBe("protocol");
+  });
+
+  it("accepts a well-formed empty run-events page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ events: [], after: 0, next_after: 0, has_more: false })),
+    );
+    await expect(atlasListRunEvents("tok", "wfr_1")).resolves.toEqual({
+      events: [],
+      after: 0,
+      next_after: 0,
+      has_more: false,
+    });
+  });
+
+  const TOKEN_BASE = {
+    id: "tok_1",
+    user_id: "usr_1",
+    name: "e2e token",
+    last_used_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    revoked_at: null,
+    username: "admin",
+  };
+
+  it.each([
+    ["an unrecognised purpose", { ...TOKEN_BASE, purpose: "admin", expires_at: null }],
+    ["an unparsable expires_at", { ...TOKEN_BASE, purpose: "api", expires_at: "not-a-date" }],
+    ["a non-string expires_at", { ...TOKEN_BASE, purpose: "api", expires_at: 2030 }],
+  ])("rejects an api token with %s", async (_case, token) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ tokens: [token] })));
+    const error = await atlasListApiTokens("tok").catch((e) => e);
+    expect(error).toBeInstanceOf(AtlasError);
+    expect(error.kind).toBe("protocol");
+  });
+
+  it("accepts a well-formed api token with a null (never-expiring) expiry", async () => {
+    const token = { ...TOKEN_BASE, purpose: "api", expires_at: null };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ tokens: [token] })));
+    await expect(atlasListApiTokens("tok")).resolves.toEqual([token]);
+  });
+
+  it("accepts a well-formed api token with a future expiry", async () => {
+    const token = { ...TOKEN_BASE, purpose: "session", expires_at: "2030-01-01T00:00:00Z" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ tokens: [token] })));
+    await expect(atlasListApiTokens("tok")).resolves.toEqual([token]);
   });
 });
