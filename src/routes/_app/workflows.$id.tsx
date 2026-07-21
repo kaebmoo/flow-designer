@@ -1,10 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { PageHeader } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
 import { WorkflowEditor, type WorkflowDraft } from "@/components/atlas/workflow-editor";
+import { clearSemanticWorkflowDraft } from "@/components/atlas/workflow-draft";
+import { migrateLayoutVersion } from "@/components/atlas/workflow-layout";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,6 +62,7 @@ export const Route = createFileRoute("/_app/workflows/$id")({
 function WorkflowEditorRoute() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   /**
    * Seeded from the loader so hydration does not refetch.
@@ -89,6 +92,10 @@ function WorkflowEditorRoute() {
    * happened.
    */
   const [saveCount, setSaveCount] = useState(0);
+  const [expectedVersionOverride, setExpectedVersionOverride] = useState<number | undefined>();
+  const [conflictServer, setConflictServer] = useState<typeof workflow | null>(null);
+  const [conflictLocalVersion, setConflictLocalVersion] = useState<number | undefined>();
+  const [reloadKey, setReloadKey] = useState(0);
 
   /**
    * Rejections from the server, anchored to a node, edge, or policy field.
@@ -122,13 +129,24 @@ function WorkflowEditorRoute() {
         description: draft.description,
         graph: draft.graph,
         policy: draft.policy,
-        // The lost-update guard. The baseline comes from the editor, not from this query: a
-        // background refetch moves `workflow.updatedAt`, and using that would let someone else's
-        // save advance the value the guard compares against — passing the check and overwriting
-        // exactly the write it exists to protect.
-        expectedUpdatedAt: draft.expectedUpdatedAt ?? undefined,
+        defaultReply: draft.defaultReply,
+        expectedVersion: draft.expectedVersion,
       },
-      { onSuccess: () => setSaveCount((count) => count + 1) },
+      {
+        onSuccess: (saved) => {
+          migrateLayoutVersion(id, draft.expectedVersion, saved.version);
+          clearSemanticWorkflowDraft(id, draft.expectedVersion);
+          setExpectedVersionOverride(saved.version);
+          setConflictServer(null);
+          setSaveCount((count) => count + 1);
+        },
+        onError: async (error) => {
+          if (error.kind !== "conflict") return;
+          const server = await queryClient.fetchQuery(editableWorkflowQuery(id));
+          setConflictServer(server);
+          setConflictLocalVersion(draft.expectedVersion);
+        },
+      },
     );
   };
 
@@ -255,24 +273,67 @@ function WorkflowEditorRoute() {
         </p>
       ) : null}
 
+      {conflictServer ? (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-8 py-3 text-xs text-foreground"
+        >
+          <span>
+            Atlas rejected this save because the server is now at version {conflictServer.version}.
+            Your local draft is still intact; compare it before choosing what to do.
+          </span>
+          <span className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (conflictLocalVersion !== undefined) {
+                  clearSemanticWorkflowDraft(id, conflictLocalVersion);
+                }
+                setConflictServer(null);
+                setConflictLocalVersion(undefined);
+                setExpectedVersionOverride(undefined);
+                setReloadKey((key) => key + 1);
+              }}
+            >
+              Reload server state
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setExpectedVersionOverride(conflictServer.version);
+                setConflictServer(null);
+                setConflictLocalVersion(undefined);
+              }}
+            >
+              Keep local draft
+            </Button>
+          </span>
+        </div>
+      ) : null}
+
       <WorkflowEditor
         // Keyed on the workflow alone. Adding the timestamp would remount on every successful
         // save — discarding anything typed while the save was in flight — and on every refetch
         // that pulled in someone else's write, silently replacing the operator's draft with it.
         // The editor handles both cases itself: it re-baselines against what it sent, and warns
         // when the server moved underneath it.
-        key={workflow.id}
+        key={`${workflow.id}:${reloadKey}`}
         workflowId={workflow.id}
         graphVersion={workflow.version}
         initialName={workflow.name}
         initialDescription={workflow.description}
         initialGraph={graph}
         initialPolicy={policy}
+        initialDefaultReply={workflow.defaultReply}
         savedAt={workflow.updatedAt}
         saveCount={saveCount}
         saving={save.isPending}
         serverIssues={serverIssues}
-        saveError={save.error ? save.error.message : null}
+        saveError={save.error?.kind === "conflict" ? null : save.error ? save.error.message : null}
+        expectedVersionOverride={expectedVersionOverride}
         onSave={onSave}
         validating={validate.isPending}
         atlasValidation={validation}

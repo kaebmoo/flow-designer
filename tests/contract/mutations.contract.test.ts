@@ -521,29 +521,143 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
   // D. Workflow CRUD.
   // -------------------------------------------------------------------------
   describe("workflow CRUD", () => {
-    it("updates a definition in place and moves the server-set updated_at", async () => {
+    it("round-trips, edits, and explicitly clears a nullable default reply", async () => {
+      const created = await atlasCreateWorkflow(adminToken, {
+        name: uniqueName("Default reply"),
+        graph: serializeWorkflowGraph(graphOf(MINIMAL_GRAPH)),
+        policy: {},
+        default_reply: { mode: "none", correlation_id: "initial", x_extension: "keep" },
+      });
+      expect(created.default_reply).toEqual({
+        mode: "none",
+        correlation_id: "initial",
+        x_extension: "keep",
+      });
+
+      const edited = await atlasUpdateWorkflow(adminToken, created.id, {
+        name: created.name,
+        graph: serializeWorkflowGraph(graphOf(created.graph)),
+        policy: created.policy,
+        default_reply: { ...created.default_reply, correlation_id: "edited" },
+        expected_version: created.version,
+      });
+      expect(edited.version).toBe(created.version + 1);
+      expect(edited.default_reply).toEqual({
+        mode: "none",
+        correlation_id: "edited",
+        x_extension: "keep",
+      });
+
+      const cleared = await atlasUpdateWorkflow(adminToken, created.id, {
+        name: edited.name,
+        graph: serializeWorkflowGraph(graphOf(edited.graph)),
+        policy: edited.policy,
+        default_reply: null,
+        expected_version: edited.version,
+      });
+      expect(cleared.version).toBe(edited.version + 1);
+      expect(cleared.default_reply).toBeNull();
+    });
+
+    it("inherits the stored reply into runs and lets a run-level reply win", async () => {
+      const created = await atlasCreateWorkflow(adminToken, {
+        name: uniqueName("Inherited reply"),
+        graph: serializeWorkflowGraph(graphOf(MINIMAL_GRAPH)),
+        policy: {},
+        default_reply: { mode: "none", correlation_id: "workflow-default" },
+      });
+      const inherited = await atlasStartWorkflowRun(adminToken, {
+        workflowDefinitionId: created.id,
+        input: {},
+      });
+      expect(inherited.input._meta).toEqual({
+        reply: { mode: "none", correlation_id: "workflow-default" },
+      });
+
+      const overridden = await atlasStartWorkflowRun(adminToken, {
+        workflowDefinitionId: created.id,
+        input: { _meta: { reply: { mode: "none", correlation_id: "run-override" } } },
+      });
+      expect(overridden.input._meta).toEqual({
+        reply: { mode: "none", correlation_id: "run-override" },
+      });
+    });
+
+    it("inherits a workflow default through a manual trigger", async () => {
+      const created = await atlasCreateWorkflow(adminToken, {
+        name: uniqueName("Trigger reply"),
+        graph: serializeWorkflowGraph(graphOf(MINIMAL_GRAPH)),
+        policy: {},
+        default_reply: { mode: "none", correlation_id: "trigger-default" },
+      });
+      const trigger = await atlasCreateWorkflowTrigger(adminToken, {
+        workflowDefinitionId: created.id,
+        name: uniqueName("Manual reply trigger"),
+        type: "manual",
+        enabled: true,
+        config: {},
+      });
+      const fired = await atlasFireWorkflowTrigger(adminToken, trigger.id, {
+        payload: { from: "trigger" },
+      });
+      expect((fired.run as Record<string, unknown>).input).toMatchObject({
+        _meta: { reply: { mode: "none", correlation_id: "trigger-default" } },
+      });
+      await atlasDeleteWorkflowTrigger(adminToken, trigger.id);
+    });
+
+    it("returns one success and one 409 for concurrent expected_version saves", async () => {
+      const created = await createFrom(MINIMAL_GRAPH, {}, uniqueName("Concurrent"));
+      const update = (name: string) =>
+        atlasUpdateWorkflow(adminToken, created.id, {
+          name,
+          graph: serializeWorkflowGraph(graphOf(created.graph)),
+          policy: created.policy,
+          expected_version: created.version,
+        });
+      const results = await Promise.allSettled([update("writer one"), update("writer two")]);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      const rejected = results.find((result) => result.status === "rejected");
+      expect(rejected?.status === "rejected" ? rejected.reason : undefined).toMatchObject({
+        kind: "conflict",
+        status: 409,
+      });
+    });
+
+    it("rejects default replies that fail the outbound allowlist on create and update", async () => {
+      const createError = atlasErrorFrom(
+        await atlasCreateWorkflow(adminToken, {
+          name: uniqueName("Blocked default"),
+          graph: serializeWorkflowGraph(graphOf(MINIMAL_GRAPH)),
+          policy: {},
+          default_reply: { mode: "webhook", callback_url: "https://not-allowlisted.example/hook" },
+        }).catch((error: unknown) => error),
+      );
+      expect(createError.kind).toBe("validation");
+
+      const created = await createFrom(MINIMAL_GRAPH, {}, uniqueName("Update blocked default"));
+      const updateError = atlasErrorFrom(
+        await atlasUpdateWorkflow(adminToken, created.id, {
+          name: created.name,
+          graph: serializeWorkflowGraph(graphOf(created.graph)),
+          policy: created.policy,
+          default_reply: { mode: "webhook", callback_url: "https://not-allowlisted.example/hook" },
+          expected_version: created.version,
+        }).catch((error: unknown) => error),
+      );
+      expect(updateError.kind).toBe("validation");
+    });
+
+    it("updates a definition in place with the atomic version token", async () => {
       const created = await createFrom(MINIMAL_GRAPH, {}, "Before rename");
       const sent = serializeWorkflowGraph(graphOf(ALL_KINDS_GRAPH));
-
-      /**
-       * Atlas stamps `updated_at` at one-second resolution (`atlas/db.py:32`), so a PUT issued
-       * inside the same second as the create writes an identical value. The lost-update guard
-       * in `saveWorkflowFn` compares exactly this field, so "it moves" is a contract fact worth
-       * pinning — the loop re-issues the real update until the second ticks rather than sleeping
-       * a guessed amount and hoping.
-       */
-      const updated = await until(
-        "updated_at to advance past the create timestamp",
-        () =>
-          atlasUpdateWorkflow(adminToken, created.id, {
-            name: "After rename",
-            description: "Renamed by the mutation contract test.",
-            graph: sent,
-            policy: serializeWorkflowPolicy(policyOf(ALL_KINDS_POLICY)),
-          }),
-        (value) => value.updated_at !== created.updated_at,
-        (value) => `updated_at ${value.updated_at}`,
-      );
+      const updated = await atlasUpdateWorkflow(adminToken, created.id, {
+        name: "After rename",
+        description: "Renamed by the mutation contract test.",
+        graph: sent,
+        policy: serializeWorkflowPolicy(policyOf(ALL_KINDS_POLICY)),
+        expected_version: created.version,
+      });
 
       expect(updated.id).toBe(created.id);
       expect(updated.name).toBe("After rename");
@@ -553,6 +667,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
       expect(fetched.updated_at).toBe(updated.updated_at);
       expect(fetched.created_at).toBe(created.created_at);
       expect(fetched.description).toBe("Renamed by the mutation contract test.");
+      expect(fetched.version).toBe(created.version + 1);
     });
 
     it("validates a saved definition against a candidate graph and answers ok", async () => {

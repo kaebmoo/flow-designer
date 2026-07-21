@@ -909,6 +909,8 @@ export interface WorkflowEditableView {
    */
   updatedAt: string;
   updatedAtLabel: string;
+  /** Nullable workflow-root reply configuration; unknown extension keys remain intact. */
+  defaultReply?: JsonObject | null;
   graph: WorkflowEditableGraph;
 }
 
@@ -930,6 +932,9 @@ export function toWorkflowEditableView(workflow: AtlasWorkflowDefinition): Workf
     status: workflow.status ?? "draft",
     updatedAt: workflow.updated_at,
     updatedAtLabel: formatAtlasTimestamp(workflow.updated_at),
+    ...(workflow.default_reply === undefined
+      ? {}
+      : { defaultReply: workflow.default_reply as JsonObject | null }),
     graph: editable,
   };
 }

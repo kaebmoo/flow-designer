@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   autoLayout,
   clearLayout,
+  migrateLayoutVersion,
   readLayout,
   readViewport,
   renameInLayout,
@@ -70,6 +71,14 @@ describe("layout storage", () => {
     writeLayout("wf_1", 1, { a: { x: 10, y: 20 } });
     expect(readLayout("wf_2", 1)).toEqual({});
     expect(readLayout("wf_1", 2)).toEqual({});
+  });
+
+  it("copies node positions and viewport when Atlas increments the workflow version", () => {
+    writeLayout("wf_1", 1, { a: { x: 10, y: 20 } });
+    writeViewport("wf_1", 1, { x: 30, y: 40, zoom: 1.5 });
+    migrateLayoutVersion("wf_1", 1, 2);
+    expect(readLayout("wf_1", 2)).toEqual({ a: { x: 10, y: 20 } });
+    expect(readViewport("wf_1", 2)).toEqual({ x: 30, y: 40, zoom: 1.5 });
   });
 
   it("ignores stored junk rather than crashing the editor", () => {

@@ -71,7 +71,13 @@ export default async function globalSetup() {
   // which is the only way a delivery row can exist for the deliveries page to show. Atlas
   // fail-closes non-allowlisted callback URLs at run start, so without this no delivery is
   // producible at all.
-  atlas = await startIsolatedAtlas({ ATLAS_OUTBOUND_ALLOWLIST: "127.0.0.1" });
+  atlas = await startIsolatedAtlas({
+    ATLAS_OUTBOUND_ALLOWLIST: "127.0.0.1",
+    // Keep the shared browser fixture's seed bearer alive while individual tests exercise
+    // login/session lifecycle independently. The default production cap is covered by Atlas
+    // contract tests; this fixture must not evict its seed token after five UI logins.
+    ATLAS_MAX_ACTIVE_SESSIONS: "100",
+  });
 
   /**
    * Seed through Atlas's own API with an admin bearer.

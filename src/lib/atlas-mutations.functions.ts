@@ -101,6 +101,7 @@ import {
   serializeWorkflowGraph,
   serializeWorkflowPolicy,
   validateWorkflow,
+  type JsonObject,
   type ValidationIssue,
 } from "./workflow-graph";
 
@@ -190,6 +191,16 @@ function optionalPositiveInteger(data: unknown, key: string): number | undefined
   return parsed;
 }
 
+function optionalWorkflowVersion(data: unknown): number | undefined {
+  const value = field(data, "expectedVersion");
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error("expectedVersion must be a positive integer.");
+  }
+  return parsed;
+}
+
 function optionalFutureUtc(data: unknown, key: string): string | undefined {
   const value = field(data, key);
   if (value === undefined || value === null || value === "") return undefined;
@@ -210,6 +221,17 @@ function plainObject(data: unknown, key: string): Record<string, unknown> {
     throw new Error(`${key} must be an object.`);
   }
   return value as Record<string, unknown>;
+}
+
+/** Keeps undefined (leave unchanged) and null (explicit clear) distinct for partial PUTs. */
+function optionalDefaultReply(data: unknown): JsonObject | null | undefined {
+  const value = field(data, "defaultReply");
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("defaultReply must be an object or null.");
+  }
+  return value as JsonObject;
 }
 
 /**
@@ -426,6 +448,7 @@ export const createWorkflowFn = createServerFn({ method: "POST" })
     description: optionalText(data, "description", MAX_DESCRIPTION_LENGTH),
     graph: field(data, "graph"),
     policy: field(data, "policy"),
+    defaultReply: optionalDefaultReply(data),
   }))
   .handler(
     async ({ data }): Promise<SaveResult<WorkflowView>> =>
@@ -437,53 +460,40 @@ export const createWorkflowFn = createServerFn({ method: "POST" })
             description: data.description,
             graph: accepted.graph,
             policy: accepted.policy,
+            default_reply: data.defaultReply,
           }),
         );
       }),
   );
 
 /**
- * `PUT /api/workflows/{id}` with a lost-update guard.
+ * `PUT /api/workflows/{id}` with Atlas's atomic `expected_version` precondition.
  *
- * Atlas has no ETag, no `If-Match`, and no server-incremented version — a plain PUT is
- * last-writer-wins, so two operators editing the same workflow silently lose one edit. The
- * guard is the best a client can do without backend support: re-read the row inside the same
- * request and refuse when its server-set `updated_at` has moved since the editor loaded it.
- *
- * ponytail: there is still a millisecond-scale window between the re-read and the PUT. Closing
- * it properly needs a conditional write in Atlas (tracked in `docs/ATLAS_LIMITATIONS.md`);
- * this turns the common case — a tab left open for minutes — from silent loss into a visible
- * conflict, which is the failure mode that actually happens.
+ * The server compares and increments the version in one write. A stale save is a 409; the
+ * local draft stays mounted so the operator can compare or discard it deliberately.
  */
 export const saveWorkflowFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => ({
     workflowId: requiredId(data, "workflowId"),
     name: requiredName(data, "name"),
     description: optionalText(data, "description", MAX_DESCRIPTION_LENGTH),
-    expectedUpdatedAt: optionalId(data, "expectedUpdatedAt"),
+    expectedVersion: optionalWorkflowVersion(data),
     graph: field(data, "graph"),
     policy: field(data, "policy"),
+    defaultReply: optionalDefaultReply(data),
   }))
   .handler(
     async ({ data }): Promise<SaveResult<WorkflowEditableView>> =>
       saveMutation(async (token) => {
         const accepted = acceptGraph(data.graph, data.policy);
-        if (data.expectedUpdatedAt !== undefined) {
-          const current = await atlasGetWorkflow(token, data.workflowId);
-          if (current.updated_at !== data.expectedUpdatedAt) {
-            throw new AtlasError(
-              "conflict",
-              "This workflow changed in Atlas since you opened it. Reload to see the current version before saving.",
-              { status: 409 },
-            );
-          }
-        }
         return toWorkflowEditableView(
           await atlasUpdateWorkflow(token, data.workflowId, {
             name: data.name,
             description: data.description,
             graph: accepted.graph,
             policy: accepted.policy,
+            default_reply: data.defaultReply,
+            expected_version: data.expectedVersion,
           }),
         );
       }),

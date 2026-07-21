@@ -745,10 +745,7 @@ describe("layout keys", () => {
     expect(layoutStorageKey("wf_1", 1)).not.toBe(layoutStorageKey("wf_1", 2));
   });
 
-  it("is stable across saves, because an ordinary save does not move the version", () => {
-    // This client never sends `version` and Atlas never increments it, so a save reuses the
-    // arrangement rather than resetting it. The version component only bites for the writes
-    // that genuinely replace the graph — a pack import or another client bumping it.
-    expect(layoutStorageKey("wf_1", 1)).toBe(layoutStorageKey("wf_1", 1));
+  it("keeps versioned layout keys separate until an explicit migration copies the arrangement", () => {
+    expect(layoutStorageKey("wf_1", 1)).not.toBe(layoutStorageKey("wf_1", 2));
   });
 });

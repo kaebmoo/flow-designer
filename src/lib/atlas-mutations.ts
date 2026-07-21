@@ -48,6 +48,7 @@ import {
 } from "./atlas-mutations.functions";
 import type { AtlasResult } from "./atlas-reads.functions";
 import type { ApiTokenView, ClientAtlasError } from "./atlas-mappers";
+import type { JsonObject } from "./workflow-graph";
 import { queryKeys } from "./query-keys";
 
 /**
@@ -140,8 +141,13 @@ function useAtlasMutation<TVariables, TData>(
 /** Creating a workflow changes the list and the definition count on the dashboard. */
 export function useCreateWorkflow() {
   return useAtlasMutation(
-    (data: { name: string; description?: string; graph: unknown; policy: unknown }) =>
-      createWorkflowFn({ data }),
+    (data: {
+      name: string;
+      description?: string;
+      graph: unknown;
+      policy: unknown;
+      defaultReply?: JsonObject | null;
+    }) => createWorkflowFn({ data }),
     ["workflows", "metrics"],
   );
 }
@@ -158,9 +164,10 @@ export function useSaveWorkflow() {
       workflowId: string;
       name: string;
       description?: string;
-      expectedUpdatedAt?: string;
+      expectedVersion?: number;
       graph: unknown;
       policy: unknown;
+      defaultReply?: JsonObject | null;
     }) => saveWorkflowFn({ data }),
     ["workflows", "runs"],
   );

@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AtlasError,
   atlasErrorKindForStatus,
+  atlasCreateWorkflow,
   atlasGetMe,
   atlasLogin,
   atlasLogout,
+  atlasUpdateWorkflow,
   parseRetryAfterSeconds,
 } from "@/lib/atlas-api.server";
 import { resetServerEnvCache } from "@/lib/env.server";
@@ -110,6 +112,50 @@ describe("Retry-After contract", () => {
 });
 
 describe("request construction", () => {
+  it("sends default_reply and expected_version without a client version field", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(jsonResponse({ workflow: { id: "wfd_1", version: 2 } })),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const defaultReply = { mode: "webhook", callback_url: "https://example.test/hook", x_ext: 7 };
+
+    await atlasCreateWorkflow("tok", {
+      name: "workflow",
+      graph: {},
+      policy: {},
+      default_reply: defaultReply,
+    });
+    await atlasUpdateWorkflow("tok", "wfd_1", {
+      name: "workflow",
+      graph: {},
+      policy: {},
+      default_reply: null,
+      expected_version: 2,
+    });
+
+    const createBody = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    const updateBody = JSON.parse(fetchMock.mock.calls[1]![1].body);
+    expect(createBody.default_reply).toEqual(defaultReply);
+    expect(createBody.version).toBeUndefined();
+    expect(updateBody).toMatchObject({ default_reply: null, expected_version: 2 });
+    expect(updateBody.version).toBeUndefined();
+  });
+
+  it("fails closed when a workflow default reply has the wrong shape", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ workflow: { id: "wfd_1", version: 2, default_reply: [] } }),
+        ),
+    );
+    const { atlasGetWorkflow } = await import("@/lib/atlas-api.server");
+    await expect(atlasGetWorkflow("tok", "wfd_1")).rejects.toMatchObject({ kind: "protocol" });
+  });
+
   it("sends the bearer in the Authorization header and never in the URL", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ user: ADMIN_USER }));
     vi.stubGlobal("fetch", fetchMock);

@@ -54,6 +54,8 @@ import {
   isConnectionAllowed,
   removeNode,
   renameNodeId,
+  parseWorkflowGraph,
+  parseWorkflowPolicy,
   serializeWorkflowGraph,
   serializeWorkflowPolicy,
   unreachableNodeIds,
@@ -77,6 +79,12 @@ import {
   writeViewport,
   type WorkflowLayout,
 } from "./workflow-layout";
+import {
+  clearSemanticWorkflowDraft,
+  readSemanticWorkflowDraft,
+  writeSemanticWorkflowDraft,
+} from "./workflow-draft";
+import { type WorkflowDefaultReply } from "./workflow-inspector";
 import { NODE_PRESENTATION, PALETTE_ORDER } from "./workflow-node-presentation";
 import { WorkflowCanvasNode, type CanvasNodeData } from "./workflow-node";
 
@@ -154,16 +162,8 @@ export interface WorkflowDraft {
   description: string;
   graph: Record<string, unknown>;
   policy: Record<string, unknown>;
-  /**
-   * The `updated_at` this editor believes Atlas holds — the lost-update guard's baseline.
-   *
-   * It belongs to the editor rather than to the route because a background refetch moves the
-   * route's copy. If the guard read that, a refetch that pulled in someone else's save would
-   * silently advance the baseline and the guard would compare against the *other* person's
-   * write — passing, and overwriting it. This value only ever advances when a save from this
-   * editor lands.
-   */
-  expectedUpdatedAt: string | null;
+  defaultReply: WorkflowDefaultReply;
+  expectedVersion: number;
 }
 
 export interface WorkflowEditorProps {
@@ -175,6 +175,7 @@ export interface WorkflowEditorProps {
   initialDescription: string;
   initialGraph: WorkflowGraph;
   initialPolicy: WorkflowPolicy;
+  initialDefaultReply: WorkflowDefaultReply;
   /**
    * Atlas's current `updated_at`, refreshed by the query.
    *
@@ -198,6 +199,7 @@ export interface WorkflowEditorProps {
   serverIssues?: ValidationIssue[];
   /** The message from the last failed save. Shown verbatim, because Atlas wrote it for us. */
   saveError?: string | null;
+  expectedVersionOverride?: number;
   onSave: (draft: WorkflowDraft) => void;
   /** Validates against Atlas. Absent until the workflow has an id Atlas knows. */
   onValidateWithAtlas?: (draft: {
@@ -228,12 +230,14 @@ function EditorSurface({
   initialDescription,
   initialGraph,
   initialPolicy,
+  initialDefaultReply,
   savedAt,
   saveCount,
   runStates,
   saving,
   serverIssues,
   saveError,
+  expectedVersionOverride,
   onSave,
   onValidateWithAtlas,
   validating,
@@ -246,6 +250,7 @@ function EditorSurface({
   const [description, setDescription] = useState(initialDescription);
   const [graph, setGraph] = useState<WorkflowGraph>(initialGraph);
   const [policy, setPolicy] = useState<WorkflowPolicy>(initialPolicy);
+  const [defaultReply, setDefaultReply] = useState<WorkflowDefaultReply>(initialDefaultReply);
   const [selection, setSelection] = useState<Selection>(null);
   const [layout, setLayout] = useState<WorkflowLayout>({});
   const [pendingNodeDeletion, setPendingNodeDeletion] = useState<string | null>(null);
@@ -257,8 +262,9 @@ function EditorSurface({
       description,
       graph: serializeWorkflowGraph(graph),
       policy: serializeWorkflowPolicy(policy),
+      defaultReply,
     }),
-    [name, description, graph, policy],
+    [name, description, graph, policy, defaultReply],
   );
 
   /**
@@ -275,6 +281,7 @@ function EditorSurface({
       description: initialDescription,
       graph: serializeWorkflowGraph(initialGraph),
       policy: serializeWorkflowPolicy(initialPolicy),
+      defaultReply: initialDefaultReply,
     }),
   );
   const dirty = JSON.stringify(current) !== baseline;
@@ -286,41 +293,71 @@ function EditorSurface({
   });
 
   /**
-   * What this editor believes Atlas holds, and what it last sent.
-   *
-   * A save is not instantaneous, and the canvas stays editable while it is in flight. Baselining
-   * against whatever is on screen when the server answers would therefore mark an edit made
-   * during the save as already-saved and lose it on the next reload. Baselining against the
-   * payload that was actually sent cannot do that: anything typed since stays dirty.
+   * The version is Atlas's optimistic-concurrency token. It advances only after a successful
+   * save or an explicit conflict choice to keep this local draft.
    */
-  const [guardUpdatedAt, setGuardUpdatedAt] = useState<string | null>(savedAt);
+  const [expectedVersion, setExpectedVersion] = useState(graphVersion);
   const sentPayload = useRef<string | null>(null);
 
-  const savedAtRef = useRef(savedAt);
-  savedAtRef.current = savedAt;
+  useEffect(() => {
+    if (expectedVersionOverride !== undefined) setExpectedVersion(expectedVersionOverride);
+  }, [expectedVersionOverride]);
+
+  useEffect(() => {
+    if (!dirty) setExpectedVersion(graphVersion);
+  }, [dirty, graphVersion]);
 
   useEffect(() => {
     if (saveCount === 0 || sentPayload.current === null) return;
     setBaseline(sentPayload.current);
     sentPayload.current = null;
-    setGuardUpdatedAt(savedAtRef.current);
-    // Nothing re-baselines when the server moves for any other reason. A refetch that brings in
-    // someone else's write leaves the draft exactly as the user has it — discarding their work
-    // to adopt a stranger's is the one thing that must not happen — and `changedElsewhere` below
-    // says so. The guard deliberately keeps the older value, so a save is refused rather than
-    // silently overwriting.
+    if (workflowId) clearSemanticWorkflowDraft(workflowId, expectedVersion);
   }, [saveCount]);
 
-  /**
-   * Someone else wrote to this workflow while it was open.
-   *
-   * Detected by the server timestamp moving past what this editor last saw. It inherits Atlas's
-   * one-second resolution, so a write inside the same second as ours is invisible here — as it
-   * is to the server-side guard, which is recorded in `docs/ATLAS_LIMITATIONS.md`. It catches
-   * the case that actually happens: a tab left open while someone else edits.
-   */
-  const changedElsewhere =
-    savedAt !== null && guardUpdatedAt !== null && savedAt !== guardUpdatedAt;
+  const [recovery, setRecovery] = useState<ReturnType<typeof readSemanticWorkflowDraft>>(undefined);
+
+  useEffect(() => {
+    if (!workflowId) return;
+    setRecovery(readSemanticWorkflowDraft(workflowId, graphVersion));
+  }, [workflowId, graphVersion]);
+
+  useEffect(() => {
+    if (!workflowId || !dirty) return;
+    writeSemanticWorkflowDraft(workflowId, {
+      version: expectedVersion,
+      name,
+      description,
+      graph: current.graph,
+      policy: current.policy,
+      defaultReply,
+    });
+  }, [
+    workflowId,
+    dirty,
+    expectedVersion,
+    name,
+    description,
+    current.graph,
+    current.policy,
+    defaultReply,
+  ]);
+
+  const restoreDraft = () => {
+    if (!recovery) return;
+    const restoredGraph = parseWorkflowGraph(recovery.graph);
+    const restoredPolicy = parseWorkflowPolicy(recovery.policy);
+    if (restoredGraph.ok) setGraph(restoredGraph.value);
+    if (restoredPolicy.ok) setPolicy(restoredPolicy.value);
+    setName(recovery.name);
+    setDescription(recovery.description);
+    setDefaultReply(recovery.defaultReply);
+    setRecovery(undefined);
+  };
+
+  const discardDraft = () => {
+    if (workflowId) clearSemanticWorkflowDraft(workflowId, graphVersion);
+    setRecovery(undefined);
+  };
 
   const submit = () => {
     const draft: WorkflowDraft = {
@@ -328,14 +365,10 @@ function EditorSurface({
       description,
       graph: current.graph,
       policy: current.policy,
-      expectedUpdatedAt: guardUpdatedAt,
+      defaultReply,
+      expectedVersion,
     };
-    sentPayload.current = JSON.stringify({
-      name: draft.name,
-      description: draft.description,
-      graph: draft.graph,
-      policy: draft.policy,
-    });
+    sentPayload.current = JSON.stringify(current);
     onSave(draft);
   };
 
@@ -884,14 +917,23 @@ function EditorSurface({
           Someone else wrote to this workflow while it was open. Said here rather than left for
           the save to discover, so the operator can decide what to do before typing more.
         */}
-        {changedElsewhere ? (
-          <p
+        {recovery ? (
+          <div
             role="status"
-            className="border-b border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning"
+            className="flex items-center justify-between gap-3 border-b border-warning/40 bg-warning/10 px-4 py-2 text-xs text-warning"
           >
-            This workflow changed in Atlas after you opened it. Your edits are still here, but
-            saving them will be refused until you reload and reapply them.
-          </p>
+            <span>
+              Unsaved semantic edits from this tab are available for this workflow version.
+            </span>
+            <span className="flex shrink-0 gap-2">
+              <Button type="button" size="sm" variant="outline" onClick={restoreDraft}>
+                Restore draft
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={discardDraft}>
+                Discard
+              </Button>
+            </span>
+          </div>
         ) : null}
 
         {saveError ? (
@@ -998,6 +1040,8 @@ function EditorSurface({
               .filter((issue) => issue.target.kind === "policy")
               .map((issue) => issue.message)}
             onChange={setPolicy}
+            defaultReply={defaultReply}
+            onDefaultReplyChange={setDefaultReply}
           />
         ) : (
           <div className="space-y-4 px-4 py-6">

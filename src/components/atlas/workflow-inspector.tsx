@@ -34,11 +34,14 @@ import {
   type GraphEdge,
   type GraphNode,
   type HumanGateNode,
+  type JsonObject,
   type JsonValue,
   type WorkflowGraph,
   type WorkflowPolicy,
 } from "@/lib/workflow-graph";
 import { NODE_PRESENTATION } from "./workflow-node-presentation";
+
+export type WorkflowDefaultReply = JsonObject | null | undefined;
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -903,6 +906,8 @@ export interface PolicyPanelProps {
   policy: WorkflowPolicy;
   issues: string[];
   onChange: (next: WorkflowPolicy) => void;
+  defaultReply: WorkflowDefaultReply;
+  onDefaultReplyChange: (next: WorkflowDefaultReply) => void;
 }
 
 const POLICY_HINTS: Record<string, string> = {
@@ -914,7 +919,29 @@ const POLICY_HINTS: Record<string, string> = {
   max_budget_units: "Total budget units the run may consume.",
 };
 
-export function PolicyPanel({ policy, issues, onChange }: PolicyPanelProps) {
+export function PolicyPanel({
+  policy,
+  issues,
+  onChange,
+  defaultReply,
+  onDefaultReplyChange,
+}: PolicyPanelProps) {
+  const replyMode =
+    defaultReply === null
+      ? "clear"
+      : defaultReply === undefined
+        ? "absent"
+        : defaultReply.mode === "webhook"
+          ? "webhook"
+          : "none";
+
+  const setReplyMode = (mode: string) => {
+    if (mode === "absent") return onDefaultReplyChange(undefined);
+    if (mode === "clear") return onDefaultReplyChange(null);
+    const current = defaultReply && typeof defaultReply === "object" ? defaultReply : {};
+    onDefaultReplyChange({ ...current, mode });
+  };
+
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {issues.length > 0 ? (
@@ -928,6 +955,68 @@ export function PolicyPanel({ policy, issues, onChange }: PolicyPanelProps) {
           </ul>
         </Section>
       ) : null}
+
+      <Section title="Default reply">
+        <Field
+          label="Workflow reply"
+          hint="Atlas inherits this callback only when a run has no _meta.reply override. Unknown extension keys are preserved."
+        >
+          <select
+            aria-label="Workflow default reply mode"
+            value={replyMode}
+            onChange={(event) => setReplyMode(event.target.value)}
+            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <option value="absent">Absent — inherit nothing</option>
+            <option value="none">Explicit none</option>
+            <option value="webhook">Webhook</option>
+            <option value="clear">Clear stored value (null)</option>
+          </select>
+        </Field>
+        {replyMode === "webhook" ? (
+          <>
+            <Field
+              label="Callback URL"
+              hint="Atlas enforces the outbound allowlist at save and run time."
+            >
+              <Input
+                value={
+                  typeof defaultReply?.callback_url === "string" ? defaultReply.callback_url : ""
+                }
+                onChange={(event) =>
+                  onDefaultReplyChange({
+                    ...(defaultReply ?? {}),
+                    mode: "webhook",
+                    callback_url: event.target.value,
+                  })
+                }
+                placeholder="https://example.test/callback"
+                className="font-mono text-xs"
+              />
+            </Field>
+            <Field
+              label="Correlation id"
+              hint="Optional value copied into the inherited reply metadata."
+            >
+              <Input
+                value={
+                  typeof defaultReply?.correlation_id === "string"
+                    ? defaultReply.correlation_id
+                    : ""
+                }
+                onChange={(event) =>
+                  onDefaultReplyChange({
+                    ...(defaultReply ?? {}),
+                    mode: "webhook",
+                    ...(event.target.value ? { correlation_id: event.target.value } : {}),
+                  })
+                }
+                className="font-mono text-xs"
+              />
+            </Field>
+          </>
+        ) : null}
+      </Section>
 
       <Section title="Limits">
         <p className="text-[11px] text-muted-foreground">

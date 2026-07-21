@@ -164,6 +164,17 @@ export function clearLayout(workflowId: string, graphVersion: number): void {
   }
 }
 
+/** Copies a layout and viewport to Atlas's incremented version without moving the canvas. */
+export function migrateLayoutVersion(
+  workflowId: string,
+  fromVersion: number,
+  toVersion: number,
+): void {
+  if (fromVersion === toVersion) return;
+  const stored = readStored(workflowId, fromVersion);
+  if (stored) writeStored(workflowId, toVersion, stored);
+}
+
 /**
  * Places every node when there is no stored layout.
  *

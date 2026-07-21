@@ -156,6 +156,14 @@ test.describe("workflow editor", () => {
     const movedNodeId = Object.keys(beforeReload!.nodes).find((id) => id.startsWith("manager_"))!;
     expect(movedNodeId).toBeTruthy();
 
+    // Atlas increments the semantic version on every conditional save. The current canvas must
+    // be copied to that new key before the editor switches versions.
+    await page.getByLabel("Workflow description").fill("saved without moving the canvas");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(dirtyState(page)).toHaveText("Saved");
+    const afterVersionBump = await readStoredLayout();
+    expect(afterVersionBump!.nodes[movedNodeId]).toEqual(beforeReload!.nodes[movedNodeId]);
+
     await page.reload();
     await page.waitForURL(new RegExp(`/workflows/${id}$`));
     await ready(page);
@@ -243,6 +251,58 @@ test.describe("workflow editor", () => {
     await workflows.click();
     await warning.getByRole("button", { name: "Discard changes" }).click();
     await expect(page).toHaveURL(/\/workflows\?limit=100$/);
+  });
+
+  test("edits and explicitly clears the nullable workflow default reply", async ({ page }) => {
+    const id = await createWorkflow(page);
+    await page.getByRole("button", { name: "Run policy", exact: true }).click();
+    const replyMode = page.getByLabel("Workflow default reply mode");
+    await replyMode.selectOption("none");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(dirtyState(page)).toHaveText("Saved");
+
+    await page.reload();
+    await page.waitForURL(new RegExp(`/workflows/${id}$`));
+    await ready(page);
+    await page.getByRole("button", { name: "Run policy", exact: true }).click();
+    await expect(page.getByLabel("Workflow default reply mode")).toHaveValue("none");
+
+    await page.getByLabel("Workflow default reply mode").selectOption("clear");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(dirtyState(page)).toHaveText("Saved");
+    await page.reload();
+    await page.waitForURL(new RegExp(`/workflows/${id}$`));
+    await ready(page);
+    await page.getByRole("button", { name: "Run policy", exact: true }).click();
+    await expect(page.getByLabel("Workflow default reply mode")).toHaveValue("clear");
+  });
+
+  test("recovers a semantic draft after the tab loses its sealed session", async ({
+    page,
+    context,
+  }) => {
+    const id = await createWorkflow(page);
+    await page.getByRole("button", { name: /^Wait for branches/ }).click();
+    await expect(dirtyState(page)).toHaveText("Unsaved changes");
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.keys(window.sessionStorage).some((key) => key.includes(":draft:")),
+        ),
+      )
+      .toBe(true);
+
+    await context.clearCookies();
+    await page.goto(`/workflows/${id}`);
+    await expect(page).toHaveURL(/\/auth$/);
+    await signIn(page);
+    await page.goto(`/workflows/${id}`);
+    await ready(page);
+
+    await expect(page.getByRole("status")).toContainText(/semantic edits.*available/i);
+    await page.getByRole("button", { name: "Restore draft" }).click();
+    await expect(canvas(page).locator('[data-node-kind="join"]')).toHaveCount(1);
+    await expect(dirtyState(page)).toHaveText("Unsaved changes");
   });
 
   test("local validation blocks the save and each problem selects what it is about", async ({
@@ -352,8 +412,10 @@ test.describe("workflow editor", () => {
     // quietly overwriting the other tab's work.
     await page.getByRole("button", { name: /^AI Decision/ }).click();
     await page.getByRole("button", { name: "Save" }).click();
-    await expect(page.getByRole("alert")).toContainText(/changed in Atlas since you opened it/);
+    await expect(page.getByRole("alert")).toContainText(/rejected.*version/i);
     await expect(dirtyState(page)).toHaveText("Unsaved changes");
+    await page.getByRole("button", { name: "Keep local draft" }).click();
+    await expect(page.getByRole("button", { name: "Keep local draft" })).toHaveCount(0);
   });
 
   test("running a saved workflow returns a real Atlas run id", async ({ page }) => {

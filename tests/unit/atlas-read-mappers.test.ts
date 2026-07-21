@@ -22,6 +22,7 @@ import {
   toStatusView,
   toWorkerView,
   toWorkflowDetailView,
+  toWorkflowEditableView,
   toWorkflowView,
   toWorkspaceView,
 } from "@/lib/atlas-mappers";
@@ -240,6 +241,20 @@ describe("toWorkflowView / toWorkflowDetailView", () => {
 
   it("counts graph nodes and edges", () => {
     expect(toWorkflowView(workflow)).toMatchObject({ nodeCount: 2, edgeCount: 1, version: 3 });
+  });
+
+  it("maps nullable default_reply without dropping extension keys", () => {
+    const editable = toWorkflowEditableView({
+      ...workflow,
+      graph: { start: "n1", nodes: [{ id: "n1", type: "worker" }], edges: [] },
+      default_reply: { mode: "none", correlation_id: "corr", x_extension: { keep: true } },
+    });
+    expect(editable.defaultReply).toEqual({
+      mode: "none",
+      correlation_id: "corr",
+      x_extension: { keep: true },
+    });
+    expect(toWorkflowEditableView({ ...workflow, default_reply: null }).defaultReply).toBeNull();
   });
 
   it("treats a missing graph as empty rather than throwing", () => {
