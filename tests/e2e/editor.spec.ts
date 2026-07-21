@@ -136,33 +136,46 @@ test.describe("workflow editor", () => {
     // Compared through stored graph coordinates rather than screen pixels: the canvas fits the
     // view on load, so the same node legitimately lands at different screen coordinates while
     // holding exactly the same position in the graph.
-    const readStoredLayout = () =>
-      page.evaluate(() => {
-        const key = Object.keys(window.localStorage).find((candidate) =>
-          candidate.startsWith("flow-designer:layout:"),
-        );
-        return key
-          ? (JSON.parse(window.localStorage.getItem(key)!) as {
+    //
+    // Reads the exact key the app itself reads/writes (`layoutStorageKey`), not "whatever layout
+    // key happens to exist": `migrateLayoutVersion` copies forward without deleting the version
+    // it copied from, so once more than one save has happened, more than one version's key is
+    // present at once, and a scan for "a key with this prefix" is ambiguous about which one it
+    // returns — a false positive/negative in the test, not evidence of an app bug either way.
+    const readStoredLayout = (graphVersion: number) =>
+      page.evaluate((key) => {
+        const raw = window.localStorage.getItem(key);
+        return raw
+          ? (JSON.parse(raw) as {
               layout_version: number;
               nodes: Record<string, { x: number; y: number }>;
               viewport?: { x: number; y: number; zoom: number };
             })
           : null;
-      });
+        // Mirrors `layoutStorageKey` in `src/lib/workflow-graph.ts` exactly.
+      }, `flow-designer:layout:${id}:v${graphVersion}`);
 
-    const beforeReload = await readStoredLayout();
+    // The rename above was this workflow's first save, so its layout is stored under version 2.
+    let version = 2;
+    const beforeReload = await readStoredLayout(version);
     expect(beforeReload).not.toBeNull();
     expect(beforeReload!.layout_version).toBe(1);
     const movedNodeId = Object.keys(beforeReload!.nodes).find((id) => id.startsWith("manager_"))!;
     expect(movedNodeId).toBeTruthy();
 
     // Atlas increments the semantic version on every conditional save. The current canvas must
-    // be copied to that new key before the editor switches versions.
-    await page.getByLabel("Workflow description").fill("saved without moving the canvas");
-    await page.getByRole("button", { name: "Save" }).click();
-    await expect(dirtyState(page)).toHaveText("Saved");
-    const afterVersionBump = await readStoredLayout();
-    expect(afterVersionBump!.nodes[movedNodeId]).toEqual(beforeReload!.nodes[movedNodeId]);
+    // be copied to that new key before the editor switches versions. Repeated a few times in a
+    // row, so consecutive version bumps within one session are covered, not just the first.
+    for (let repeat = 0; repeat < 4; repeat += 1) {
+      await page
+        .getByLabel("Workflow description")
+        .fill(`saved without moving the canvas ${repeat}`);
+      await page.getByRole("button", { name: "Save" }).click();
+      await expect(dirtyState(page)).toHaveText("Saved");
+      version += 1;
+      const afterVersionBump = await readStoredLayout(version);
+      expect(afterVersionBump!.nodes[movedNodeId]).toEqual(beforeReload!.nodes[movedNodeId]);
+    }
 
     await page.reload();
     await page.waitForURL(new RegExp(`/workflows/${id}$`));
@@ -175,7 +188,7 @@ test.describe("workflow editor", () => {
 
     // Layout came back from this browser, not from Atlas — the same coordinates, unchanged by a
     // round trip that only ever carried semantics.
-    const afterReload = await readStoredLayout();
+    const afterReload = await readStoredLayout(version);
     expect(afterReload!.nodes[movedNodeId]).toEqual(beforeReload!.nodes[movedNodeId]);
   });
 
