@@ -48,6 +48,11 @@ Client components may import types, mappers that have no secrets, and query hook
 
 - Model the canvas on the Atlas-native graph. The palette exposes **only** `worker`, `manager`, `join`, `human_gate`; “Approval” is the display label for internal kind `human_gate`, not a separate kind. Do not create `condition`/`loop`/`fanout`/`trigger` pseudo-nodes: conditions are edited in the **edge inspector**, fan-out is **multiple outgoing edges**, loops are **guarded back-edges**, and triggers are managed in a **separate trigger panel** outside `graph.nodes`.
 - Keep layout state separate from semantic graph state, and store it **locally** — Atlas receives semantic JSON only and has no layout persistence endpoint. Persist node positions/viewport in localStorage keyed by workflow id + graph version, with an auto-layout fallback; local layout does not sync across devices/users.
+- When an atomic save advances Atlas's workflow version, copy the current local layout and
+  viewport to the returned version key before switching. A successful semantic save must not
+  reposition the canvas.
+- Treat nullable workflow `default_reply` as root metadata, not policy. Preserve unknown
+  additive keys while editing known reply fields; run-level `_meta.reply` always wins.
 - Serialize only supported node/edge fields; always emit `join.mode`/`quorum`, `manager.schema`, and an edge `condition`.
 - Fail closed on any unknown Atlas node or condition type — surface it, never silently drop it or send it to Atlas.
 - Validate graph shape before save and before run.
@@ -56,14 +61,19 @@ Client components may import types, mappers that have no secrets, and query hook
 
 ## Live event rules
 
-These follow the verified Atlas job SSE contract (see `BACKEND_INTEGRATION.md`): `GET /api/jobs/{job_id}/events?after=<seq>`, each frame carries `id: <seq>` and a `seq` in the JSON payload, a normal stream ends with an explicit `event: close`, and there is no heartbeat.
+These follow the Atlas `82207f7` job SSE contract (see `BACKEND_INTEGRATION.md`): data frames
+carry `id`/`seq`, a normal stream ends with `event: close`, and a quiet live connection sends
+unsequenced keepalive comments plus a reconnect hint.
 
 - Store only the latest bounded window in active component state.
 - Deduplicate by the SSE `id`/payload `seq` (monotonic per job).
 - Resume with `after=<last confirmed seq>` (exclusive lower bound). `after` is the only resume parameter — there is no `Last-Event-ID` support and no `limit`/`timeout` query param.
-- A normal stream sends `event: close` with the terminal `{ state }`. EOF **without** a `close` frame is a disconnect: reconnect with `after=<last seq>` and bounded exponential backoff. Because Atlas emits no heartbeat, also guard against intermediary/proxy idle timeouts.
+- A normal stream sends `event: close` with terminal `{state}`. EOF without `close` is a
+  disconnect. Treat `: keepalive` or other received bytes as transport activity without
+  rendering an event or moving the cursor; accept only a valid bounded `retry:` hint.
 - If a resume gap cannot be closed from the stream, refetch the run/job detail and mark the gap.
-- Workflow-run progress is not one live stream. `GET /api/workflow-runs/{run_id}/events` is persisted JSON history (poll), and run detail returns runtime nodes with a `job_id`. Combine per-job SSE (per node `job_id`) with run refetch; do not assume a unified run stream.
+- Workflow-run progress is not one live stream. Its persisted JSON history is cursor-paged by
+  sequence; combine those pages with per-job SSE and run refetch.
 - Ignore unknown event types safely while retaining a diagnostic marker.
 - Stop reconnecting after a terminal `close` or an explicit user cancellation.
 - Do not make every event invalidate the entire dashboard; update the narrowest query possible.

@@ -8,22 +8,26 @@ Tested frontend implementation commit: `7740797`; Node-runtime harness commit: `
 documentation handoff follows). Baseline before Phase 7: `64eeae9`. No commit was amended,
 rebased, squashed, force-pushed, or pushed.
 
-Tested Atlas commit: `595ef62bcfa38c1135867807bfe2fae320e37b0c`. The contract suite passed
+Phase 7 tested Atlas commit: `595ef62bcfa38c1135867807bfe2fae320e37b0c`. The contract suite passed
 both against the existing checkout and against a clean temporary `git archive` of that exact
 commit. The existing checkout contained user-owned uncommitted changes and was never modified,
 reset, or used as proof of a pristine commit.
 
+Superseding backend assessment: Atlas `82207f7` is clean and its completion gate is GREEN. The
+unchanged flow-designer contract suite passes against it (136 + 3 skipped), proving backward
+compatibility only. Adoption and requalification work is planned in
+`ATLAS_82207F7_ADOPTION_PLAN.md`.
+
 ## Release decision
 
-| Target                              | Decision           | Reason                                                                                                                                                               |
-| ----------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Local development / controlled demo | Ready              | Full functional, contract, stream, browser, restart, and remote-like matrices pass.                                                                                  |
-| Production                          | **Do not ship**    | Atlas login tokens still never expire, repeated logins leave live orphan `"dashboard login"` tokens, and login has no rate limit. No written risk acceptance exists. |
-| A specific production deployment    | **Not configured** | Exact `PUBLIC_ORIGIN`, private `ATLAS_API_ORIGIN`, production secret store, proxy, backup destination, and log sink remain operator inputs.                          |
+| Target                              | Decision            | Reason                                                                                                                                      |
+| ----------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Local development / controlled demo | Ready               | Full functional, contract, stream, browser, restart, and remote-like matrices pass.                                                         |
+| Production                          | **Do not ship yet** | Atlas closed the old auth P0, but flow-designer has not adopted/requalified the new auth, workflow, cursor, SSE, and HTTP contracts.        |
+| A specific production deployment    | **Not configured**  | Exact `PUBLIC_ORIGIN`, private `ATLAS_API_ORIGIN`, production secret store, proxy, backup destination, and log sink remain operator inputs. |
 
-The frontend mitigations (8-hour sealed cookie, Atlas logout on sign-out, private BFF transport)
-reduce exposure but do not close the Atlas token-lifecycle blocker. See
-`ATLAS_LIMITATIONS.md` and `RELEASE_NOTES_PHASE_7.md`.
+The Phase 7 matrix below remains valid evidence for its original frontend/Atlas pair. It is not a
+release certificate for Atlas `82207f7`. See `ATLAS_LIMITATIONS.md` and the adoption plan.
 
 ## Verification matrix
 
@@ -71,35 +75,39 @@ server.
 
 ## Deployment and security matrix
 
-| Concern             | Code/test state                                                                                | Deployment state                                                                       | Gate                               |
-| ------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------- |
-| Runtime             | Self-hosted Nitro target pinned to `node-server`; `package.json` requires Node 24.x            | Node v24.14.0 executed the remote-like artifact; build on the target OS/architecture   | Pass for self-hosted Node 24       |
-| `PUBLIC_ORIGIN`     | Required, origin-only; production HTTP is rejected                                             | Exact HTTPS origin is still TODO                                                       | **Deployment input required**      |
-| `ATLAS_API_ORIGIN`  | Required, origin-only, server-only; real private canary stayed out of client bundle            | Exact private origin is still TODO                                                     | **Deployment input required**      |
-| `SESSION_SECRET`    | Required, ≥32 chars; committed placeholder rejected in production; canary stayed out of bundle | Secret store and generated value are still TODO                                        | **Deployment input required**      |
-| Cookie              | `HttpOnly; Secure; SameSite=Lax; Path=/`; host-only; 8-hour default                            | Verified through remote-like HTTPS proxy                                               | Pass                               |
-| CSRF                | `PUBLIC_ORIGIN` URL-normalized; wrong origin rejected                                          | Matching public origin accepted behind an internal HTTP hop                            | Pass                               |
-| CORS                | Browser never calls Atlas; no Atlas browser-CORS dependency                                    | Keep Atlas private; do not expose its bearer to browser code                           | Pass for required topology         |
-| Same-origin routes  | Artifact, SSE, audit CSV, usage CSV attach bearer server-side                                  | HTTPS proxy streamed every route without exposing Atlas origin/token                   | Pass                               |
-| Error/log redaction | Atlas 5xx text, cause chain, cookies, headers, and bodies excluded                             | Choose a log sink; preserve stderr and never enable body/header logging at proxy       | Code pass; operator input required |
-| Bundle secrets      | Static symbols plus real canary values scanned with positive control                           | Repeat with release canaries for every artifact                                        | Pass                               |
-| Frontend replicas   | Sealed stateless cookie; shared secret/private origin; no sticky session required              | All replicas must share `SESSION_SECRET` and `ATLAS_API_ORIGIN`                        | Supported                          |
-| Atlas topology      | Frontend assumes one primary Atlas origin                                                      | Do not run multiple Atlas writers against one/independent SQLite databases             | Single primary only                |
-| SSE proxy           | No buffering; browser disconnect aborts upstream; Atlas has no heartbeat                       | Disable proxy buffering and set an idle timeout above the 45-second reconnect watchdog | Operator input required            |
-| Backup/restore      | Atlas provides WAL-safe online DB backup plus paired upload archive                            | Select destination/retention/key and complete a restore drill before production        | Operator action required           |
-| Rollback            | Previous frontend artifact can be restored without changing Atlas state                        | Retain immutable artifacts and deployment metadata                                     | Documented                         |
-| Token lifecycle     | Frontend logout revokes only the current token; cookie expires after 8 hours                   | Atlas lacks expiry, orphan cleanup, and login throttling                               | **P0 production blocker**          |
+| Concern             | Code/test state                                                                                | Deployment state                                                                     | Gate                               |
+| ------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------- |
+| Runtime             | Self-hosted Nitro target pinned to `node-server`; `package.json` requires Node 24.x            | Node v24.14.0 executed the remote-like artifact; build on the target OS/architecture | Pass for self-hosted Node 24       |
+| `PUBLIC_ORIGIN`     | Required, origin-only; production HTTP is rejected                                             | Exact HTTPS origin is still TODO                                                     | **Deployment input required**      |
+| `ATLAS_API_ORIGIN`  | Required, origin-only, server-only; real private canary stayed out of client bundle            | Exact private origin is still TODO                                                   | **Deployment input required**      |
+| `SESSION_SECRET`    | Required, ≥32 chars; committed placeholder rejected in production; canary stayed out of bundle | Secret store and generated value are still TODO                                      | **Deployment input required**      |
+| Cookie              | `HttpOnly; Secure; SameSite=Lax; Path=/`; host-only; 8-hour default                            | Verified through remote-like HTTPS proxy                                             | Pass                               |
+| CSRF                | `PUBLIC_ORIGIN` URL-normalized; wrong origin rejected                                          | Matching public origin accepted behind an internal HTTP hop                          | Pass                               |
+| CORS                | Browser never calls Atlas; no Atlas browser-CORS dependency                                    | Keep Atlas private; do not expose its bearer to browser code                         | Pass for required topology         |
+| Same-origin routes  | Artifact, SSE, audit CSV, usage CSV attach bearer server-side                                  | HTTPS proxy streamed every route without exposing Atlas origin/token                 | Pass                               |
+| Error/log redaction | Atlas 5xx text, cause chain, cookies, headers, and bodies excluded                             | Choose a log sink; preserve stderr and never enable body/header logging at proxy     | Code pass; operator input required |
+| Bundle secrets      | Static symbols plus real canary values scanned with positive control                           | Repeat with release canaries for every artifact                                      | Pass                               |
+| Frontend replicas   | Sealed stateless cookie; shared secret/private origin; no sticky session required              | All replicas must share `SESSION_SECRET` and `ATLAS_API_ORIGIN`                      | Supported                          |
+| Atlas topology      | Frontend assumes one primary Atlas origin                                                      | Do not run multiple Atlas writers against one/independent SQLite databases           | Single primary only                |
+| SSE proxy           | Atlas now emits 15-second keepalives; current client does not count comment-only activity yet  | Disable buffering; timeout >45 seconds; adopt heartbeat contract                     | **Integration pending**            |
+| Backup/restore      | Atlas provides WAL-safe online DB backup plus paired upload archive                            | Select destination/retention/key and complete a restore drill before production      | Operator action required           |
+| Rollback            | Previous frontend artifact can be restored without changing Atlas state                        | Retain immutable artifacts and deployment metadata                                   | Documented                         |
+| Token lifecycle     | Atlas `82207f7` expires/caps dashboard sessions and rate-limits login                          | Adopt expiry/cap/Retry-After/token metadata UX and rerun release tests               | **Integration pending**            |
 
-## Source re-verification of the P0
+## Atlas `82207f7` re-verification
 
-Both the clean `595ef62` source and the current checkout were traced:
+The clean current Atlas source and commits `60d4190`, `ffe96c5`, `d4bec5b`, `6c49aab`, and
+`01ac1ad` were traced:
 
-- `atlas/db.py` creates `api_tokens` without an `expires_at` column.
-- `authenticate_api_token` accepts every unrevoked token; there is no expiry predicate.
-- `atlas/app.py` calls `create_api_token(..., "dashboard login")` on every successful login.
-- no rate-limit/throttle surrounds `verify_user_password` or the login route.
-- the current Atlas working-tree diff does not change any of those points.
+- migration 014 adds `purpose`/`expires_at`, revokes identified legacy login sessions, and
+  authentication expires tokens;
+- login creates bounded dashboard sessions and applies a pre-password rate limiter with
+  `Retry-After`;
+- rejected unread request bodies close safely;
+- workflow saves accept atomic `expected_version`;
+- workflow-run events expose cursor pages;
+- job SSE emits reconnect and keepalive controls.
 
-Production may proceed only after an Atlas fix is tested, or after the release owner records an
-explicit risk acceptance covering all three behaviors. A reverse-proxy login rate limit is only
-a temporary mitigation; it does not expire or clean up tokens.
+Atlas's gate is GREEN and the old flow contract remains compatible, but production may proceed
+only after the new behaviors are adopted and covered by the full release matrix plus exact
+deployment inputs.

@@ -1,12 +1,15 @@
 # Atlas backend integration contract
 
-Status: contract verified and implemented through Phase 5
+Status: Phase 7 implementation is verified against `595ef62`; Atlas `82207f7` adoption is planned
 
-Date inspected: 2026-07-20
+Date inspected: 2026-07-21
 
 Atlas checkout: `/Users/seal/Documents/GitHub/atlas-control-plane`
 
-Atlas commit inspected: `595ef62bcfa38c1135867807bfe2fae320e37b0c` (verified via `git rev-parse HEAD`; matches the review snapshot)
+Current Atlas commit inspected: `82207f7` (verified clean; Atlas gate GREEN). The existing
+flow-designer implementation remains certified against `595ef62`; current compatibility tests
+pass against `82207f7`, but adoption of its additive contracts is still planned in
+`ATLAS_82207F7_ADOPTION_PLAN.md`.
 
 Primary backend references:
 
@@ -83,30 +86,30 @@ The thClaws worker contract used by Atlas includes `GET /healthz`, `GET /v1/agen
 
 ## UI-to-Atlas endpoint map
 
-| UI surface          | Atlas endpoint(s)                                                            | Notes                                                                                                                                                                                           |
-| ------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Auth                | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me`               | Atlas owns credentials and bearer issuance                                                                                                                                                      |
-| Users               | `GET/POST /api/users`, `GET/PUT/DELETE /api/users/{id}`                      | Admin-only mutations                                                                                                                                                                            |
-| API tokens          | `GET/POST /api/tokens`, token update/revoke endpoints                        | Raw token is returned once                                                                                                                                                                      |
-| Dashboard           | `/api/metrics`, `/api/workers`, `/api/workflows`, `/api/workflow-runs`       | Prefer aggregate metrics for headline cards                                                                                                                                                     |
-| Fleet               | `/api/workers`, `/api/workers/poll`, `/api/workers/{id}/poll`                | Worker tokens never reach the browser                                                                                                                                                           |
-| Workspaces          | `/api/workspaces`, `/api/workspaces/{id}`                                    | Workspace directory is on the worker machine                                                                                                                                                    |
-| Conversations       | `/api/conversations`                                                         | Session binding is Atlas-owned                                                                                                                                                                  |
-| Jobs                | `/api/jobs`, `/api/jobs/{id}`, `/api/jobs/{id}/cancel`                       | Job response may include worker/workspace projections                                                                                                                                           |
-| Job stream          | `GET /api/jobs/{job_id}/events?after=<seq>`                                  | SSE (`text/event-stream`). Resume with `after=<last seq>`; dedupe by `id`/`seq`; a normal stream ends with `event: close`. No `Last-Event-ID`, no heartbeat. See "Job event SSE contract" below |
-| Workflows           | `/api/workflows`, `/api/workflow-templates`, `/api/workflows/{id}`           | Use the graph serializer below                                                                                                                                                                  |
-| Workflow validation | `/api/workflows/{id}/validate`                                               | Validate before enabling/running                                                                                                                                                                |
-| Workflow run        | `POST /api/workflow-runs`                                                    | Returns `202` for async start                                                                                                                                                                   |
-| Run detail          | `GET /api/workflow-runs/{id}`                                                | Includes run, runtime nodes, edges, approvals                                                                                                                                                   |
-| Run actions         | `/pause`, `/resume`, `/cancel`, `/deliver`                                   | Mutations must reconcile query state                                                                                                                                                            |
-| Run events          | `GET /api/workflow-runs/{run_id}/events`                                     | Persisted JSON history `{ events: [...] }` (per-run `seq`, `limit` only, default 500). Not SSE, no `after` cursor. Poll/refetch; combine with per-job SSE for live progress                     |
-| Approvals           | `/api/approvals`, `/api/approvals/{id}/approve`, `/reject`, `/choose`        | Required for human gates                                                                                                                                                                        |
-| Run artifacts       | `/api/workflow-runs/{id}/artifacts`, `/files`, `/api/artifacts/{id}/content` | Download through Atlas authorization                                                                                                                                                            |
-| Triggers            | `/api/workflow-triggers`, `/{id}`, `/{id}/fire`, `/{id}/events`              | Atlas owns schedule/webhook/internal trigger logic                                                                                                                                              |
-| Deliveries          | `/api/deliveries`, `/api/deliveries/{id}/retry`                              | Return-path delivery ledger                                                                                                                                                                     |
-| Audit               | `/api/audit`                                                                 | Filter and paginate; do not synthesize audit rows in UI                                                                                                                                         |
-| Usage               | `/api/usage`                                                                 | Use server-provided aggregates and export actions                                                                                                                                               |
-| Settings            | No complete generic settings endpoint confirmed                              | Keep deployment information read-only until Atlas exposes a safe contract                                                                                                                       |
+| UI surface          | Atlas endpoint(s)                                                            | Notes                                                                                                                        |
+| ------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Auth                | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me`               | Login/`me` expose safe session id/expiry metadata; login can return 429 + `Retry-After`                                      |
+| Users               | `GET/POST /api/users`, `GET/PUT/DELETE /api/users/{id}`                      | Admin-only mutations                                                                                                         |
+| API tokens          | `GET/POST /api/tokens`, token update/revoke endpoints                        | Raw token returned once; metadata includes immutable purpose and optional expiry                                             |
+| Dashboard           | `/api/metrics`, `/api/workers`, `/api/workflows`, `/api/workflow-runs`       | Prefer aggregate metrics for headline cards                                                                                  |
+| Fleet               | `/api/workers`, `/api/workers/poll`, `/api/workers/{id}/poll`                | Worker tokens never reach the browser                                                                                        |
+| Workspaces          | `/api/workspaces`, `/api/workspaces/{id}`                                    | Workspace directory is on the worker machine                                                                                 |
+| Conversations       | `/api/conversations`                                                         | Session binding is Atlas-owned                                                                                               |
+| Jobs                | `/api/jobs`, `/api/jobs/{id}`, `/api/jobs/{id}/cancel`                       | Job response may include worker/workspace projections                                                                        |
+| Job stream          | `GET /api/jobs/{job_id}/events?after=<seq>`                                  | SSE with exclusive cursor, terminal `close`, `retry: 3000`, and unsequenced 15-second keepalive comments; no `Last-Event-ID` |
+| Workflows           | `/api/workflows`, `/api/workflow-templates`, `/api/workflows/{id}`           | Definitions may carry nullable `default_reply`; conditional PUT uses `expected_version`                                      |
+| Workflow validation | `/api/workflows/{id}/validate`                                               | Validate before enabling/running                                                                                             |
+| Workflow run        | `POST /api/workflow-runs`                                                    | Returns `202` for async start                                                                                                |
+| Run detail          | `GET /api/workflow-runs/{id}`                                                | Includes run, runtime nodes, edges, approvals                                                                                |
+| Run actions         | `/pause`, `/resume`, `/cancel`, `/deliver`                                   | Mutations must reconcile query state                                                                                         |
+| Run events          | `GET /api/workflow-runs/{run_id}/events?after=<seq>&limit=<n>`               | Persisted JSON cursor page `{events,after,next_after,has_more}`; not SSE; combine with per-job SSE for live progress         |
+| Approvals           | `/api/approvals`, `/api/approvals/{id}/approve`, `/reject`, `/choose`        | Required for human gates                                                                                                     |
+| Run artifacts       | `/api/workflow-runs/{id}/artifacts`, `/files`, `/api/artifacts/{id}/content` | Download through Atlas authorization                                                                                         |
+| Triggers            | `/api/workflow-triggers`, `/{id}`, `/{id}/fire`, `/{id}/events`              | Atlas owns schedule/webhook/internal trigger logic                                                                           |
+| Deliveries          | `/api/deliveries`, `/api/deliveries/{id}/retry`                              | Return-path delivery ledger                                                                                                  |
+| Audit               | `/api/audit`                                                                 | Filter and paginate; do not synthesize audit rows in UI                                                                      |
+| Usage               | `/api/usage`                                                                 | Use server-provided aggregates and export actions                                                                            |
+| Settings            | No complete generic settings endpoint confirmed                              | Keep deployment information read-only until Atlas exposes a safe contract                                                    |
 
 ## Data model adapters
 
@@ -125,6 +128,8 @@ The canvas must serialize the Atlas semantic graph, not the React Flow layout ob
 
 - root `name`, `graph`, and `policy`
 - graph `start`, `nodes`, and `edges`
+- optional root `default_reply`, using the run `input._meta.reply` shape; a run-level reply
+  wins, `null` clears the default, and packs deliberately omit it
 - **every edge** carries a `condition`; the UI default is `{ "type": "always" }` (the executor defaults a missing one, but the JSON schema requires it, so always emit it)
 - `join.mode` is **always** emitted (`all` | `any` | `quorum`); the schema requires it even though the executor defaults to `all`. For `quorum`, emit a positive integer `quorum` not exceeding the distinct incoming-edge count
 - `manager.schema = "manager_decision_v1"` on every manager node
@@ -132,9 +137,19 @@ The canvas must serialize the Atlas semantic graph, not the React Flow layout ob
 
 Atlas's executor accepts **exactly four** node `type` strings — `worker`, `manager`, `join`, `human_gate` (`atlas/workflows.py:173` rejects anything else). Of the UI's eight `NodeKind`s, only these map to a native graph node; `condition`, `loop`, and `fanout` are graph/edge constructs (not nodes), and `trigger` is a separate resource. See the compatibility matrix below. Do not silently send unsupported node types.
 
+`default_reply` is validated on workflow POST/PUT using the same reply validator as run input.
+When a run omits `_meta.reply`, Atlas copies the stored default into the persisted run input and
+re-validates it against the **current** outbound allowlist; an explicit run reply wins and is not
+blocked by a stale stored default. Trigger-started and synchronous definition-backed runs share
+that path. `POST /api/workflows/{id}/validate` remains graph/policy-only, and solution packs
+deliberately omit deployment-specific defaults.
+
 ## Workflow node compatibility matrix
 
-Ground truth: `atlas/workflows.py` (`validate_workflow_graph` line 173, run loop lines 947–1090), `docs/specs/workflow-definition.schema.json` (`$defs/node`, `$defs/condition`), `docs/specs/workflow-visual-builder-spec-en.md` (§4.2, §9), and `docs/specs/workflow-trigger.schema.json`. Atlas commit `595ef62`.
+Ground truth: `atlas/workflows.py`, `docs/specs/workflow-definition.schema.json`,
+`docs/specs/workflow-visual-builder-spec-en.md`, and
+`docs/specs/workflow-trigger.schema.json`. Node semantics remain compatible at Atlas `82207f7`;
+the workflow root additionally supports `default_reply`.
 
 | Editor concept                                | Atlas representation                                         | Status                          | Request fields (Atlas)                                                                                                                                                                                                   | Round-trip                                                                                                      | Validation (Atlas)                                                              | UI when unsupported                                            |
 | --------------------------------------------- | ------------------------------------------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------- |
@@ -161,45 +176,50 @@ Where the parser is strict and where it is not, and why the distinction matters:
 - **Fails closed on parse** — an unknown node type, an unknown condition type, any field the schema does not declare (which is how a React Flow `position` or an edge `label` can never reach Atlas), duplicate node ids, and a blank entry in a string list. These make the workflow unopenable, and the UI says so instead of loading the part it understood and deleting the rest on the next save.
 - **Opens, then flags** — rules the published schema adds but Atlas's runtime validator does not enforce: an artifact key that is not an identifier, an empty `artifact_in` list, a non-identifier node id. Atlas legitimately stores these (a pack import can write one), so refusing to open them would leave a workflow uneditable by the only tool that can fix it.
 
-## Mutation endpoint map (verified against Atlas `595ef62`)
+## Mutation endpoint map (current at Atlas `82207f7`)
 
 Every row was read out of `atlas/app.py`'s dispatcher and its handler, then re-checked by an independent pass. `PUT` and `DELETE` are genuinely routed (`atlas/app.py:164-174`); the complete `PUT` set is users, tokens, workflows, and workflow-triggers, and everything else updates by `POST` to the collection.
 
-| Action               | Method and path                                   | Success | Response envelope        | Notes                                                                                                         |
-| -------------------- | ------------------------------------------------- | ------- | ------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| Create workflow      | `POST /api/workflows`                             | 201     | `{workflow}`             | `graph` required; `name` optional server-side; a client-supplied `id` would be honoured, so we never send one |
-| Update workflow      | `PUT /api/workflows/{id}`                         | 200     | `{workflow}`             | Re-validates the merged graph and policy; `version` is client-controlled and never incremented by Atlas       |
-| Delete workflow      | `DELETE /api/workflows/{id}`                      | 200     | `{deleted: true}`        | Cascades triggers and runs                                                                                    |
-| Validate workflow    | `POST /api/workflows/{id}/validate`               | 200     | `{ok: true}`             | Needs a **stored** workflow; the only path that resolves worker/workspace references                          |
-| Start run            | `POST /api/workflow-runs`                         | 202     | `{run}`                  | `workflow_definition_id` required; `input` must be an object                                                  |
-| Pause / cancel run   | `POST /api/workflow-runs/{id}/{pause\|cancel}`    | 200     | `{run}`                  | Pause only from `running`; cancel from any non-terminal state                                                 |
-| Resume run           | `POST /api/workflow-runs/{id}/resume`             | 202     | `{run}`                  | `{retry_interrupted: true}` is **required** to resume `recovery_required`                                     |
-| Deliver run          | `POST /api/workflow-runs/{id}/deliver`            | 202     | `{delivery}`             | Only a succeeded or failed run, and only with a `_meta.reply.callback_url`                                    |
-| Approve / reject     | `POST /api/approvals/{id}/{approve\|reject}`      | 202/200 | `{approval, run}`        | Not nested further; `approve` is refused on a gate that declares choices                                      |
-| Choose               | `POST /api/approvals/{id}/choose`                 | 202     | `{approval, run}`        | Body key is `choice`                                                                                          |
-| Retry delivery       | `POST /api/deliveries/{id}/retry`                 | 202     | `{delivery}`             | Resets the row to pending and makes one attempt                                                               |
-| Trigger CRUD         | `POST` / `PUT` / `DELETE /api/workflow-triggers…` | 201/200 | `{trigger}`              | `enabled` comes back as SQLite `1`/`0`; enable/disable is `PUT {enabled}`; `config` is replaced wholesale     |
-| Fire trigger         | `POST /api/workflow-triggers/{id}/fire`           | 202     | `{trigger, event, run}`  | Manual, schedule, and webhook only                                                                            |
-| Worker upsert        | `POST /api/workers`                               | 201     | `{worker}`               | **Upsert** matched on `id` **or** `base_url`; a blank `token` preserves the stored one                        |
-| Worker delete / poll | `DELETE /api/workers/{id}`, `POST …/poll`         | 200     | `{deleted}` / `{worker}` | Delete cascades the worker's workspaces                                                                       |
-| Workspace upsert     | `POST /api/workspaces`                            | 201     | `{workspace}`            | Upsert matched on `id` or `(worker_id, workspace_key)`                                                        |
-| Cancel job           | `POST /api/jobs/{id}/cancel`                      | 200     | `{job}`                  | Resulting state is `cancel_requested`, not `cancelled`                                                        |
-| Artifact bytes       | `GET /api/artifacts/{id}/content`                 | 200     | **raw bytes**            | `file_ref` only; the ASCII `filename` is the literal string `download`                                        |
+| Action               | Method and path                                   | Success | Response envelope        | Notes                                                                                                           |
+| -------------------- | ------------------------------------------------- | ------- | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Create workflow      | `POST /api/workflows`                             | 201     | `{workflow}`             | `graph` required; `name` optional server-side; a client-supplied `id` would be honoured, so we never send one   |
+| Update workflow      | `PUT /api/workflows/{id}`                         | 200     | `{workflow}`             | `expected_version` atomically matches then increments version; stale save is 409; do not combine with `version` |
+| Delete workflow      | `DELETE /api/workflows/{id}`                      | 200     | `{deleted: true}`        | Cascades triggers and runs                                                                                      |
+| Validate workflow    | `POST /api/workflows/{id}/validate`               | 200     | `{ok: true}`             | Needs a **stored** workflow; the only path that resolves worker/workspace references                            |
+| Start run            | `POST /api/workflow-runs`                         | 202     | `{run}`                  | `workflow_definition_id` required; `input` must be an object                                                    |
+| Pause / cancel run   | `POST /api/workflow-runs/{id}/{pause\|cancel}`    | 200     | `{run}`                  | Pause only from `running`; cancel from any non-terminal state                                                   |
+| Resume run           | `POST /api/workflow-runs/{id}/resume`             | 202     | `{run}`                  | `{retry_interrupted: true}` is **required** to resume `recovery_required`                                       |
+| Deliver run          | `POST /api/workflow-runs/{id}/deliver`            | 202     | `{delivery}`             | Only a succeeded or failed run, and only with a `_meta.reply.callback_url`                                      |
+| Approve / reject     | `POST /api/approvals/{id}/{approve\|reject}`      | 202/200 | `{approval, run}`        | Not nested further; `approve` is refused on a gate that declares choices                                        |
+| Choose               | `POST /api/approvals/{id}/choose`                 | 202     | `{approval, run}`        | Body key is `choice`                                                                                            |
+| Retry delivery       | `POST /api/deliveries/{id}/retry`                 | 202     | `{delivery}`             | Resets the row to pending and makes one attempt                                                                 |
+| Trigger CRUD         | `POST` / `PUT` / `DELETE /api/workflow-triggers…` | 201/200 | `{trigger}`              | `enabled` comes back as SQLite `1`/`0`; enable/disable is `PUT {enabled}`; `config` is replaced wholesale       |
+| Fire trigger         | `POST /api/workflow-triggers/{id}/fire`           | 202     | `{trigger, event, run}`  | Manual, schedule, and webhook only                                                                              |
+| Worker upsert        | `POST /api/workers`                               | 201     | `{worker}`               | **Upsert** matched on `id` **or** `base_url`; a blank `token` preserves the stored one                          |
+| Worker delete / poll | `DELETE /api/workers/{id}`, `POST …/poll`         | 200     | `{deleted}` / `{worker}` | Delete cascades the worker's workspaces                                                                         |
+| Workspace upsert     | `POST /api/workspaces`                            | 201     | `{workspace}`            | Upsert matched on `id` or `(worker_id, workspace_key)`                                                          |
+| Cancel job           | `POST /api/jobs/{id}/cancel`                      | 200     | `{job}`                  | Resulting state is `cancel_requested`, not `cancelled`                                                          |
+| Artifact bytes       | `GET /api/artifacts/{id}/content`                 | 200     | **raw bytes**            | `file_ref` only; the ASCII `filename` is the literal string `download`                                          |
 
 Rejections are always a single `{"error": "<one sentence>"}` with status 400 — there is no error list and no field path. `mapAtlasValidationMessage` reads the subject back out of the sentence so a server rejection lands on the same node the local checks would have highlighted.
 
 ## Job event SSE contract
 
-Verified against `atlas/app.py` (`_stream_job_events`, `_is_authorized`), `atlas/db.py` (`get_job_events_after`), and `docs/specs/openapi.yaml`. Atlas commit `595ef62`.
+Verified against `atlas/app.py` (`_stream_job_events`, `_is_authorized`), `atlas/db.py`
+(`get_job_events_after`), and `docs/specs/openapi.yaml`. Atlas commit `82207f7`.
 
 - **Endpoint:** `GET /api/jobs/{job_id}/events?after=<seq>` → `Content-Type: text/event-stream`, `Connection: close`.
 - **Resume:** `after` is an **exclusive** lower bound (`seq > after`, default `0`) — resume from the last confirmed sequence. It is the only query parameter; there is **no** `Last-Event-ID`, `limit`, or `timeout`.
 - **Frame shape:** each frame has `id: <seq>`, `event: <type>`, and `data:` JSON that also carries `seq` and (for data rows) `created_at`. Deduplicate by `id`/`seq`.
 - **Normal end:** an explicit `event: close` with `data: { "state": <succeeded|failed|cancelled|missing> }` at `seq = last+1` once the job is terminal. Treat `close` as the terminal marker (`missing` = job row absent).
 - **Disconnect:** EOF **without** a `close` frame is a mid-stream disconnect — reconnect with `after=<last seq>` and bounded exponential backoff.
-- **No heartbeat:** Atlas emits no keepalive/ping, so an idle stream is exposed to proxy idle-timeouts; the reverse proxy must allow long-lived SSE (see the release runbook) and the client should treat prolonged silence conservatively.
+- **Transport controls:** Atlas sends `retry: 3000` when the connection opens and an
+  unsequenced `: keepalive` comment every 15 seconds while a non-terminal job is quiet. A
+  keepalive proves transport activity but is not a timeline event and never advances `seq`.
 - **Auth:** Atlas accepts the bearer as an `Authorization` header **or** a `?token=<token>` query param on GET `/events` paths (its `queryToken` scheme, for browser `EventSource`). flow-designer does **not** use the query-token path from the browser — the Atlas bearer never leaves the server. Stream through a same-origin server transport that adds the `Authorization` header server-side. The events route requires only the `read` permission, so any authenticated role can stream.
-- **Run-level:** there is no unified live run stream. `GET /api/workflow-runs/{run_id}/events` is persisted JSON history; `GET /api/workflow-runs/{run_id}` returns `{ run, nodes (runtime nodes with `job_id`), edges, approvals }`. Combine per-job SSE (per node `job_id`) with run refetch.
+- **Run-level:** there is no unified live run stream. Persisted run history is cursor-paged by
+  `after`/`next_after`/`has_more`; `GET /api/workflow-runs/{run_id}` returns
+  `{run,nodes,edges,approvals}`. Combine it with per-job SSE and run refetch.
 
 ### Workflow run
 
@@ -207,7 +227,8 @@ Do not recreate the UI `run.log` field. Read run metadata, runtime nodes, approv
 
 ## Role and permission matrix (UI gating only)
 
-Atlas enforces these centrally in `_dispatch`; the frontend mirrors them **only** to hide/disable actions (UX). Never use this as the security boundary — Atlas is authoritative, and a role can change server-side. Verified against `atlas/app.py` `ROLE_PERMISSIONS` (lines 70–75) and `_required_permission` (lines 1184–1211), Atlas `595ef62`.
+Atlas enforces these centrally in `_dispatch`; the frontend mirrors them **only** to hide/disable
+actions (UX). Never use this as the security boundary. Re-verified unchanged at Atlas `82207f7`.
 
 Role → permissions:
 
@@ -243,18 +264,23 @@ Route → required permission (used to decide which UI actions to show):
 - `403`: render a forbidden state and keep the user on the page when possible.
 - `404`: use route-level not-found handling for missing workflow/run/job IDs.
 - `409`: show a conflict/retry action; do not blindly retry mutations.
-- `429`/`5xx`: bounded exponential backoff for reads/streams only; mutations require idempotency or explicit user retry.
+- Login `429` carries `Retry-After`; disable/count down and require a fresh explicit submit.
+  Other mutations still require explicit retry; reads/streams use bounded retry only.
 - Every request must preserve Atlas error text for diagnostics without exposing credentials.
 
 ## Contract questions resolved by source inspection
 
-Verified against Atlas `595ef62`; these were open questions and are now settled facts (not reasons to create a second backend):
+Verified against Atlas `82207f7`; these are settled facts, not reasons to create a second backend:
 
 - **Browser session cookie:** Atlas issues none (bearer-token only). flow-designer owns the browser session cookie and holds the Atlas bearer server-side.
+- **Dashboard-session lifecycle:** login sessions expire after 8 hours by default, only five
+  remain active per user by default, and login backoff is enforced in Atlas. Login and `/api/me`
+  return public token id/expiry metadata for UI lifecycle handling.
 - **SSE resume:** no `Last-Event-ID`; resume via `after=<seq>` (exclusive), dedupe by `id`/`seq`, terminal `event: close`. See the Job event SSE contract above.
 - **Run-level live stream:** none. Combine per-job SSE with run refetch.
 - **Roles:** exactly `admin`, `operator`, `viewer`, `auditor` (`atlas/db.py` `ROLES`); permissions per role in `atlas/app.py` `ROLE_PERMISSIONS`. The UI hides/disables by role but always relies on Atlas for enforcement.
-- **List pagination:** `?limit` only (clamped 1..10000), newest-first, no offset/cursor and no total counts; aggregates live at `/api/metrics` and `/api/usage`. Treat lists as a bounded window, not true pagination (tracked in `ATLAS_LIMITATIONS.md`).
+- **List pagination:** most lists remain bounded `limit` windows with no total. Workflow-run
+  events are the exception: their additive sequence cursor returns `next_after` and `has_more`.
 
 ## Deployment decisions to resolve before coding
 

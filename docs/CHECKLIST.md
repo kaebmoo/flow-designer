@@ -88,9 +88,12 @@ rewrite into an auth change. The consequence is that current HEAD does **not** y
 Atlas-native graph model — it is scaffold awaiting Phase 3, not an implementation that
 disagrees with the architecture.
 
-**Known production blocker, unchanged:** the Atlas auth-token lifecycle (non-expiring tokens, orphan `"dashboard login"` accumulation, no login rate limiting) remains open in `ATLAS_LIMITATIONS.md`. Phase 1 mitigates it only by revoking on logout and bounding the session cookie to 8 hours.
+**Phase 1 historical blocker:** against Atlas `595ef62`, auth tokens did not expire/cap and login
+had no rate limit. Atlas `82207f7` later resolved the backend gap; adoption is tracked at the end
+of this checklist.
 
-**New Atlas defect found during Phase 1:** a keep-alive connection desync after any POST rejected with 401/403, which corrupted an unrelated later request with a 501 HTML response. Documented in `ATLAS_LIMITATIONS.md` and worked around client-side; regression-tested.
+**Atlas defect found during Phase 1:** a rejected-body keep-alive desync was worked around and
+regression-tested. Atlas `82207f7` now fixes it; removal of the workaround is tracked below.
 
 ## Phase 2 — Read-only UI
 
@@ -308,7 +311,8 @@ The diff was reviewed by independent agents against the Atlas source, then the f
 - [x] SSE connects through a same-origin authenticated transport (no bearer in the browser/query string). (`src/routes/api.jobs.$id.events.ts` adds `Authorization` server-side from the sealed cookie; the browser URL carries only `after`. The client bundle was re-scanned for server symbols and `token=` after the build.)
 - [x] Resume uses `after=<last seq>`; `event: close` ends normal streams; EOF-without-close reconnects with bounded backoff. (`src/lib/job-stream.ts`; `after` is passed as the _confirmed_ cursor — exclusive on Atlas's side — and the close frame's `last_seq + 1` id is explicitly never adopted as that cursor. Backoff is 1s·2ⁿ capped at 30s for at most 6 automatic attempts, then a manual Retry control.)
 - [x] Event dedupe by `id`/`seq` is tested (duplicate and out-of-order). (Stream unit tests cover duplicate frames, out-of-order commit without state regression, and the gap policy: the cursor crosses a hole only after a reconnect replay from the same cursor confirms the rows do not exist, and the crossing is surfaced with a gap notice plus an authoritative refetch.)
-- [x] Idle-stream handling accounts for Atlas having no heartbeat. (Transport-only watchdog: 15s of silence displays `stale`, 45s reconnects from the confirmed cursor. It never invents an event and never touches node state; idle is never treated as terminal.)
+- [x] Phase 4 idle-stream handling covered Atlas `595ef62`, which had no heartbeat.
+      (Atlas `82207f7` now emits keepalive comments; adopting them is tracked below.)
 - [x] Run progress combines per-job SSE (per node `job_id`) with run refetch (no assumed unified stream). (`RunLiveSection` subscribes to the job behind each `running` runtime node — at most 4 concurrent streams — and state-shaped events, terminal closes, and gaps invalidate exactly this run's detail and events queries. A 5s poll of run detail while the run is non-terminal covers nodes with no job, e.g. a waiting human gate.)
 - [x] Long logs remain bounded/virtualized. (Hard caps in code: 500 events retained per stream (`JOB_STREAM_EVENT_CAP`), 150 rows rendered (`VISIBLE_LOG_ROWS`); overflow is compacted and stated in the UI. A browser test streams 600 events and asserts the DOM stays within the cap.)
 - [x] Run state is authoritative after refresh. (Browser test reloads mid-run: persisted run events are still on the page, runtime state comes from Atlas, and the live stream reattaches by replaying from seq 0 through the proxy.)
@@ -501,7 +505,9 @@ before display").
 
 ### Resilience
 
-- [x] 401/403/404/409/429/5xx are all handled. — 401 (3 guard layers + stream stop) and 403/404 states re-verified by the existing suites at this commit; 409 keeps the editor's conflict flow; 429/5xx cannot be produced by a real Atlas (no rate limiting; 500s need a fault), so they are driven through the **production fetch path** against a local fixture HTTP server at the Atlas boundary (`tests/unit/cancellation-retry.test.ts`): 429 → `rate_limited` (bounded retry, "Slow down" copy), 5xx → `server` with `fromAtlas` set for the redaction layer, proxy HTML → classified by status and never parsed as the contract. The real-Atlas contract suite still passes in full (136 + 3 skipped).
+- [x] At the Phase 6/Atlas `595ef62` baseline, 401/403/404/409/429/5xx were all
+      normalized; 429 required a fixture because that Atlas had no limiter. Atlas `82207f7`
+      now produces real login 429 + Retry-After, whose countdown adoption is tracked below.
 - [x] Bounded retries/backoff apply only to safe reads and streams. — `retryRead` unchanged in spirit, now with the backoff stated: `readRetryDelayMs` pins 1s→2s exponential capped at 30s beside the existing ≤2-retry bound; terminal kinds (401/403/404/validation/409) never retry; every read query factory carries exactly this pair (asserted). Mutations remain `retry: false` (asserted against the module). Stream policy untouched from Phase 4 (24 stream tests unchanged).
 - [x] Requests cancel on route change. — End-to-end through the real path: TanStack Query's signal → `createServerFn` call option (supported by the installed version — verified in `serverFnFetcher`, the signal rides the RPC fetch and never enters the serialized payload) → `getRequest().signal` server-side (`src/lib/request-signal.server.ts`) → the typed Atlas operation's existing `signal` option → the Atlas socket. Safe reads only; mutations deliberately never auto-cancel (Atlas may already hold the side effect). Proven at the socket (a local server observes the connection close on abort; the error stays an `AbortError`, never an `AtlasError`; a deadline beside a live signal stays `kind=timeout`) and in the browser (`tests/e2e/phase6-resilience.spec.ts`: navigating away aborts the held-open jobs RPC — `ERR_ABORTED` observed — with no stale or error UI on either side, and a return visit refetches cleanly).
 - [x] Reconnect/refetch recovers from stream and Atlas restarts. — Stream recovery is Phase 4's tested behaviour (stale → recovered, re-verified). Atlas restart is now genuinely exercised (`tests/e2e/zz-resilience.spec.ts`, runs last): the suite's Atlas is killed by pid, a navigation renders the truthful unreachable state with **no** `/auth` redirect (an outage is not a 401), a replacement boots on the same port against the same SQLite file, and the page's own "Try again" recovers with every persisted row intact. Warm-cache pages keep rendering cached data through a blip by design — the assertion targets a never-visited page.
@@ -579,10 +585,8 @@ warnings), format:check, unit **383**, contract **136 + 3 skipped** (real Atlas)
 - **No new domain features or Atlas endpoints.** The one UI addition — the job-cancel button —
   completes a Phase 3 plan item whose entire stack below the button already existed and was
   contract-tested; it introduces no new Atlas operation.
-- **The Atlas token-lifecycle P0 is untouched and unresolved** (non-expiring tokens, orphan
-  `"dashboard login"` accumulation, no login rate limiting): it is an Atlas backend fix and
-  remains the production-release blocker in `ATLAS_LIMITATIONS.md`. Nothing in Phase 6 claims
-  otherwise.
+- **At the Phase 6/Atlas `595ef62` baseline, the token-lifecycle P0 was untouched and
+  unresolved.** Atlas `82207f7` later fixed it; no Phase 6 claim is being rewritten retroactively.
 - **No stale-while-error indicator for warm-cache reads.** During an Atlas outage a page whose
   window is still fresh in the query cache keeps rendering it (by design); a "data may be
   stale" affordance for that window is noted as possible future polish, not a Phase 6 gap —
@@ -599,7 +603,8 @@ warnings), format:check, unit **383**, contract **136 + 3 skipped** (real Atlas)
 - [x] Local Atlas restart behavior is verified.
 - [x] Deployment origin/CORS/HTTPS/cookie attributes are verified in the remote-like built-Node suite. Exact production origins remain deployment inputs, not invented values.
 - [x] Known Atlas limitations are included in release notes.
-- [ ] **Production blocker:** Atlas token lifecycle (expiring tokens, orphan token cleanup, login rate limiting) is fixed or explicitly risk-accepted (`ATLAS_LIMITATIONS.md`).
+- [x] Atlas token lifecycle backend controls are implemented at `82207f7` (expiry, bounded
+      sessions, login rate limit); frontend adoption/requalification is tracked separately below.
 - [x] Backup and rollback procedure is documented.
 - [x] `src/routeTree.gen.ts` and Lovable history are untouched.
 - [x] Commit messages identify Phase 7 logical slices.
@@ -633,8 +638,41 @@ Remote-like coverage includes normalized `PUBLIC_ORIGIN`, wrong-origin CSRF reje
 same-origin transport routes (artifact, audit CSV, usage CSV, SSE). The restart test now also
 proves the cached-data stale warning against a real stopped Atlas process.
 
-**Release decision:** local/controlled demo ready; **production not ready**. Atlas still has no
-login-token expiry, orphan `"dashboard login"` cleanup/cap, or login rate limiting, and no risk
-acceptance was recorded. Exact production origins/secret store are also still unset. Full matrix
-and operator handoff: `RELEASE_READINESS.md`, `RELEASE_NOTES_PHASE_7.md`, and
-`runbooks/release.md`.
+**Release decision:** local/controlled demo ready; **production not ready**. Atlas `82207f7`
+subsequently closed the backend auth P0, but the frontend adoption matrix below remains open and
+exact production origins/secret store are still unset. Full matrix and operator handoff:
+`RELEASE_READINESS.md`, `RELEASE_NOTES_PHASE_7.md`, and `runbooks/release.md`.
+
+## Atlas `82207f7` adoption — Planned
+
+Discovery evidence (2026-07-21): Atlas `main` was clean at `82207f7`; its hermetic gate was
+GREEN. The unchanged flow-designer contract suite passed 136 + 3 skipped against it, which proves
+compatibility but not adoption.
+
+- [ ] API types/guards are pinned to `82207f7` and cover session metadata, Retry-After, token
+      purpose/expiry, workflow default reply, and workflow-event page envelopes.
+- [ ] Login warns before Atlas session expiry and honors real 429 Retry-After without automatic
+      credential retry.
+- [ ] An unsaved semantic workflow draft survives an auth redirect in per-tab storage without
+      storing a bearer.
+- [ ] Admin token UI shows immutable purpose, expiry/current-session/lifecycle state, and can
+      request an optional future API-token expiry while keeping the raw token copy-once.
+- [ ] Workflow default reply can be created/read/updated/cleared without dropping additive
+      unknown keys.
+- [ ] Real Atlas proves default inheritance, run override, trigger inheritance, current
+      allowlist rejection, and inherited delivery.
+- [ ] Editor saves use `expected_version`; one of two stale concurrent saves gets Atlas 409 and
+      local work remains available.
+- [ ] A successful version-incrementing save preserves local node positions and viewport.
+- [ ] Workflow-run events page by `next_after`/`has_more`, remain ordered/deduped, and render a
+      bounded window.
+- [ ] SSE keepalive comments reset transport health without rendering or moving the cursor;
+      valid retry hints are bounded.
+- [ ] The forced POST/PUT `Connection: close` workaround is removed and repeated rejected POSTs
+      still pass against real Atlas.
+- [ ] Full unit/contract/stream/browser/remote-like/build/bundle matrix passes against
+      `82207f7` and release evidence is updated.
+- [ ] **Gate:** release owner reviews the new matrix and makes a fresh ship/no-ship decision.
+
+Detailed slices and acceptance criteria: `ATLAS_82207F7_ADOPTION_PLAN.md`. Ready-to-run coding
+instructions: `ATLAS_82207F7_CODING_PROMPT.md`.

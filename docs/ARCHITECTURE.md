@@ -64,7 +64,12 @@ Each private server function must **validate the session** and call a **typed, f
 
 ### Streaming (SSE) transport
 
-Job events stream from Atlas at `GET /api/jobs/{job_id}/events?after=<seq>` (see `BACKEND_INTEGRATION.md` for the full contract). Atlas accepts the bearer either as an `Authorization` header **or**, for browser `EventSource` that cannot set headers, as a `?token=<token>` query parameter (`atlas/app.py` `_is_authorized`; OpenAPI `queryToken` scheme). flow-designer deliberately does **not** use that query-token path from the browser: exposing the Atlas bearer to browser code or a URL — which proxies, logs, and history can capture — would defeat the httpOnly cookie. Instead, stream through a **same-origin authenticated transport**: a flow-designer server route reads the session cookie and forwards the request to Atlas with the `Authorization` header server-side, relaying the event stream to the browser. Workflow-run progress is not a single live stream; combine per-job SSE (keyed on each runtime node's `job_id`) with run refetch.
+Job events stream from Atlas at `GET /api/jobs/{job_id}/events?after=<seq>` (see
+`BACKEND_INTEGRATION.md`). Atlas accepts a header bearer or an SSE-only query token;
+flow-designer deliberately uses neither bearer nor token URL in browser code. Its same-origin
+route attaches `Authorization` server-side and relays data frames, `retry: 3000`, and 15-second
+keepalive comments unchanged. Comments are transport liveness only. Workflow-run progress is
+not a unified stream; combine per-job SSE with run refetch and sequence-cursor history pages.
 
 ## State layers
 

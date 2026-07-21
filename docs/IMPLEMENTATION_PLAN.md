@@ -1,6 +1,6 @@
 # Atlas Control Plane Web UI completion plan
 
-Status: implemented through Phase 7 verification; production release remains blocked
+Status: Phase 7 verified; Atlas `82207f7` adoption planned; production release remains blocked
 
 Date: 2026-07-20
 
@@ -198,6 +198,23 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 - No published history rewrite.
 - User confirms release/commit step.
 
-Phase 7 decision (2026-07-21): verification work is complete, but the production blocker is not
-fixed or risk-accepted. Exact production origins and secret-store selection also remain operator
-inputs. The candidate is suitable for local/controlled demo use, not production shipment.
+Phase 7 decision (2026-07-21): verification work completed against Atlas `595ef62`, where the
+token-lifecycle blocker was still open. Atlas later closed that backend P0 in `82207f7`, but the
+frontend has not adopted/requalified its additive contracts. Exact production origins and
+secret-store selection also remain operator inputs. The current candidate remains suitable for
+local/controlled demo use, not production shipment.
+
+## Atlas `82207f7` adoption pass — Planned
+
+Authoritative execution plan: `ATLAS_82207F7_ADOPTION_PLAN.md`. This pass adopts:
+
+- workflow-root `default_reply` with inheritance/override/allowlist/delivery coverage;
+- expiring/capped session metadata, login Retry-After UX, and token lifecycle metadata;
+- Atlas-atomic `expected_version` saves with local draft and layout preservation;
+- workflow-run event cursor pages;
+- SSE reconnect hints/keepalive activity;
+- removal of the obsolete forced-close mutation transport workaround.
+
+The pass is deliberately not a new backend or workflow executor. Atlas remains read-only for the
+frontend task and remains the source of truth. Production gating resumes only after all adoption
+slices and the full release matrix pass against `82207f7`.

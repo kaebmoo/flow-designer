@@ -7,6 +7,10 @@ Date: 2026-07-20
 flow-designer baseline: `5215c7f` (end of Phase 2)
 Atlas commit read: `595ef62` at `/Users/seal/Documents/GitHub/atlas-control-plane`
 
+Post-inventory note (2026-07-21): Atlas `82207f7` adds workflow `default_reply` and atomic
+`expected_version` saves. They do not change the preserved Phase 3 baseline below; their current
+frontend work is specified in `ATLAS_82207F7_ADOPTION_PLAN.md`.
+
 ## Why this document exists
 
 At the end of Phase 2, `/workflows/$id` was a read-only Atlas view. The following inventory was

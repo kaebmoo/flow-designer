@@ -9,11 +9,18 @@ specific production deployment is configured.
 
 ## Fixed by Atlas source (not decisions)
 
-Verified against Atlas `595ef62` (`atlas/config.py`, `atlas/app.py`):
+Verified against Atlas `82207f7` (`atlas/config.py`, `atlas/app.py`):
 
 - Atlas is **bearer-token only** and issues **no cookies**. The browser session cookie is therefore owned by flow-designer.
 - Atlas CORS (`_cors_headers`): with `ATLAS_CORS_ORIGINS` empty it sends `Access-Control-Allow-Origin: *`; with it set, it reflects only allowlisted origins. It **never** sends `Access-Control-Allow-Credentials`, and it allows the `authorization` header. So: cross-origin **cookie** credentials to Atlas are **not supported**. A cross-origin request carrying an `Authorization: Bearer` header _is_ technically possible (allowlisted origin + header), but this architecture **rejects** it because it would require the Atlas bearer to live in browser code. The browser talks only to flow-designer; flow-designer talks to Atlas server-to-server.
-- Atlas env vars are all `ATLAS_*`: `ATLAS_HOST` (default `127.0.0.1`), `ATLAS_PORT` (default `8787`), `ATLAS_DB`, `ATLAS_UPLOAD_DIR`, `ATLAS_API_TOKEN` (legacy admin token), `ATLAS_LOOPBACK_NO_AUTH`, `ATLAS_SECRET_KEY`, `ATLAS_CORS_ORIGINS`, `ATLAS_SERVE_UI`, `ATLAS_PUBLIC_BASE_URL` (worker callbacks), `ATLAS_OUTBOUND_ALLOWLIST`, `ATLAS_REQUEST_LOG`, and related timeouts. These are set on **Atlas**, not on flow-designer.
+- Atlas env vars are all `ATLAS_*`: `ATLAS_HOST`, `ATLAS_PORT`, `ATLAS_DB`,
+  `ATLAS_UPLOAD_DIR`, `ATLAS_API_TOKEN`, `ATLAS_LOOPBACK_NO_AUTH`, `ATLAS_SECRET_KEY`,
+  `ATLAS_CORS_ORIGINS`, `ATLAS_SERVE_UI`, `ATLAS_PUBLIC_BASE_URL`,
+  `ATLAS_OUTBOUND_ALLOWLIST`, `ATLAS_REQUEST_LOG`, and related timeouts. Session lifecycle is
+  Atlas-owned through `ATLAS_SESSION_TOKEN_TTL_SECONDS` (default 28,800),
+  `ATLAS_MAX_ACTIVE_SESSIONS` (5), `ATLAS_LOGIN_RATE_LIMIT_ATTEMPTS` (5),
+  `ATLAS_LOGIN_RATE_LIMIT_WINDOW_SECONDS` (60), and
+  `ATLAS_LOGIN_RATE_LIMIT_COOLDOWN_SECONDS` (60). These are set on **Atlas**, not flow-designer.
 - Default dev Atlas origin: `http://127.0.0.1:8787`.
 
 ## Decisions requiring the user
@@ -55,6 +62,10 @@ Two implementation details worth recording, both discovered by reading the insta
 - **`sessionHeader: false` is mandatory.** `useSession` otherwise accepts a sealed session from an `x-fd_session-session` **request header in preference to the cookie**, which would let a caller supply a session out-of-band. The httpOnly cookie is now the only accepted carrier.
 - **CSRF `origin` is singular and only consulted when `Sec-Fetch-Site` is absent.** The framework checks `Sec-Fetch-Site` first, then `Origin`, then `Referer`, and denies a request carrying none of the three. The `origin` matcher therefore exists for the reverse-proxy case, where the browser's origin differs from the internal request URL. Both sides are normalised through `URL` before comparison, since `PUBLIC_ORIGIN` may be written with a trailing slash, mixed case, or an explicit default port.
 - **Cookie `Secure` is driven by the `PUBLIC_ORIGIN` scheme, not by `NODE_ENV`.** This corrects the earlier decision recorded above. `NODE_ENV` silently defaults to `development` when unset, and some runtimes never populate it, so gating on it would drop `Secure` from the cookie carrying the Atlas bearer on a genuine HTTPS deployment — failing open on precisely the flag that keeps it off cleartext. The origin is validated at startup, so its scheme is the reliable signal.
+- **Atlas now has its own browser-session expiry.** Keep flow-designer `SESSION_MAX_AGE` less
+  than or equal to Atlas `ATLAS_SESSION_TOKEN_TTL_SECONDS`; the defaults are both 28,800
+  seconds. The frontend cannot validate a private Atlas process's configuration at startup, so
+  deployment review owns this cross-service invariant.
 
 ### 1. Package manager and deployment runtime (separate concerns)
 
@@ -92,7 +103,9 @@ Proposed names (server-only; never `VITE_`-prefixed, never in the client bundle)
 
 - **Decided: use TanStack Start's built-in session primitive** (`useSession` from `@tanstack/react-start/server`), which seals (encrypts) the cookie with a `password` (32+ chars) and sets `httpOnly`/`secure`/`sameSite`/`maxAge`. Store the Atlas bearer (and minimal identity for UI hints) in that sealed session. Do **not** hand-roll AEAD/cookie crypto.
 - **Verify the API for the installed version first.** This repo pins `@tanstack/react-start` `^1.168.26`; confirm `useSession`'s signature/behavior against that version (and the [authentication guide](https://tanstack.com/start/latest/docs/framework/react/guide/authentication)) before writing session code, since the API has shifted across releases.
-- **Trade-off:** the framework primitive is stateless (sealed cookie), so frontend replicas stay horizontal (decision 7) but cannot be revoked server-side before expiry — mitigate with a short `maxAge` and calling Atlas `POST /api/auth/logout` (which revokes the Atlas token) on logout. A server-side session store would add instant revocation but also shared infrastructure; only adopt it if revocation latency proves unacceptable.
+- **Trade-off:** the framework primitive is stateless, so frontend replicas stay horizontal.
+  Atlas nevertheless revokes the underlying dashboard session on logout, expiry, or active
+  session-cap eviction; the next live identity check returns 401 and clears the sealed cookie.
 
 ### 6. Key rotation
 
@@ -109,7 +122,9 @@ Proposed names (server-only; never `VITE_`-prefixed, never in the client bundle)
 
 - **Decided: same-origin BFF.** The browser calls only flow-designer; flow-designer calls Atlas server-to-server. This avoids browser↔Atlas CORS altogether.
 - **Trade-off:** split-origin (browser calls Atlas directly) can't use cookie credentials (Atlas sends no `Access-Control-Allow-Credentials`); it _could_ send an `Authorization` header cross-origin with an allowlisted origin, but that puts the Atlas bearer in browser code — which this architecture rejects. Not worth the exposure.
-- The reverse proxy must allow long-lived SSE (disable response buffering / raise idle timeouts) because Atlas emits no heartbeat.
+- The reverse proxy must allow unbuffered SSE and an idle timeout comfortably above Atlas's
+  15-second keepalive interval and the client's 45-second recovery watchdog; >45 seconds remains
+  the release requirement.
 
 ### 9. Cookie `Secure` / `SameSite` / domain policy
 

@@ -126,6 +126,19 @@ Full results: typecheck/lint/format/build exit 0; unit 391; real-Atlas contract 
 stream 24; browser 94; remote-like 1 on Node v24.14.0; canary bundle scan clean across 57 public
 files.
 
+## Atlas `82207f7` pre-adoption evidence (2026-07-21)
+
+Atlas's own `./scripts/gate.sh` completed GREEN at clean commit `82207f7`. The existing
+flow-designer real-Atlas contract suite also completed with 136 passed and 3 skipped. This is a
+backward-compatibility baseline only: none of the existing assertions requires the new session
+metadata, Retry-After header, token purpose/expiry, `default_reply`, `expected_version`, run-event
+cursor envelope, keepalive comment, or rejected-body connection behavior.
+
+The mandatory additions and mutation targets for the coding pass are recorded in
+`ATLAS_82207F7_ADOPTION_PLAN.md` under “Required test matrix additions”. Do not replace those
+real-Atlas checks with response fixtures; fixtures are appropriate only for malformed-boundary
+and clock-controlled unit cases.
+
 ## Phase 6 evidence and strategy additions (2026-07-21)
 
 Phase 6 added four test strategies worth keeping:

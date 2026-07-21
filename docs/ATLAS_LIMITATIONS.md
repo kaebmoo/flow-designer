@@ -30,9 +30,13 @@ Backend follow-up:
 - Separate durable event storage from ephemeral stream transport.
 - Add a tested leader election or queue consumer model.
 
-### P0 — Event streaming is asymmetric
+### P1 — Event streaming remains asymmetric and per-client
 
-Confirmed: the only `text/event-stream` handler is per-**job** (`GET /api/jobs/{job_id}/events`), with an `after=<seq>` replay cursor and a terminal `event: close` — but **no heartbeat**. Workflow-**run** events are poll-only persisted JSON (`GET /api/workflow-runs/{run_id}/events`, `limit`-only, no `after`/cursor). There is no unified live stream for a whole workflow graph.
+At Atlas `82207f7`, the only live stream remains per-**job**. It now sends `retry: 3000` and an
+unsequenced `: keepalive` comment every 15 seconds, in addition to the exclusive `after=<seq>`
+replay cursor and terminal `event: close`. Workflow-**run** events remain persisted JSON rather
+than SSE, but now support `after`/`next_after`/`has_more` cursor pages. There is still no unified
+live stream for a whole workflow graph.
 
 **Found while implementing Phase 4 (2026-07-21):** the job stream costs Atlas one handler
 thread _per connected client_ for the stream's whole lifetime, and each such thread polls
@@ -43,7 +47,8 @@ threads running ten identical queries. The 0.4 s poll is also the stream's laten
 Frontend mitigation:
 
 - Subscribe to per-job streams (per runtime-node `job_id`) for text/output.
-- Refetch run detail after state-changing events; guard idle streams against proxy timeouts since there is no heartbeat.
+- Refetch run detail after state-changing events; count keepalive comments as transport activity
+  without rendering or advancing event sequence.
 - Show a reconnecting/gap state instead of claiming complete live history.
 - Bound concurrent streams per page (the run detail page holds at most 4) and close every
   stream on unmount and on terminal `close`, so abandoned tabs never pin Atlas threads. The
@@ -51,8 +56,9 @@ Frontend mitigation:
 
 Backend follow-up:
 
-- Add a versioned run-event stream with sequence, replay, heartbeat, and terminal semantics.
-- Add a heartbeat/keepalive to the job stream and an `after` cursor to run events.
+- Add a versioned unified run-event stream with sequence, replay, heartbeat, and terminal
+  semantics if the per-job + cursor-history model no longer scales.
+- Replace the per-client SQLite polling thread with shared fan-out/backpressure controls.
 
 ### P1 — No explicit API version namespace
 
@@ -134,33 +140,39 @@ Backend follow-up:
 - Publish safe read-only configuration metadata.
 - Add authenticated, audited mutation endpoints for settings that are intended to be operator-controlled.
 
-### P0 (security) — Auth token lifecycle: non-expiring tokens, orphan accumulation, no login rate limiting
+## Resolved in Atlas `82207f7`; frontend adoption pending
 
-**Production release blocker** for anything beyond local/demo use. Confirmed in Atlas source:
+These entries are no longer backend gaps. They remain release work until flow-designer removes
+its old assumptions and the full matrix passes against the new Atlas target.
 
-**Phase 7 re-verification (2026-07-21):** unchanged in both a clean archive of Atlas `595ef62`
-and the current checkout. The clean-archive contract suite passed (136 + 3 skipped), but passing
-the wire contract does not fix this lifecycle design. No release risk acceptance was recorded.
+### Auth token lifecycle
 
-- The `api_tokens` table has **no `expires_at`** column (`atlas/db.py:172`). Login/session tokens never expire; they are valid until explicitly revoked.
-- `POST /api/auth/login` mints a **new** token named `"dashboard login"` on every successful login (`atlas/app.py:263`), so repeated logins accumulate orphaned but still-valid tokens.
-- No login brute-force protection / rate limiting was found on `verify_user_password`.
+The backend P0 recorded against `595ef62` is fixed by Atlas commit `60d4190`, present in
+`82207f7`:
 
-Consequence for the frontend: a flow-designer session cookie expiring does **not** revoke the underlying Atlas token.
+- migration 014 adds immutable token `purpose` and nullable `expires_at`, identifies/revokes
+  auditable legacy login sessions, and leaves unknown legacy integration tokens for operator
+  review rather than guessing from a mutable name;
+- dashboard sessions expire after 8 hours by default and are capped at five active sessions per
+  user in one transaction;
+- authentication rejects and soft-revokes expired tokens;
+- login has a bounded pre-PBKDF2 limiter keyed by normalized username + direct peer IP and
+  returns 429 with `Retry-After`;
+- API token metadata exposes purpose/expiry without exposing the hash or raw token.
 
-Frontend mitigation (bounded, not a fix):
+Atlas's hermetic gate completed GREEN at `82207f7`. The old flow-designer contract suite also
+passes 136 + 3 skipped, proving backward compatibility but not adoption of the new behavior.
 
-- Call Atlas `POST /api/auth/logout` on logout (it revokes the current token).
-- Keep the session cookie short-lived; accept that re-login re-mints tokens until backend cleanup exists.
-- A reverse-proxy rate limit in front of `POST /api/auth/login` is a temporary brute-force mitigation.
+Remaining frontend/release work:
 
-Backend follow-up (**required before production release**):
+- adopt and validate session metadata, expiry warning, session-cap outcomes, real Retry-After
+  countdown, and token lifecycle fields;
+- align `SESSION_MAX_AGE` with Atlas's `ATLAS_SESSION_TOKEN_TTL_SECONDS` operationally;
+- retain a reverse-proxy login limit as defense in depth;
+- rerun the full release matrix and record a new production decision. Until then production is
+  blocked by incomplete integration/requalification, not by a missing Atlas token lifecycle.
 
-- Add `expires_at`/TTL to login/session tokens and expire them.
-- Add cleanup/revocation of orphaned `"dashboard login"` tokens (reuse-or-cap per user).
-- Add login brute-force/rate limiting in Atlas.
-
-### P0 — Keep-alive connection desync after a rejected POST
+### Rejected-body connection desync
 
 **Found during Phase 1 implementation (2026-07-20) and reproduced against Atlas `595ef62`.** This is a new finding, not carried over from Phase 0.
 
@@ -170,41 +182,50 @@ The damage lands on the _wrong_ request: the rejected POST returns a correct 401
 
 Related: because `do_PATCH`/`do_HEAD` are not defined either, any `PATCH` or `HEAD` to `/api/*` also returns a 501 HTML body rather than the JSON error envelope.
 
-Frontend mitigation (in place):
+Atlas commit `ffe96c5`, present in `82207f7`, tracks whether a request body was consumed and
+closes the connection on every unread-body rejection/success path. It also supplies explicit
+`HEAD` behavior and JSON `405`/`Allow` handling for unsupported methods. The Atlas gate mutation
+locks the rejection path.
 
-- `src/lib/atlas-api.server.ts` sends `Connection: close` on every POST, so no connection is reused after a request that may be rejected pre-body-read. Verified to eliminate the failure entirely; `GET` needs no such treatment because it carries no body.
+Frontend adoption pending:
+
+- Remove flow-designer's forced `Connection: close` on POST/PUT and its stale comments.
 - The client validates `content-type` before parsing, so a 501 HTML page is normalised to an `AtlasError` rather than crashing a JSON parse.
-- Regression coverage: `tests/contract/auth.contract.test.ts` ("survives repeated rejected POSTs"), which fails without the workaround.
+- Keep and reinterpret `tests/contract/auth.contract.test.ts` as proof that repeated rejected
+  POSTs succeed **without** the client workaround.
 
-Cost of the mitigation: one extra TCP handshake per mutation on a private network. Remove the header once Atlas is fixed.
+## Current limitations (continued)
 
-Backend follow-up:
+### P1 — No general mutation idempotency; workflow concurrency is resolved
 
-- Drain (or refuse with `Connection: close`) the request body on the 401/403 rejection paths in `_handle_api`.
-- Define `do_PATCH`/`do_HEAD`, or return the JSON error envelope for unsupported methods.
-
-### P1 — No mutation idempotency or optimistic concurrency
-
-Confirmed in Atlas source: no mutation endpoint accepts `Idempotency-Key`, `ETag`, or `If-Match` (no matches across `atlas/` or the OpenAPI spec). The `workflow_definitions.version` column is stored and returned but never checked or incremented on update (`atlas/db.py` `update_workflow_definition`), so concurrent `PUT`s are last-write-wins. Idempotency that exists is internal and per-write-type (usage-event unique key, delivery deterministic id, worker-callback replay) plus state-guarded conditional updates (approvals, run finalization) — not a caller-facing contract.
+No mutation endpoint accepts a general caller `Idempotency-Key`, `ETag`, or `If-Match`.
+However Atlas `6c49aab` adds workflow-specific optimistic concurrency: PUT may carry
+`expected_version`; a matching write increments `version` exactly once and a stale write gets 409. Legacy unconditional PUT remains last-writer-wins for old clients.
 
 Frontend mitigation:
 
 - Disable duplicate submits; treat `409` as a conflict.
-- Re-read after mutation and reconcile; surface conflicts instead of silently overwriting.
+- Send `expected_version` for editor saves, retain the local draft on 409, and never combine it
+  with client-selected `version`.
 - Do not fabricate an idempotency guarantee the backend does not provide.
 
 Backend follow-up:
 
 - Add caller-supplied `Idempotency-Key` for non-idempotent POSTs.
-- Add `ETag`/`If-Match` (or enforce the `version` column) for workflow and resource updates.
+- Extend conditional-write contracts to other shared mutable resources if concurrent editing
+  becomes a demonstrated problem.
 
 ### P1 — Pagination and aggregate contracts are limit-only
 
-Confirmed: list endpoints take `?limit` only (clamped 1..10000, newest-first); there is no offset, cursor, or page parameter, and list responses return a bare array with no total/count (`atlas/app.py` `_parse_limit`; `atlas/db.py` `list_*`). Aggregate counts exist only at `/api/metrics` and `/api/usage`.
+Most list endpoints take `?limit` only and return no total/count. Atlas `d4bec5b` makes workflow
+run events the exception: `after` is an exclusive sequence cursor and the response includes
+`next_after` and exact `has_more`. Aggregate counts remain at `/api/metrics` and `/api/usage`.
 
 Frontend mitigation:
 
 - Treat lists as a bounded most-recent window, not true pagination; do not imply "page 2" the backend cannot serve.
+- Page workflow-run events forward by `next_after`, dedupe by sequence, and render a bounded
+  window.
 - Use `/api/metrics` and `/api/usage` for headline totals.
 
 Backend follow-up:

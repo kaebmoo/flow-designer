@@ -2,6 +2,11 @@
 
 Release state: **candidate verified; production blocked**
 
+> **Backend status update (2026-07-21):** These notes record the Phase 7 candidate tested against
+> Atlas `595ef62`. Atlas `82207f7` subsequently implemented expiry/capping/rate limiting plus
+> additive workflow/event/HTTP contracts. The old backend P0 is closed, but this candidate remains
+> blocked pending the adoption and requalification in `ATLAS_82207F7_ADOPTION_PLAN.md`.
+
 ## What changed
 
 - Added a reproducible remote-like acceptance suite. It builds the Node artifact, runs it on an
@@ -51,15 +56,14 @@ See `RELEASE_READINESS.md` for commands, scenario mapping, and deployment inputs
 
 ## Known blockers and limitations
 
-**P0 — production release blocker:** Atlas login tokens do not expire, every login mints a new
-live `"dashboard login"` token, old login tokens are not capped/cleaned up, and the login route
-has no rate limiting. The frontend's 8-hour cookie and logout revocation are mitigations, not a
-fix. No risk acceptance was recorded during Phase 7; therefore this candidate must not ship to
-production.
+At the Phase 7 evidence commit, Atlas `595ef62` still had the token-lifecycle P0. Atlas
+`82207f7` closes it with expiring/capped dashboard sessions and login rate limiting. The current
+frontend candidate still must not ship because it has not adopted or fully tested the new
+session/token/workflow/event/HTTP contracts.
 
 Exact production public/private origins and the production secret store are also undecided, so
 no specific production deployment is ready. Remaining Atlas limitations (single-primary
-runtime, asymmetric SSE/no heartbeat, limit-only pagination, retention/observability gaps, and
+runtime, per-client SSE polling, mostly limit-only pagination, retention/observability gaps, and
 the rest) remain in `ATLAS_LIMITATIONS.md` and were not reclassified as frontend features.
 
 ## Upgrade and rollback

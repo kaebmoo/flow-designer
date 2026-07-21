@@ -32,6 +32,7 @@ Do not start a production deployment until the owner records all of these:
 | `ATLAS_API_ORIGIN`              | Exact private server-to-server origin; never a `VITE_` variable            |
 | `SESSION_SECRET`                | Generated ≥32-character value from the production secret store             |
 | `SESSION_MAX_AGE`               | Default 28,800 seconds unless the owner records another value              |
+| Atlas session policy            | TTL ≥ frontend max age; active-session cap and login limiter recorded      |
 | Proxy configuration             | TLS, no SSE buffering, idle timeout >45 seconds, request/body limits       |
 | Atlas persistence               | `ATLAS_DB`, `ATLAS_UPLOAD_DIR`, one active primary                         |
 | Backup                          | Destination, retention, encryption key location, last restore-drill result |
@@ -104,12 +105,19 @@ Atlas secrets remain Atlas-owned. At minimum, keep `ATLAS_SECRET_KEY` stable and
 `ATLAS_LOOPBACK_NO_AUTH=false`, and keep worker credentials out of flow-designer. A wrong
 `ATLAS_SECRET_KEY` after restore makes stored worker tokens unreadable.
 
+For Atlas `82207f7`, record `ATLAS_SESSION_TOKEN_TTL_SECONDS`,
+`ATLAS_MAX_ACTIVE_SESSIONS`, and the three `ATLAS_LOGIN_RATE_LIMIT_*` values. Keep frontend
+`SESSION_MAX_AGE` less than or equal to the Atlas session TTL. Atlas keys login attempts by
+normalized username plus its direct TCP peer; retain an edge login rate limit as defense in
+depth, not as a replacement.
+
 ## Proxy and cookie verification
 
 Terminate public TLS before flow-designer and preserve the public scheme/host with the proxy's
 standard forwarded headers. Disable response buffering on `/api/jobs/*/events`; permit streaming
-responses and set an idle timeout longer than the client's 45-second no-heartbeat reconnect
-watchdog. Apply upload/body limits compatible with Atlas.
+responses and set an idle timeout above 45 seconds. Atlas `82207f7` emits a 15-second keepalive,
+while the client watchdog remains a recovery backstop. Apply upload/body limits compatible with
+Atlas.
 
 After login on the deployed host, inspect the session cookie:
 
@@ -122,12 +130,14 @@ receive 403; the configured public `Origin` must execute. Browser network record
 request to `ATLAS_API_ORIGIN`, no `Authorization: Bearer` exposed to browser code, and no
 `?token=` URL.
 
-Canary all four same-origin routes while authenticated:
+Canary the same-origin and cursor routes while authenticated:
 
 - artifact content download;
 - audit CSV;
 - usage CSV;
-- a job SSE stream, including `after=<seq>` and terminal `event: close` when available.
+- a job SSE stream, including `after=<seq>` and terminal `event: close` when available;
+- a quiet job stream long enough to observe `retry: 3000` and at least two keepalive comments;
+- workflow-run event history across more than one `next_after` cursor page.
 
 ## Logging and redaction
 
@@ -156,7 +166,7 @@ values before approving the sink.
 
 ## Backup and restore handoff
 
-Atlas commit `595ef62` contains the authoritative procedures in
+Atlas commit `82207f7` contains the authoritative procedures in
 `docs/ops/backup-restore.md` and `scripts/backup.sh` in the Atlas repository:
 
 - `scripts/backup.sh <destination>` uses SQLite online `.backup`, including committed WAL pages,
@@ -187,7 +197,9 @@ database merely because the UI artifact was rolled back.
 
 ## Current hard stop
 
-Atlas token expiry, orphan `"dashboard login"` cleanup/capping, and login rate limiting are not
-implemented at the tested Atlas commit, and no Phase 7 risk acceptance exists. The operator must
-not deploy this candidate to production until that P0 is fixed and retested or explicitly
-accepted in writing.
+Atlas `82207f7` implements expiring/capped dashboard sessions and login rate limiting, so the old
+backend token-lifecycle P0 is closed. The current flow-designer candidate has not yet adopted or
+fully requalified the new session metadata, Retry-After UX, token fields, atomic save, event
+cursor, heartbeat, or rejected-body transport contract. Do not deploy until
+`ATLAS_82207F7_ADOPTION_PLAN.md` is complete, the full matrix is rerun, and deployment-specific
+origins/secrets/proxy/backup/log inputs are recorded.
