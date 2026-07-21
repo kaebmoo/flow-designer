@@ -45,7 +45,7 @@ export const queryKeys = {
    * events and artifacts with the same `["atlas", "runs"]` prefix rather than needing three
    * separate invalidations that could drift apart.
    */
-  runEvents: (runId: string, params: { limit: number }) =>
+  runEvents: (runId: string, params: { limit: number; after: number }) =>
     ["atlas", "runs", "events", runId, params] as const,
   /** Prefix over every event window of one run — Phase 4's narrowest live invalidation. */
   runEventsAll: (runId: string) => ["atlas", "runs", "events", runId] as const,

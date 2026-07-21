@@ -34,6 +34,11 @@ import {
 import { deliveriesQuery, runArtifactsQuery, runEventsQuery, runQuery } from "@/lib/atlas-queries";
 import { ATLAS_LIMIT_OPTIONS } from "@/lib/atlas-search";
 import type { AtlasErrorKind } from "@/lib/atlas-types";
+import {
+  appendRunEventPage,
+  EMPTY_RUN_EVENT_HISTORY,
+  RUN_EVENT_HISTORY_CAP,
+} from "@/lib/run-event-history";
 
 /**
  * A single workflow run, read from `GET /api/workflow-runs/{id}`, plus every operator action
@@ -962,25 +967,37 @@ function DeliveriesSection({ run }: { run: RunView }) {
 /**
  * Atlas's persisted run history.
  *
- * Not a live stream and not resumable: `GET /api/workflow-runs/{id}/events` takes a `limit` and
- * nothing else. The ordering matters and is easy to get wrong — Atlas selects
- * `ORDER BY seq ASC LIMIT ?` (`atlas/db.py:1352`), so a window of N returns the run's *first* N
- * events, never its last N. The newest-first table below is therefore the newest of what the
- * window contains, which is why the window size is a visible control and the caveat is printed.
- *
- * Rendering is bounded twice over: Atlas's window bounds what arrives, and `shown` bounds what
- * reaches the DOM.
+ * Not a live stream: the durable record is a cursor-paged Atlas history. Live progress remains
+ * the per-job SSE above, while this page can walk the persisted sequence after a reload.
+ * Rendering stays bounded even when an operator loads a long history.
  */
 function EventsSection({ runId }: { runId: string }) {
   const [eventWindow, setEventWindow] = useState<number>(500);
-  const [shown, setShown] = useState(PAGE_STEP);
-  const events = useQuery(runEventsQuery(runId, { limit: eventWindow }));
+  const [after, setAfter] = useState(0);
+  const [history, setHistory] = useState(EMPTY_RUN_EVENT_HISTORY);
+  const events = useQuery(runEventsQuery(runId, { limit: eventWindow, after }));
+
+  useEffect(() => {
+    setAfter(0);
+    setHistory(EMPTY_RUN_EVENT_HISTORY);
+  }, [runId, eventWindow]);
+
+  useEffect(() => {
+    const page = events.data;
+    if (!page) return;
+    setHistory((current) =>
+      page.after === 0
+        ? appendRunEventPage(EMPTY_RUN_EVENT_HISTORY, page)
+        : appendRunEventPage(current, page),
+    );
+  }, [events.data]);
 
   const newestFirst = useMemo(
-    () => [...(events.data?.events ?? [])].sort((a, b) => b.seq - a.seq),
-    [events.data],
+    () => [...history.events].sort((a, b) => b.seq - a.seq),
+    [history.events],
   );
-  const rows = newestFirst.slice(0, shown);
+  const rows = newestFirst;
+  const hasMore = events.data?.hasMore ?? false;
 
   return (
     <section className="mb-8">
@@ -993,7 +1010,6 @@ function EventsSection({ runId }: { runId: string }) {
                 type="button"
                 onClick={() => {
                   setEventWindow(option);
-                  setShown(PAGE_STEP);
                 }}
                 className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
                   eventWindow === option
@@ -1066,18 +1082,24 @@ function EventsSection({ runId }: { runId: string }) {
               },
             ]}
           />
-          <ShowMore
-            shown={rows.length}
-            total={newestFirst.length}
-            noun="events"
-            onShowMore={() => setShown((current) => current + PAGE_STEP)}
-          />
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Showing the {rows.length} newest of the {newestFirst.length} events in a window of{" "}
-            {eventWindow}, newest first. Atlas returns this history ordered oldest-first and applies
-            the limit to the oldest rows, so a run with more than {eventWindow} events has its{" "}
-            <em>later</em> events outside this window — widen it to reach them.
+            Showing {rows.length} loaded events, newest first. Atlas pages this history with an
+            exclusive sequence cursor;{" "}
+            {hasMore ? "load more to continue." : "the full history is loaded."}
+            {history.dropped > 0
+              ? ` Older rows are outside the ${RUN_EVENT_HISTORY_CAP}-event UI cap.`
+              : ""}
           </p>
+          {hasMore ? (
+            <button
+              type="button"
+              className={`${BUTTON_BASE} ${BUTTON_TONES.neutral} mt-3`}
+              disabled={events.isFetching}
+              onClick={() => setAfter(events.data?.nextAfter ?? after)}
+            >
+              {events.isFetching ? "Loading history…" : "Load more events"}
+            </button>
+          ) : null}
         </>
       )}
     </section>

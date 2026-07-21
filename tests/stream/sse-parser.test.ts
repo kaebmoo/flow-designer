@@ -39,6 +39,17 @@ describe("SseFrameParser", () => {
     const parser = new SseFrameParser();
     const frames = parser.push(": keepalive comment\nretry: 100\nid: 4\ndata: {}\n\n");
     expect(frames).toEqual([{ id: "4", event: "message", data: "{}" }]);
+    expect(parser.takeTransportSignals()).toEqual({ activity: true, retryMs: 100 });
+  });
+
+  it("reports comment-only activity without inventing a frame and bounds retry hints", () => {
+    const parser = new SseFrameParser();
+    expect(parser.push(": keepalive\n\n")).toEqual([]);
+    expect(parser.takeTransportSignals()).toEqual({ activity: true, retryMs: null });
+
+    parser.push("retry: 0\nretry: 3600001\nretry: 2500\n\n");
+    expect(parser.takeTransportSignals()).toEqual({ activity: true, retryMs: 2500 });
+    expect(parser.takeTransportSignals()).toEqual({ activity: false, retryMs: null });
   });
 
   it("defaults the event name to message and yields nothing for a data-less frame", () => {

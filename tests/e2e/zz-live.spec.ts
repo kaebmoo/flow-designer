@@ -185,15 +185,19 @@ test.describe("live run detail", () => {
     await expect(canvasNode(page, "succeeded")).toBeVisible({ timeout: 30_000 });
   });
 
-  test("a silent stream is shown stale, not terminal, and recovers", async ({ page, request }) => {
-    // One quick frame, then 25 s of silence (Atlas has no heartbeat), then completion.
+  test("a quiet stream stays live on Atlas keepalives, then completes", async ({
+    page,
+    request,
+  }) => {
+    // One quick frame, then 25 s without a domain event. Atlas sends a 15 s comment keepalive,
+    // so transport health must stay live even though the timeline remains unchanged.
     const runId = await startStubRun(request, "stub:count=1;interval=0;stall=25000");
     await openRun(page, runId);
     await expect(canvasNode(page, "running")).toBeVisible({ timeout: 15_000 });
 
-    // The idle watchdog is transport-only: the stream is displayed stale while the node —
-    // Atlas's record — stays running.
-    await expect(page.getByTestId("stream-status")).toHaveText(/stale/, { timeout: 30_000 });
+    // The idle watchdog is transport-only, and the keepalive resets it before the 15 s stale
+    // threshold. The node — Atlas's record — stays running throughout.
+    await expect(page.getByTestId("stream-status")).not.toHaveText(/stale/, { timeout: 22_000 });
     await expect(canvasNode(page, "running")).toBeVisible();
 
     // When the worker finally answers, the run completes for real.

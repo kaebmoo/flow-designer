@@ -361,6 +361,35 @@ describe("JobEventStream", () => {
     r.stream.stop();
   });
 
+  it("keeps a quiet stream healthy when Atlas sends a comment heartbeat", async () => {
+    const r = rig();
+    await start(r);
+    r.transport.latest().push(": keepalive\n\n");
+    await flush();
+
+    await r.clock.advance(14_999);
+    expect(r.snapshot().phase.phase).toBe("streaming");
+    r.transport.latest().push(": keepalive\n\n");
+    await flush();
+    await r.clock.advance(14_999);
+    expect(r.snapshot().phase.phase).toBe("streaming");
+    expect(r.snapshot().events).toHaveLength(0);
+    r.stream.stop();
+  });
+
+  it("honors a bounded Atlas retry hint for reconnect without turning it into an event", async () => {
+    const r = rig();
+    await start(r);
+    r.transport.latest().push("retry: 2500\n\n");
+    await flush();
+    r.transport.latest().end();
+    await flush();
+
+    expect(r.snapshot().phase).toEqual({ phase: "disconnected", attempt: 1, retryInMs: 2_500 });
+    expect(r.snapshot().events).toHaveLength(0);
+    r.stream.stop();
+  });
+
   it("reconnects a connection idle past the watchdog ceiling, resuming from the cursor", async () => {
     const r = rig();
     await start(r);

@@ -79,17 +79,29 @@ async function untilJobTerminal(jobId: string, timeoutMs = 20_000): Promise<stri
 
 /** Reads one whole stream through the production connect + parse path, until EOF. */
 async function readStream(jobId: string, after: number): Promise<SseFrame[]> {
+  return (await readStreamWithSignals(jobId, after)).frames;
+}
+
+async function readStreamWithSignals(
+  jobId: string,
+  after: number,
+): Promise<{ frames: SseFrame[]; activity: boolean; retryMs: number | null }> {
   const response = await atlasOpenJobEventStream(adminToken, jobId, after);
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   const parser = new SseFrameParser();
   const frames: SseFrame[] = [];
+  let activity = false;
+  let retryMs: number | null = null;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     frames.push(...parser.push(decoder.decode(value, { stream: true })));
+    const signals = parser.takeTransportSignals();
+    activity ||= signals.activity;
+    if (signals.retryMs !== null) retryMs = signals.retryMs;
   }
-  return frames;
+  return { frames, activity, retryMs };
 }
 
 function dataOf(frame: SseFrame): Record<string, unknown> {
@@ -149,7 +161,10 @@ describe.skipIf(!available)("Atlas job-event SSE contract", () => {
     expect((response.headers.get("content-type") ?? "").split(";")[0]).toBe("text/event-stream");
     response.body?.cancel().catch(() => {});
 
-    const frames = await readStream(jobId, 0);
+    const stream = await readStreamWithSignals(jobId, 0);
+    const frames = stream.frames;
+    expect(stream.activity).toBe(true);
+    expect(stream.retryMs).toBe(3_000);
     expect(frames.length).toBeGreaterThanOrEqual(4); // route, state, error, close
 
     const dataFrames = frames.slice(0, -1);

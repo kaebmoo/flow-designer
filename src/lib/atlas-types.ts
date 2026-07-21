@@ -465,7 +465,8 @@ export interface AtlasApprovalDecision {
 }
 
 /**
- * `GET /api/workflow-runs/{id}/events` (`atlas/app.py:709-714`). Persisted history, not SSE.
+ * `GET /api/workflow-runs/{id}/events?after=&limit=` (`atlas/app.py:808-818`, Atlas 82207f7).
+ * Persisted history, not SSE.
  *
  * `id` is an `INTEGER PRIMARY KEY AUTOINCREMENT` (`atlas/db.py:369`), so unlike every other
  * Atlas row it is a number — which is why these rows do not satisfy `isAtlasRow`.

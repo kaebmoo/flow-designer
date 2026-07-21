@@ -6,7 +6,7 @@
  * token never appears in this module, in a URL, or in browser storage.
  *
  * The contract this implements is verified against Atlas source (`atlas/app.py`
- * `_stream_job_events`, commit `595ef62`) and recorded in `docs/BACKEND_INTEGRATION.md`:
+ * `_stream_job_events`, commit `82207f7`) and recorded in `docs/BACKEND_INTEGRATION.md`:
  *
  *  - `after` is an **exclusive** lower bound and the only resume parameter.
  *  - Every data frame carries `id: <seq>` and a JSON payload with `seq` and `created_at`.
@@ -15,9 +15,8 @@
  *    become the confirmed cursor.
  *  - EOF **without** a close frame is a mid-stream disconnect: reconnect with
  *    `after=<lastConfirmedSeq>` under bounded exponential backoff.
- *  - Atlas emits no heartbeat, so a transport-only idle watchdog guards against proxy idle
- *    timeouts. The watchdog manages connection health only; it never invents an event and
- *    never drives node or run state.
+ *  - Atlas emits `retry: 3000` and comment-only `: keepalive` bytes. Transport activity resets
+ *    the idle watchdog without inventing an event; a bounded retry hint informs reconnect delay.
  *
  * Everything time- and network-shaped is injectable so the stream tests can drive the machine
  * with synthetic frames and a fake clock. Production uses the browser's `fetch` and timers.
@@ -36,6 +35,17 @@ export interface SseFrame {
   data: string;
 }
 
+export interface SseTransportSignals {
+  /** Any bytes arrived, including comment-only keepalive bytes or a partial frame. */
+  activity: boolean;
+  /** The last valid bounded `retry:` hint observed since the previous read, if any. */
+  retryMs: number | null;
+}
+
+/** Atlas's retry hint is milliseconds; reject unbounded or negative values. */
+const MIN_RETRY_HINT_MS = 1;
+const MAX_RETRY_HINT_MS = 3_600_000;
+
 /**
  * Incremental parser for the SSE subset Atlas emits (`id`, `event`, `data`, comments).
  *
@@ -48,8 +58,11 @@ export class SseFrameParser {
   private id: string | null = null;
   private event = "message";
   private dataLines: string[] = [];
+  private activity = false;
+  private retryMs: number | null = null;
 
   push(chunk: string): SseFrame[] {
+    if (chunk.length > 0) this.activity = true;
     this.buffer += chunk;
     const frames: SseFrame[] = [];
     for (;;) {
@@ -71,9 +84,29 @@ export class SseFrameParser {
       if (line.startsWith("id:")) this.id = line.slice(3).replace(/^ /, "");
       else if (line.startsWith("event:")) this.event = line.slice(6).replace(/^ /, "") || "message";
       else if (line.startsWith("data:")) this.dataLines.push(line.slice(5).replace(/^ /, ""));
+      else if (line.startsWith("retry:")) {
+        const raw = line.slice(6).replace(/^ /, "");
+        if (/^\d+$/.test(raw)) {
+          const value = Number(raw);
+          if (
+            Number.isSafeInteger(value) &&
+            value >= MIN_RETRY_HINT_MS &&
+            value <= MAX_RETRY_HINT_MS
+          ) {
+            this.retryMs = value;
+          }
+        }
+      }
       // Any other field is ignored, per spec.
     }
     return frames;
+  }
+
+  takeTransportSignals(): SseTransportSignals {
+    const signals = { activity: this.activity, retryMs: this.retryMs };
+    this.activity = false;
+    this.retryMs = null;
+    return signals;
   }
 }
 
@@ -252,6 +285,8 @@ export class JobEventStream {
    * reconnect beside the one that replaced it.
    */
   private generation = 0;
+  /** Server-provided retry hint, bounded by the parser and the driver's backoff ceiling. */
+  private retryHintMs: number | null = null;
 
   constructor(options: JobStreamOptions) {
     this.options = {
@@ -320,7 +355,7 @@ export class JobEventStream {
   }
 
   /**
-   * The transport idle watchdog. Re-armed on connect and on every frame; cleared on stop,
+   * The transport idle watchdog. Re-armed on connect and on every received byte; cleared on stop,
    * stream close, and stream error. It only manages connection health: `stale` is a display
    * of transport silence, and the reconnect replays from the confirmed cursor — no event is
    * invented and no node state is touched.
@@ -409,8 +444,10 @@ export class JobEventStream {
         if (this.stopped || generation !== this.generation) return;
         if (done) break;
         const frames = parser.push(decoder.decode(value, { stream: true }));
-        if (frames.length > 0) {
-          // Real frames arrived: the connection is alive, and prior failures are forgiven.
+        const signals = parser.takeTransportSignals();
+        if (signals.retryMs !== null) this.retryHintMs = signals.retryMs;
+        if (signals.activity) {
+          // Any received bytes, including a comment-only keepalive, prove the connection is alive.
           this.attempt = 0;
           this.armIdleWatchdog();
           if (this.snapshot.phase.phase === "stale") this.notify({ phase: { phase: "streaming" } });
@@ -463,7 +500,8 @@ export class JobEventStream {
       });
       return;
     }
-    const delay = Math.min(baseMs * factor ** (this.attempt - 1), maxMs);
+    const exponential = baseMs * factor ** (this.attempt - 1);
+    const delay = Math.min(Math.max(exponential, this.retryHintMs ?? 0), maxMs);
     this.notify({ phase: { phase: "disconnected", attempt: this.attempt, retryInMs: delay } });
     this.retryTimer = this.setTimer(() => void this.connect(), delay);
   }

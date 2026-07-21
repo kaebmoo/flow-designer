@@ -228,11 +228,16 @@ export function runArtifactsQuery(runId: string) {
   });
 }
 
-export function runEventsQuery(runId: string, params: { limit: number }) {
+export function runEventsQuery(runId: string, params: { limit: number; after: number }) {
   return queryOptions({
     queryKey: queryKeys.runEvents(runId, params),
     queryFn: async ({ signal }) =>
-      unwrap(await listRunEventsFn({ data: { runId, limit: params.limit }, signal })),
+      unwrap(
+        await listRunEventsFn({
+          data: { runId, limit: params.limit, after: params.after },
+          signal,
+        }),
+      ),
     ...shared,
   });
 }

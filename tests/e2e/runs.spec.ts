@@ -382,15 +382,8 @@ test.describe("run detail", () => {
     }
   });
 
-  /**
-   * The event list is bounded twice: Atlas's `limit` bounds what arrives, and the page bounds
-   * what reaches the DOM. Both bounds have to be stated, because Atlas applies its limit to the
-   * *oldest* rows (`atlas/db.py:1352`), so a narrow window silently hides a run's later history.
-   */
-  test("the run event list is a stated, adjustable window rather than everything", async ({
-    page,
-    request,
-  }) => {
+  /** Cursor paging is visible in the UI; the DOM remains bounded as history grows. */
+  test("the run event list uses cursor paging and a bounded DOM", async ({ page, request }) => {
     const runId = await plainGateRun(request);
     await openRun(page, runId);
 
@@ -399,16 +392,15 @@ test.describe("run detail", () => {
       await expect(events.getByRole("button", { name: option, exact: true })).toBeVisible();
     }
 
-    await expect(events).toContainText("in a window of 500");
-    await expect(events).toContainText("applies the limit to the oldest rows");
+    await expect(events).toContainText("exclusive sequence cursor");
 
     await events.getByRole("button", { name: "25", exact: true }).click();
-    await expect(events).toContainText("in a window of 25");
+    await expect(events).toContainText("exclusive sequence cursor");
 
-    // A header row plus at most one page of events — never an unbounded list.
+    // A header row plus the bounded history cap — never an unbounded list.
     const rendered = await events.getByRole("row").count();
     expect(rendered).toBeGreaterThan(1);
-    expect(rendered).toBeLessThanOrEqual(26);
+    expect(rendered).toBeLessThanOrEqual(501);
   });
 
   /**

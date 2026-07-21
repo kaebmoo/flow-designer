@@ -19,6 +19,7 @@ import {
   atlasGetWorkflow,
   atlasGetWorkflowRun,
   atlasListJobs,
+  atlasListRunEvents,
   atlasListWorkers,
   atlasListWorkflowRuns,
   atlasListWorkflows,
@@ -29,6 +30,7 @@ import {
   toJobListView,
   toMetricsView,
   toRunDetailView,
+  toRunEventPageView,
   toWorkerView,
   toWorkflowDetailView,
   toWorkspaceView,
@@ -258,6 +260,31 @@ describe.skipIf(!available)("Atlas read contract", () => {
     it("raises not_found for an unknown run id", async () => {
       const error = await atlasGetWorkflowRun(adminToken, "wfr_does_not_exist").catch((e) => e);
       expect(error.kind).toBe("not_found");
+    });
+
+    it("walks persisted run events with an exclusive cursor page", async () => {
+      let page = await atlasListRunEvents(adminToken, seeded!.runId, { limit: 1 });
+      for (let attempt = 0; page.events.length === 0 && attempt < 20; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        page = await atlasListRunEvents(adminToken, seeded!.runId, { limit: 1 });
+      }
+
+      expect(page.after).toBe(0);
+      expect(page.next_after).toBe(page.events.at(-1)?.seq ?? 0);
+      expect(typeof page.has_more).toBe("boolean");
+      const view = toRunEventPageView(page);
+      expect(view.events.map((event) => event.seq)).toEqual(
+        [...view.events].sort((left, right) => left.seq - right.seq).map((event) => event.seq),
+      );
+
+      if (page.events.length > 0) {
+        const next = await atlasListRunEvents(adminToken, seeded!.runId, {
+          limit: 1,
+          after: page.next_after,
+        });
+        expect(next.after).toBe(page.next_after);
+        expect(next.events.every((event) => event.seq > page.next_after)).toBe(true);
+      }
     });
   });
 
