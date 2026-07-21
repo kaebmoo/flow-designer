@@ -45,7 +45,7 @@ const groups = [
     label: "Data & Audit",
     items: [
       { to: "/artifacts", label: "Artifacts", icon: Package },
-      { to: "/deliveries", label: "Deliveries", icon: Send },
+      { to: "/deliveries", label: "Webhook Deliveries", icon: Send },
       { to: "/usage", label: "Usage", icon: BarChart3 },
       { to: "/audit", label: "Audit Log", icon: ScrollText },
     ],

@@ -192,13 +192,15 @@ test.describe("Phase 5: operational pages as admin", () => {
 
     // Delivered: a real Atlas answer with zero rows, stated as such.
     await page.getByRole("button", { name: "delivered", exact: true }).click();
-    await expect(page.getByText("Atlas has no deliveries matching these filters.")).toBeVisible();
+    await expect(
+      page.getByText("Atlas has no webhook deliveries matching these filters."),
+    ).toBeVisible();
 
     // Back to failed; the UI retry makes one more real bounded attempt against the dead
     // target, so Atlas's row advances to attempts 6/5 and the invalidated query shows it.
     await page.getByRole("button", { name: "failed", exact: true }).click();
     const retryRow = page.getByRole("row").filter({ hasText: fixture.deliveryId });
-    await retryRow.getByRole("button", { name: "Retry" }).click();
+    await retryRow.getByRole("button", { name: "Retry webhook" }).click();
     await expect(retryRow.getByText("6/5")).toBeVisible();
 
     // The run_id filter is also Atlas-side.

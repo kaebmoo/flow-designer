@@ -37,7 +37,7 @@ export const Route = createFileRoute("/_app/deliveries")({
     run: parseStringSearch(search.run),
   }),
   component: DeliveriesPage,
-  head: () => ({ meta: [{ title: "Deliveries · Atlas Control" }] }),
+  head: () => ({ meta: [{ title: "Webhook Deliveries · Atlas Control" }] }),
 });
 
 function DeliveriesPage() {
@@ -59,8 +59,8 @@ function DeliveriesPage() {
   return (
     <>
       <PageHeader
-        title="Deliveries"
-        subtitle="Outbound webhook deliveries of completed workflow runs."
+        title="Webhook Deliveries"
+        subtitle="Outbound callbacks sent after completed workflow runs."
         meta={
           <div className="flex flex-wrap items-center gap-1">
             <FilterChip
@@ -101,7 +101,7 @@ function DeliveriesPage() {
         />
 
         {deliveries.isPending ? (
-          <LoadingState label="Loading deliveries" />
+          <LoadingState label="Loading webhook deliveries" />
         ) : deliveries.isError ? (
           // A viewer lands here: the role holds no `deliveries.read`, so Atlas answers 403
           // and this renders the explicit forbidden state rather than an empty table.
@@ -116,13 +116,13 @@ function DeliveriesPage() {
               rowKey={(row) => row.id}
               empty={
                 status || run
-                  ? "Atlas has no deliveries matching these filters."
-                  : "Atlas has recorded no outbound deliveries yet. They appear when a completed run is delivered to a webhook."
+                  ? "Atlas has no webhook deliveries matching these filters."
+                  : "Atlas has recorded no webhook deliveries yet. They appear when a completed run sends a callback webhook."
               }
               columns={[
                 {
                   key: "id",
-                  header: "Delivery",
+                  header: "Delivery ID",
                   render: (row: DeliveryView) => (
                     <span className="font-mono text-xs text-primary">{row.id}</span>
                   ),
@@ -185,7 +185,7 @@ function DeliveriesPage() {
               count={rows.length}
               limit={limit}
               mayHaveMore={rows.length >= limit}
-              noun="deliveries"
+              noun="webhook deliveries"
             />
           </>
         )}
@@ -260,7 +260,7 @@ function RetryCell({ row, canRetry }: { row: DeliveryView; canRetry: boolean }) 
         disabled={retry.isPending}
         onClick={() => retry.mutate({ deliveryId: row.id })}
       >
-        <RotateCcw className="size-3" /> {retry.isPending ? "Retrying…" : "Retry"}
+        <RotateCcw className="size-3" /> {retry.isPending ? "Retrying webhook…" : "Retry webhook"}
       </Button>
       {retry.isError ? (
         <span role="alert" className="text-[10px] text-destructive">

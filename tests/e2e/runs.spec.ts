@@ -436,12 +436,12 @@ test.describe("run detail", () => {
     await untilRun(request, runId, "failed", (d) => d.run.state === "failed");
 
     await openRun(page, runId);
-    const deliveries = section(page, /^Deliveries$/);
-    await expect(deliveries.getByRole("button", { name: "Deliver now" })).toBeDisabled();
+    const deliveries = section(page, /^Webhook delivery attempts$/);
+    await expect(deliveries.getByRole("button", { name: "Send webhook now" })).toBeDisabled();
     await expect(deliveries).toContainText(
       "This run carries no _meta.reply.callback_url, so Atlas has no address to deliver to.",
     );
-    await expect(deliveries).toContainText("Atlas has opened no delivery for this run.");
+    await expect(deliveries).toContainText("Atlas has not opened a webhook delivery for this run.");
 
     const refused = await request.post(
       `${seedIds().atlasOrigin}/api/workflow-runs/${runId}/deliver`,

@@ -805,7 +805,7 @@ function DeliveriesSection({ run }: { run: RunView }) {
         aside={
           <div className="flex items-center gap-2">
             <ActionButton
-              label="Deliver now"
+              label="Send webhook now"
               tone="primary"
               blocked={deliverBlocked}
               pending={deliverRun.isPending}
@@ -814,15 +814,15 @@ function DeliveriesSection({ run }: { run: RunView }) {
           </div>
         }
       >
-        Deliveries
+        Webhook delivery attempts
       </SectionHeading>
 
       <BlockedReasons
-        reasons={deliverBlocked ? [{ label: "Deliver now", reason: deliverBlocked }] : []}
+        reasons={deliverBlocked ? [{ label: "Send webhook now", reason: deliverBlocked }] : []}
       />
       {run.replyCallbackUrl ? (
         <p className="mb-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          reply url {run.replyCallbackUrl}
+          callback url {run.replyCallbackUrl}
         </p>
       ) : null}
       <InlineError error={deliverRun.error} />
@@ -830,7 +830,7 @@ function DeliveriesSection({ run }: { run: RunView }) {
 
       <div className="mt-3">
         {deliveries.isPending ? (
-          <SectionLoading label="Loading deliveries" />
+          <SectionLoading label="Loading webhook deliveries" />
         ) : deliveries.isError ? (
           <SectionError error={deliveries.error} onRetry={() => void deliveries.refetch()} />
         ) : (
@@ -838,7 +838,7 @@ function DeliveriesSection({ run }: { run: RunView }) {
             <DataTable
               rows={deliveries.data}
               rowKey={(delivery) => delivery.id}
-              empty="Atlas has opened no delivery for this run."
+              empty="Atlas has not opened a webhook delivery for this run."
               columns={[
                 {
                   key: "url",
@@ -889,7 +889,7 @@ function DeliveriesSection({ run }: { run: RunView }) {
                 },
                 {
                   key: "retry",
-                  header: "Retry",
+                  header: "Retry webhook",
                   className: "text-right",
                   render: (delivery) => {
                     // Only a `pending` row is Atlas's to drive: `_attempt` keeps re-sending it,
@@ -904,20 +904,21 @@ function DeliveriesSection({ run }: { run: RunView }) {
                     if (delivery.status.label === "pending") {
                       return (
                         <span className="text-xs text-muted-foreground">
-                          Atlas still has attempts left on this row and retries it itself.
+                          Atlas still has attempts left on this webhook delivery and retries it
+                          itself.
                         </span>
                       );
                     }
                     if (delivery.status.label === "delivered") {
                       return (
                         <span className="text-xs text-muted-foreground">
-                          The receiver accepted this delivery.
+                          The receiver accepted this webhook delivery.
                         </span>
                       );
                     }
                     return (
                       <ActionButton
-                        label="Retry"
+                        label="Retry webhook"
                         pending={retryDelivery.isPending}
                         onClick={() => retryDelivery.mutate({ deliveryId: delivery.id })}
                       />
@@ -927,7 +928,7 @@ function DeliveriesSection({ run }: { run: RunView }) {
               ]}
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              The newest {deliveries.data.length} deliveries for this run, in a window of{" "}
+              The newest {deliveries.data.length} webhook deliveries for this run, in a window of{" "}
               {DELIVERY_WINDOW}. Atlas reports no total and offers no cursor.
             </p>
           </>
