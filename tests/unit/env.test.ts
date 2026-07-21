@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_SESSION_MAX_AGE_SECONDS,
+  EXAMPLE_SESSION_SECRET,
   EnvValidationError,
   parseServerEnv,
 } from "@/lib/env.server";
@@ -107,13 +108,14 @@ describe("parseServerEnv", () => {
       expect(env.isProduction).toBe(true);
     });
 
-    // Production served over plain HTTP would drop a Secure cookie entirely, taking the
-    // session with it, so the flag tracks the scheme rather than the mode alone.
-    it("stays off when production is served over plain HTTP", () => {
-      expect(
-        parseServerEnv({ ...valid, NODE_ENV: "production", PUBLIC_ORIGIN: "http://atlas.test" })
-          .cookieSecure,
-      ).toBe(false);
+    it("refuses production over plain HTTP instead of issuing an insecure session", () => {
+      expect(() =>
+        parseServerEnv({
+          ...valid,
+          NODE_ENV: "production",
+          PUBLIC_ORIGIN: "http://atlas.test",
+        }),
+      ).toThrow(/PUBLIC_ORIGIN must use https/);
     });
 
     /**
@@ -138,6 +140,17 @@ describe("parseServerEnv", () => {
         }).cookieSecure,
       ).toBe(true);
     });
+  });
+
+  it("refuses the committed example session secret in production", () => {
+    expect(() =>
+      parseServerEnv({
+        ...valid,
+        NODE_ENV: "production",
+        PUBLIC_ORIGIN: "https://atlas.example.com",
+        SESSION_SECRET: EXAMPLE_SESSION_SECRET,
+      }),
+    ).toThrow(/generated production secret/);
   });
 
   it("rejects a non-positive or non-integer session lifetime", () => {

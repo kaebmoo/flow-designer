@@ -12,6 +12,7 @@
 
 export const SESSION_SECRET_MIN_LENGTH = 32;
 export const DEFAULT_SESSION_MAX_AGE_SECONDS = 28_800; // 8 hours, confirmed for Phase 1.
+export const EXAMPLE_SESSION_SECRET = "replace-me-with-at-least-32-random-characters";
 
 export type NodeEnv = "development" | "production" | "test";
 
@@ -107,6 +108,22 @@ export function parseServerEnv(source: EnvSource): ServerEnv {
   }
 
   const isProduction = nodeEnv === "production";
+
+  /**
+   * Production invariants belong in startup validation, not only in a deployment checklist.
+   * A production process on HTTP cannot set the required Secure session cookie, and the
+   * committed example secret is intentionally public. Refuse both before serving a request.
+   */
+  if (isProduction && publicOrigin && !publicOrigin.startsWith("https://")) {
+    issues.push("PUBLIC_ORIGIN must use https when NODE_ENV is production");
+  }
+  if (isProduction && sessionSecret === EXAMPLE_SESSION_SECRET) {
+    issues.push("SESSION_SECRET must be replaced with a generated production secret");
+  }
+
+  if (issues.length > 0) {
+    throw new EnvValidationError(issues);
+  }
 
   return {
     atlasApiOrigin: atlasApiOrigin!,

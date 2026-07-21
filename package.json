@@ -1,6 +1,9 @@
 {
   "name": "tanstack_start_ts",
   "packageManager": "bun@1.3.14",
+  "engines": {
+    "node": "24.x"
+  },
   "private": true,
   "sideEffects": false,
   "type": "module",
@@ -16,7 +19,9 @@
     "test": "vitest run --project unit",
     "test:contract": "vitest run --project contract",
     "test:stream": "vitest run --project stream",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:remote": "playwright test --config playwright.phase7.config.ts",
+    "scan:bundle": "node scripts/scan-client-bundle.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

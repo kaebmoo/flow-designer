@@ -7,6 +7,9 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
+  // Self-hosted releases target the Node 24 LTS decision in docs/CONFIGURATION.md. Lovable
+  // builds still force their own Cloudflare output inside Lovable, as the wrapper documents.
+  nitro: { preset: "node-server" },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this

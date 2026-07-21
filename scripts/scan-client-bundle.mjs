@@ -6,10 +6,10 @@
  * control fails (which means the scanner is not actually reading bundle text and a green
  * result would be meaningless).
  *
- * The forbidden list matches the names of server-only symbols and env variables: if any of
- * them appears in `.output/public`, a server module (or an inlined secret) has crossed into
- * the browser bundle. The values themselves cannot be scanned for — they are deployment
- * secrets unknown here — but the names travel with the code that reads them.
+ * The static forbidden list matches the names of server-only symbols and env variables. When
+ * `SESSION_SECRET` and/or `ATLAS_API_ORIGIN` are present in this scanner process, their actual
+ * values are checked too. Release verification deliberately supplies throwaway canaries so an
+ * accidental build-time inline is caught without needing a real deployment secret.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -17,14 +17,23 @@ import { join } from "node:path";
 
 const BUNDLE_DIR = ".output/public";
 const FORBIDDEN = [
-  "SESSION_SECRET",
-  "ATLAS_API_ORIGIN",
-  "atlasToken",
-  "fd_session",
-  "api_token",
-  "token_hash",
-  "requireAtlasToken",
+  { label: "SESSION_SECRET symbol", value: "SESSION_SECRET" },
+  { label: "ATLAS_API_ORIGIN symbol", value: "ATLAS_API_ORIGIN" },
+  { label: "atlasToken symbol", value: "atlasToken" },
+  { label: "fd_session cookie name", value: "fd_session" },
+  { label: "api_token field", value: "api_token" },
+  { label: "token_hash field", value: "token_hash" },
+  { label: "requireAtlasToken symbol", value: "requireAtlasToken" },
 ];
+if (process.env.SESSION_SECRET) {
+  FORBIDDEN.push({ label: "configured SESSION_SECRET value", value: process.env.SESSION_SECRET });
+}
+if (process.env.ATLAS_API_ORIGIN) {
+  FORBIDDEN.push({
+    label: "configured ATLAS_API_ORIGIN value",
+    value: process.env.ATLAS_API_ORIGIN,
+  });
+}
 /** A string known to ship in the client bundle; proves the scan reads real bundle text. */
 const POSITIVE_CONTROL = "Atlas Control";
 
@@ -45,8 +54,9 @@ try {
     files += 1;
     const text = readFileSync(path, "utf-8");
     if (text.includes(POSITIVE_CONTROL)) controlSeen = true;
-    for (const needle of FORBIDDEN) {
-      if (text.includes(needle)) hits.push(`${path}: ${needle}`);
+    for (const forbidden of FORBIDDEN) {
+      // Report only the safe label. A failing scan must never echo the secret it found.
+      if (text.includes(forbidden.value)) hits.push(`${path}: ${forbidden.label}`);
     }
   }
 } catch (error) {
