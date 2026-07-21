@@ -98,7 +98,20 @@ export function DataTable<T>({
             <tr
               key={rowKey(row)}
               onClick={() => onRowClick?.(row)}
-              className={`border-t border-border transition-colors ${onRowClick ? "cursor-pointer hover:bg-white/[0.03]" : ""}`}
+              // A clickable row must be reachable and operable by keyboard too: it enters the
+              // tab order and answers Enter/Space like the click it stands for.
+              tabIndex={onRowClick ? 0 : undefined}
+              onKeyDown={
+                onRowClick
+                  ? (event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      if (event.target !== event.currentTarget) return;
+                      event.preventDefault();
+                      onRowClick(row);
+                    }
+                  : undefined
+              }
+              className={`border-t border-border transition-colors ${onRowClick ? "cursor-pointer hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring" : ""}`}
             >
               {columns.map((c) => (
                 <td key={String(c.key)} className={`px-4 py-3 align-middle ${c.className ?? ""}`}>

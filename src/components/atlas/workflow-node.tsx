@@ -8,6 +8,7 @@
  */
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { AlertTriangle } from "lucide-react";
 
 import { NODE_PRESENTATION } from "./workflow-node-presentation";
 import type { NodeKind } from "@/lib/workflow-graph";
@@ -84,6 +85,16 @@ export function WorkflowCanvasNode({ data, selected }: NodeProps) {
               <span className="shrink-0 rounded border border-primary/40 bg-primary/15 px-1 py-px font-mono text-[9px] uppercase tracking-widest text-primary">
                 start
               </span>
+            ) : null}
+            {/* The red ring alone must not be the only issue signal: an icon plus an
+                accessible name back it for colour-blind operators and screen readers. The
+                issue text itself lives in the editor's Checks list. */}
+            {node.hasIssue && !node.runState ? (
+              <AlertTriangle
+                className="size-3 shrink-0 text-destructive"
+                role="img"
+                aria-label="This node has a validation issue"
+              />
             ) : null}
           </div>
           <div className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">

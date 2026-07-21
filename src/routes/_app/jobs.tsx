@@ -1,14 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, getRouteApi } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
 import { X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { WindowNotice } from "@/components/atlas/window";
 import { ATLAS_LIMIT_OPTIONS, parseLimitSearch, parseStringSearch } from "@/lib/atlas-search";
-import { formatDurationMs, toClientAtlasError } from "@/lib/atlas-mappers";
+import { formatDurationMs, toClientAtlasError, type JobDetailView } from "@/lib/atlas-mappers";
+import { useCancelJob } from "@/lib/atlas-mutations";
 import { jobQuery, jobsQuery } from "@/lib/atlas-queries";
+
+const appRoute = getRouteApi("/_app");
 
 /**
  * Job states offered as filter chips, taken from Atlas's own job-state enum.
@@ -49,18 +63,120 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** Job states Atlas treats as finished; cancelling one is a silent no-op on Atlas's side. */
+const TERMINAL_JOB_STATES = new Set(["succeeded", "failed", "cancelled"]);
+
+/**
+ * The cancel-job control (Phase 6): confirmation before the side effect, honest about what
+ * Atlas actually does — `POST /api/jobs/{id}/cancel` marks the row `cancel_requested`; the
+ * worker keeps running until it honours the request. Visible per role as UX only
+ * (`jobs.run` = admin/operator); Atlas enforces the real permission on the call.
+ */
+function CancelJobControl({ job }: { job: JobDetailView }) {
+  const identity = appRoute.useLoaderData();
+  const role = identity.status === "authenticated" ? identity.identity.role : null;
+  const cancel = useCancelJob();
+  const [confirming, setConfirming] = useState(false);
+
+  if (role !== "admin" && role !== "operator") return null;
+
+  const state = job.state.label;
+  const blocked = TERMINAL_JOB_STATES.has(state)
+    ? `The job already finished as "${state}"; Atlas returns a terminal job unchanged.`
+    : state === "cancel_requested" || job.cancelRequested
+      ? "Cancellation is already requested; Atlas will not request it twice."
+      : null;
+
+  return (
+    <div>
+      <button
+        type="button"
+        disabled={blocked !== null || cancel.isPending}
+        onClick={() => setConfirming(true)}
+        className="inline-flex items-center rounded border border-destructive/40 bg-destructive/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-widest text-destructive transition hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Cancel job
+      </button>
+      {blocked ? <p className="mt-1 text-xs text-muted-foreground">{blocked}</p> : null}
+      {cancel.error ? (
+        <p role="alert" className="mt-1 text-xs text-destructive">
+          {cancel.error.message}
+        </p>
+      ) : null}
+      <AlertDialog
+        open={confirming}
+        onOpenChange={(next) => {
+          if (!next && cancel.isPending) return;
+          setConfirming(next);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel job {job.id}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Atlas marks the job <span className="font-mono">cancel_requested</span> and asks the
+              worker to stop. Work already handed to the worker may keep running until the worker
+              honours the request, and any result it still reports will land on the job row. If this
+              job belongs to a workflow run, that run&apos;s node fails when the cancellation
+              completes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancel.isPending}>Keep it running</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={cancel.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(event) => {
+                // The dialog stays open until Atlas answers; a refusal renders beside the
+                // control instead of being hidden behind an optimistic close.
+                event.preventDefault();
+                cancel.mutate({ jobId: job.id }, { onSettled: () => setConfirming(false) });
+              }}
+            >
+              {cancel.isPending ? "Requesting…" : "Request cancellation"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 /**
  * The detail pane fetches `GET /api/jobs/{id}` rather than reusing the list row.
  *
  * That route returns the un-joined row, so it has no `worker_name`/`workspace_key` — but it is
  * the authoritative current state of the job, and it works on a cold reload where no list row
  * has been fetched yet.
+ *
+ * A non-modal panel, not a dialog: there is no overlay and the page behind stays interactive,
+ * so it must not claim `aria-modal` or trap Tab. What it does own (Phase 6): an accessible
+ * name, focus moved into it when it opens, Escape to close, and focus handed back to the
+ * element that opened it.
  */
 function JobDetailPane({ jobId, onClose }: { jobId: string; onClose: () => void }) {
   const job = useQuery(jobQuery(jobId));
+  const paneRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    paneRef.current?.focus();
+    return () => opener?.focus();
+  }, [jobId]);
 
   return (
-    <aside className="fixed right-0 top-0 bottom-0 z-40 flex w-96 flex-col border-l border-border bg-card shadow-2xl animate-slide-in-right">
+    <aside
+      ref={paneRef}
+      tabIndex={-1}
+      aria-label={`Job ${jobId} details`}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+      className="fixed right-0 top-0 bottom-0 z-40 flex w-96 flex-col border-l border-border bg-card shadow-2xl animate-slide-in-right focus:outline-none"
+    >
       <header className="flex items-center justify-between border-b border-border px-6 py-4">
         <div className="min-w-0">
           <div className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -74,7 +190,7 @@ function JobDetailPane({ jobId, onClose }: { jobId: string; onClose: () => void 
           aria-label="Close job details"
           className="text-muted-foreground hover:text-foreground"
         >
-          <X className="size-4" />
+          <X className="size-4" aria-hidden="true" />
         </button>
       </header>
 
@@ -96,6 +212,8 @@ function JobDetailPane({ jobId, onClose }: { jobId: string; onClose: () => void 
                 </span>
               ) : null}
             </div>
+
+            <CancelJobControl job={job.data} />
 
             <div>
               <div className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">

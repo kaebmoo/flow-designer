@@ -716,7 +716,10 @@ function EditorSurface({
           >
             Run policy
             {issues.some((issue) => issue.target.kind === "policy") ? (
-              <span className="ml-1.5 text-destructive">•</span>
+              <span className="ml-1.5 text-destructive">
+                <span aria-hidden="true">•</span>
+                <span className="sr-only">has a validation issue</span>
+              </span>
             ) : null}
           </button>
         </div>
@@ -936,6 +939,10 @@ function EditorSurface({
               if (index >= 0) setSelection({ kind: "edge", index });
             }}
             onPaneClick={() => setSelection(null)}
+            // Deletion belongs to the confirmed path (onCanvasKeyDown → confirmation dialog).
+            // React Flow's own delete key would remove the flow node directly — skipping the
+            // confirmation, the start-node protection, and the semantic graph update.
+            deleteKeyCode={null}
             fitView
             proOptions={{ hideAttribution: true }}
           >

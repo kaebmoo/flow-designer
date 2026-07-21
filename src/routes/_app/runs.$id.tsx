@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
 import { RunCanvas } from "@/components/atlas/run-canvas";
@@ -258,6 +258,20 @@ function ConfirmAction({
 }) {
   const [open, setOpen] = useState(false);
 
+  /**
+   * The dialog stays open until the mutation settles (Phase 6). Closing on click made the
+   * confirmation optimistic: Atlas could still refuse, and the operator had already been
+   * shown a closed dialog that read as "done". Now confirm disables both buttons, blocks
+   * Escape/overlay dismissal while in flight, and closes only when the request settles — a
+   * refusal lands in the section's error slot with the dialog gone but the page state
+   * honest. The `wasPending` ref closes it on the transition, not on mount.
+   */
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pending) setOpen(false);
+    wasPending.current = pending;
+  }, [pending]);
+
   return (
     <>
       <ActionButton
@@ -267,7 +281,13 @@ function ConfirmAction({
         pending={pending}
         onClick={() => setOpen(true)}
       />
-      <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next && pending) return;
+          setOpen(next);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{title}</AlertDialogTitle>
@@ -278,19 +298,20 @@ function ConfirmAction({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Leave it alone</AlertDialogCancel>
+            <AlertDialogCancel disabled={pending}>Leave it alone</AlertDialogCancel>
             <AlertDialogAction
+              disabled={pending}
               className={
                 tone === "danger"
                   ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   : undefined
               }
-              onClick={() => {
-                setOpen(false);
+              onClick={(event) => {
+                event.preventDefault();
                 onConfirm();
               }}
             >
-              {confirmLabel}
+              {pending ? "Working…" : confirmLabel}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

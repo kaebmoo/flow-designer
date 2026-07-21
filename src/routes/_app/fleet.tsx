@@ -4,6 +4,7 @@ import { AlertTriangle, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-
 import { useState } from "react";
 
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import {
   AlertDialog,
@@ -152,6 +153,7 @@ function FleetPage() {
 
   const [form, setForm] = useState<{ worker: WorkerView | null } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<WorkerView | null>(null);
+  const deleteFocus = useReturnFocus();
 
   const pollWorker = usePollWorker();
   const pollAll = usePollAllWorkers();
@@ -379,7 +381,10 @@ function FleetPage() {
                         variant="ghost"
                         size="sm"
                         disabled={!canManage}
-                        onClick={() => setPendingDelete(w)}
+                        onClick={(event) => {
+                          deleteFocus.capture(event.currentTarget);
+                          setPendingDelete(w);
+                        }}
                       >
                         <Trash2 className="text-destructive" aria-hidden="true" />
                         <span className="sr-only">Delete {w.name}</span>
@@ -416,7 +421,10 @@ function FleetPage() {
                     items: workspaces.data.filter((w) => w.workerId === pendingDelete.id),
                   }
           }
-          onClose={() => setPendingDelete(null)}
+          onClose={() => {
+            setPendingDelete(null);
+            deleteFocus.restore();
+          }}
         />
       ) : null}
     </>

@@ -120,10 +120,13 @@ test.describe("live run detail", () => {
     // events triggering the refetch, never via a browser timer.
     await expect(canvasNode(page, "running")).toBeVisible({ timeout: 15_000 });
 
-    // Live events flow while it runs.
+    // Live events flow while it runs — and the status pill is a live region, so phase
+    // transitions (streaming/stale/reconnecting/closed) are announced to screen readers
+    // while individual SSE text frames stay silent (Phase 6).
     await expect(page.getByTestId("stream-status")).toHaveText(/streaming|connecting/, {
       timeout: 10_000,
     });
+    await expect(page.getByTestId("stream-status")).toHaveAttribute("role", "status");
     await expect(page.getByTestId("live-log").locator("li").first()).toBeVisible({
       timeout: 10_000,
     });

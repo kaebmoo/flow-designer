@@ -117,13 +117,15 @@ export function AtlasSidebar({ identity }: { identity?: IdentityView }) {
                   <Link
                     key={to}
                     to={to}
+                    // The active page is announced, not only coloured.
+                    aria-current={active ? "page" : undefined}
                     className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
                       active
                         ? "bg-primary/10 text-primary border border-primary/25"
                         : "text-muted-foreground border border-transparent hover:bg-white/5 hover:text-foreground"
                     }`}
                   >
-                    <Icon className="size-4" />
+                    <Icon className="size-4" aria-hidden="true" />
                     <span className="font-medium">{label}</span>
                   </Link>
                 );

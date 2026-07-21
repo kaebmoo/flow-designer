@@ -76,7 +76,13 @@ function Field({
         <span className="block">{label}</span>
         {children}
       </Label>
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      {/* role="alert" announces the refusal when it appears; the field itself already flags
+          aria-invalid. */}
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
       {!error && hint ? <p className="text-[11px] text-muted-foreground">{hint}</p> : null}
     </div>
   );

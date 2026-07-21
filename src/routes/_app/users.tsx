@@ -4,6 +4,7 @@ import { Copy, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { AtlasErrorState, ForbiddenState, LoadingState } from "@/components/atlas/states";
 import {
   AlertDialog,
@@ -71,9 +72,11 @@ function UsersPage() {
   const [createUserOpen, setCreateUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserAdminView | null>(null);
   const [deleteUser, setDeleteUser] = useState<UserAdminView | null>(null);
+  const deleteUserFocus = useReturnFocus();
   const [mintOpen, setMintOpen] = useState(false);
   const [renameToken, setRenameToken] = useState<ApiTokenView | null>(null);
   const [revokeToken, setRevokeToken] = useState<ApiTokenView | null>(null);
+  const revokeTokenFocus = useReturnFocus();
 
   if (users.isPending || tokens.isPending) {
     return (
@@ -191,15 +194,18 @@ function UsersPage() {
                       aria-label={`Edit ${user.username}`}
                       onClick={() => setEditUser(user)}
                     >
-                      <Pencil className="size-3.5" />
+                      <Pencil className="size-3.5" aria-hidden="true" />
                     </Button>
                     <Button
                       size="sm"
                       variant="ghost"
                       aria-label={`Delete ${user.username}`}
-                      onClick={() => setDeleteUser(user)}
+                      onClick={(event) => {
+                        deleteUserFocus.capture(event.currentTarget);
+                        setDeleteUser(user);
+                      }}
                     >
-                      <Trash2 className="size-3.5" />
+                      <Trash2 className="size-3.5" aria-hidden="true" />
                     </Button>
                   </div>
                 ),
@@ -272,16 +278,19 @@ function UsersPage() {
                       aria-label={`Rename token ${token.name}`}
                       onClick={() => setRenameToken(token)}
                     >
-                      <Pencil className="size-3.5" />
+                      <Pencil className="size-3.5" aria-hidden="true" />
                     </Button>
                     {token.revoked ? null : (
                       <Button
                         size="sm"
                         variant="ghost"
                         aria-label={`Revoke token ${token.name}`}
-                        onClick={() => setRevokeToken(token)}
+                        onClick={(event) => {
+                          revokeTokenFocus.capture(event.currentTarget);
+                          setRevokeToken(token);
+                        }}
                       >
-                        <Trash2 className="size-3.5" />
+                        <Trash2 className="size-3.5" aria-hidden="true" />
                       </Button>
                     )}
                   </div>
@@ -313,7 +322,10 @@ function UsersPage() {
         <DeleteUserDialog
           user={deleteUser}
           isSelf={deleteUser.username === currentUsername}
-          onClose={() => setDeleteUser(null)}
+          onClose={() => {
+            setDeleteUser(null);
+            deleteUserFocus.restore();
+          }}
         />
       ) : null}
       {mintOpen ? <MintTokenDialog users={users.data} onClose={() => setMintOpen(false)} /> : null}
@@ -321,7 +333,13 @@ function UsersPage() {
         <RenameTokenDialog token={renameToken} onClose={() => setRenameToken(null)} />
       ) : null}
       {revokeToken ? (
-        <RevokeTokenDialog token={revokeToken} onClose={() => setRevokeToken(null)} />
+        <RevokeTokenDialog
+          token={revokeToken}
+          onClose={() => {
+            setRevokeToken(null);
+            revokeTokenFocus.restore();
+          }}
+        />
       ) : null}
     </>
   );

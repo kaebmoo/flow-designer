@@ -134,8 +134,12 @@ export function JobStreamPanel({
     <div className="rounded-lg border border-border bg-card" data-testid={`job-stream-${nodeKey}`}>
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <span className="font-mono text-xs text-primary">{nodeKey}</span>
+        {/* role="status" announces phase transitions (connecting → streaming → stale →
+            reconnecting → closed) to screen readers. Only this pill is live — announcing
+            every SSE text frame would drown the reader in log lines. */}
         <span
           data-testid="stream-status"
+          role="status"
           className={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${tone}`}
         >
           {text}
@@ -150,7 +154,10 @@ export function JobStreamPanel({
           </button>
         ) : null}
         {snapshot.gapNotice ? (
-          <span className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-warning">
+          <span
+            role="status"
+            className="rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-warning"
+          >
             gap — persisted history refetched
           </span>
         ) : null}

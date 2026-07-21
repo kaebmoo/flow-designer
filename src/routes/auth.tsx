@@ -162,6 +162,7 @@ function AuthPage() {
                 required
                 disabled={submitting}
                 aria-invalid={message !== null}
+                aria-describedby={message !== null ? "auth-error" : undefined}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60"
               />
             </div>
@@ -181,6 +182,7 @@ function AuthPage() {
                 required
                 disabled={submitting}
                 aria-invalid={message !== null}
+                aria-describedby={message !== null ? "auth-error" : undefined}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60"
               />
             </div>
@@ -188,6 +190,7 @@ function AuthPage() {
 
           {message !== null ? (
             <p
+              id="auth-error"
               role="alert"
               className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
             >

@@ -78,6 +78,7 @@ function WorkflowEditorRoute() {
   const startRun = useStartRun();
   const remove = useDeleteWorkflow();
 
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [validation, setValidation] = useState<{ ok: boolean; message: string } | null>(null);
   const [atlasValidationIssues, setAtlasValidationIssues] = useState<ValidationIssue[]>([]);
   /**
@@ -198,7 +199,15 @@ function WorkflowEditorRoute() {
             >
               View runs
             </Link>
-            <AlertDialog>
+            <AlertDialog
+              open={confirmingDelete}
+              onOpenChange={(next) => {
+                // No dismissal while the delete is in flight — Escape here would present an
+                // unresolved mutation as abandoned.
+                if (!next && remove.isPending) return;
+                setConfirmingDelete(next);
+              }}
+            >
               <AlertDialogTrigger asChild>
                 <Button type="button" size="sm" variant="outline" disabled={remove.isPending}>
                   Delete
@@ -213,16 +222,25 @@ function WorkflowEditorRoute() {
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Keep it</AlertDialogCancel>
+                  <AlertDialogCancel disabled={remove.isPending}>Keep it</AlertDialogCancel>
                   <AlertDialogAction
-                    onClick={() =>
+                    disabled={remove.isPending}
+                    onClick={(event) => {
+                      // Keep the dialog open until Atlas confirms: closing on click would
+                      // present a refusal as a completed delete. Success navigates away,
+                      // which unmounts the dialog with the page.
+                      event.preventDefault();
                       remove.mutate(
                         { workflowId: id },
-                        { onSuccess: () => navigate({ to: "/workflows", search: { limit: 100 } }) },
-                      )
-                    }
+                        {
+                          onSuccess: () => navigate({ to: "/workflows", search: { limit: 100 } }),
+                          // Close on refusal so the page-level alert underneath is readable.
+                          onError: () => setConfirmingDelete(false),
+                        },
+                      );
+                    }}
                   >
-                    Delete workflow
+                    {remove.isPending ? "Deleting…" : "Delete workflow"}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

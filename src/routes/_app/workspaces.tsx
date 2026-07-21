@@ -4,6 +4,7 @@ import { AlertTriangle, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { useReturnFocus } from "@/hooks/use-return-focus";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import {
   AlertDialog,
@@ -125,6 +126,7 @@ function WorkspacesPage() {
 
   const [form, setForm] = useState<{ workspace: WorkspaceView | null } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<WorkspaceView | null>(null);
+  const deleteFocus = useReturnFocus();
 
   // A failed background refetch flips a query that already holds data to status `error`, so
   // whether a worker can be chosen is decided by the data itself, never by the status.
@@ -275,7 +277,10 @@ function WorkspacesPage() {
                         variant="ghost"
                         size="sm"
                         disabled={!canManage}
-                        onClick={() => setPendingDelete(w)}
+                        onClick={(event) => {
+                          deleteFocus.capture(event.currentTarget);
+                          setPendingDelete(w);
+                        }}
                       >
                         <Trash2 className="text-destructive" aria-hidden="true" />
                         <span className="sr-only">Delete {w.workspaceKey}</span>
@@ -306,7 +311,10 @@ function WorkspacesPage() {
         <DeleteWorkspaceDialog
           key={pendingDelete.id}
           workspace={pendingDelete}
-          onClose={() => setPendingDelete(null)}
+          onClose={() => {
+            setPendingDelete(null);
+            deleteFocus.restore();
+          }}
         />
       ) : null}
     </>
