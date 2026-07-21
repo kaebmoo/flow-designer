@@ -53,11 +53,12 @@ import {
   type AtlasWorkspaceListRow,
 } from "./atlas-types";
 import { clampAtlasLimit } from "./atlas-limits";
+import { MAX_RETRY_AFTER_SECONDS } from "./atlas-retry";
 import { getServerEnv } from "./env.server";
 
 /** Atlas is on a private network; 10s is generous for it and still bounds a hung socket. */
 export const DEFAULT_ATLAS_TIMEOUT_MS = 10_000;
-export const MAX_RETRY_AFTER_SECONDS = 3_600;
+export { MAX_RETRY_AFTER_SECONDS } from "./atlas-retry";
 
 export class AtlasError extends Error {
   readonly kind: AtlasErrorKind;

@@ -16,6 +16,7 @@ import {
   type WorkflowGraph,
   type WorkflowPolicy,
 } from "./workflow-graph";
+import { MAX_RETRY_AFTER_SECONDS } from "./atlas-retry";
 import type {
   AtlasApiToken,
   AtlasApproval,
@@ -142,7 +143,7 @@ export function toClientAtlasError(value: unknown): ClientAtlasError {
       typeof value.retryAfterSeconds === "number" &&
       Number.isInteger(value.retryAfterSeconds) &&
       value.retryAfterSeconds > 0 &&
-      value.retryAfterSeconds <= 3_600
+      value.retryAfterSeconds <= MAX_RETRY_AFTER_SECONDS
         ? value.retryAfterSeconds
         : undefined;
     return {

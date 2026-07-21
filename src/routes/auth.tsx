@@ -5,6 +5,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
 import { getIdentityFn, loginFn } from "@/lib/auth.functions";
+import { formatLoginRateLimitMessage } from "@/lib/auth-retry";
 import type { ClientAtlasError } from "@/lib/atlas-mappers";
 
 export const Route = createFileRoute("/auth")({
@@ -121,13 +122,14 @@ function AuthPage() {
 
   // A 401 from the login endpoint means bad credentials, not an expired session, so it is
   // rendered inline on the form rather than as a sign-out.
+  const rateLimited = error?.kind === "rate_limited";
   const message =
     error === null
       ? null
       : error.kind === "unauthorized"
         ? "Incorrect username or password."
-        : error.kind === "rate_limited"
-          ? `Atlas is rate limiting login attempts. Try again in ${Math.max(0, retrySeconds)} second${retrySeconds === 1 ? "" : "s"}.`
+        : rateLimited
+          ? formatLoginRateLimitMessage(retrySeconds)
           : error.kind === "network" || error.kind === "timeout"
             ? "Atlas is unreachable right now. Try again in a moment."
             : error.message;
@@ -207,7 +209,8 @@ function AuthPage() {
           {message !== null ? (
             <p
               id="auth-error"
-              role="alert"
+              role={rateLimited ? "status" : "alert"}
+              aria-live={rateLimited ? "polite" : undefined}
               className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
             >
               {message}

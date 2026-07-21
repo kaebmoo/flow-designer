@@ -353,6 +353,13 @@ test.describe("Phase 5: operational pages as admin", () => {
     await expect(page.getByText("op1@atlas.dev")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Invite/ })).toHaveCount(0);
 
+    // Login metadata identifies the real browser session by immutable token id, never by name.
+    const currentSession = page.getByTestId("current-session-token");
+    await expect(currentSession).toHaveText("current session");
+    const currentSessionRow = currentSession.locator("xpath=ancestor::tr");
+    await expect(currentSessionRow).toContainText("session");
+    await expect(currentSessionRow.getByText("never", { exact: true })).toHaveCount(0);
+
     // Create.
     await page.getByRole("button", { name: "Create user" }).click();
     await page.getByLabel("Username").fill(username);
@@ -372,6 +379,7 @@ test.describe("Phase 5: operational pages as admin", () => {
     await page.getByRole("button", { name: "Mint token" }).click();
     await page.getByLabel("User", { exact: true }).selectOption({ label: `${username} (Auditor)` });
     await page.getByLabel("Token name").fill("e2e token");
+    await page.getByLabel("Expiry (optional)").fill("2030-01-02T03:04");
     await page.getByRole("button", { name: "Mint token" }).last().click();
     const tokenValue = (await page.getByTestId("minted-token").textContent()) ?? "";
     expect(tokenValue.length).toBeGreaterThan(10);
@@ -393,6 +401,8 @@ test.describe("Phase 5: operational pages as admin", () => {
     // The metadata row exists and can be revoked.
     const tokenRow = page.getByRole("row").filter({ hasText: "e2e token" });
     await expect(tokenRow).toBeVisible();
+    await expect(tokenRow.getByText(/2030-01-/)).toBeVisible();
+    await expect(tokenRow.getByText("never", { exact: true })).toHaveCount(0);
     await tokenRow.getByRole("button", { name: /Revoke token/ }).click();
     await page.getByRole("button", { name: "Revoke token" }).last().click();
     await expect(tokenRow.getByText("revoked")).toBeVisible();

@@ -75,7 +75,9 @@ test("login rate limiting disables submit, counts down, and clears the password"
     }
   }
 
-  await expect(page.getByRole("alert")).toContainText(/try again in \d+ second/i);
+  const rateLimitStatus = page.getByRole("status");
+  await expect(rateLimitStatus).toContainText(/try again in \d+ second/i);
+  await expect(rateLimitStatus).toHaveAttribute("aria-live", "polite");
   await expect(page.getByRole("button", { name: /try again in/i })).toBeDisabled();
   await expect(page.getByLabel("Password")).toHaveValue("");
 });
