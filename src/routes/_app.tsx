@@ -2,6 +2,7 @@ import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { AtlasSidebar } from "@/components/atlas/sidebar";
+import { StaleDataWarning } from "@/components/atlas/stale-data-warning";
 import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
 import { getIdentityFn } from "@/lib/auth.functions";
 
@@ -65,6 +66,7 @@ function AppLayout() {
     >
       <AtlasSidebar identity={result.identity} />
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <StaleDataWarning />
         <Outlet />
       </main>
     </div>

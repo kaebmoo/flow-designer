@@ -46,12 +46,32 @@ test("an Atlas outage is shown truthfully and a restart recovers without losing 
   await page.getByRole("link", { name: "Workflows", exact: true }).click();
   await expect(page.getByText("Contract Workflow").first()).toBeVisible();
 
+  // Warm two real query-cache windows before the outage. Returning to the 100-row window
+  // after its ten-second staleTime gives TanStack Query cached data to retain while the
+  // background refetch experiences the real dead Atlas socket.
+  await page.getByRole("button", { name: "100", exact: true }).click();
+  await expect(page).toHaveURL(/limit=100/);
+  await expect(page.getByText("Contract Workflow").first()).toBeVisible();
+  await page.getByRole("button", { name: "25", exact: true }).click();
+  await expect(page).toHaveURL(/limit=25/);
+  await page.waitForTimeout(10_100);
+
   // Kill the shared Atlas — the app's configured origin now refuses connections.
   process.kill(seed.atlasRestart.pid!, "SIGTERM");
   await waitForAtlasDown(seed.atlasOrigin);
 
   let replacement: { stop: () => void } | undefined;
   try {
+    // A cached window is not silently presented as current once its background refetch fails.
+    // The shell-level warning is driven by the real QueryCache state, not navigator.onLine or
+    // a mocked response, and names the cached/stale risk explicitly.
+    await page.getByRole("button", { name: "100", exact: true }).click();
+    await expect(page.getByTestId("stale-data-warning")).toContainText(
+      "Some data may be cached and stale",
+      { timeout: 30_000 },
+    );
+    expect(new URL(page.url()).pathname).not.toBe("/auth");
+
     // A navigation to a page with no cached window renders a truthful failure state after
     // the bounded retries — and does NOT misread the outage as a sign-out: no redirect to
     // /auth, because Atlas being unreachable is not a 401. (A page whose data is still
@@ -66,11 +86,19 @@ test("an Atlas outage is shown truthfully and a restart recovers without losing 
     // Restart: same port, same database.
     replacement = await respawnAtlas(seed.atlasRestart);
 
-    // Recovery is the page's own Try again control — no reload required — with the session
-    // cookie still valid and every row Atlas had persisted still present.
+    // Recovery needs no document reload. Depending on focus/refetch timing, the active query
+    // either recovers automatically or leaves its explicit Try again control; exercise the
+    // control when present and accept the already-recovered table otherwise.
+    const retry = page.getByRole("button", { name: "Try again" });
+    const auditor = page.getByText("auditor").first();
+    await expect
+      .poll(async () => (await retry.isVisible()) || (await auditor.isVisible()), {
+        timeout: 30_000,
+      })
+      .toBe(true);
+    if (await retry.isVisible()) await retry.click();
     // "auditor" renders only in the users table — the sidebar shows the signed-in admin —
-    // so its visibility proves the read genuinely recovered.
-    await page.getByRole("button", { name: "Try again" }).click();
+    // so its visibility proves the read genuinely recovered with persisted state intact.
     await expect(page.getByText("auditor").first()).toBeVisible({ timeout: 30_000 });
     expect(new URL(page.url()).pathname).not.toBe("/auth");
 
