@@ -19,16 +19,16 @@ Use this checklist with the phase gate in `docs/IMPLEMENTATION_PLAN.md`. Check i
 
 ## Phase 0 — Contract
 
-- [ ] Atlas checkout path and tested commit are recorded (`595ef62`).
-- [ ] Atlas origin is recorded.
-- [ ] SSE contract verified against source: `after=<seq>`, `id`/`seq` dedupe, `event: close`, no `Last-Event-ID`.
-- [ ] Workflow node compatibility matrix verified against Atlas source (`BACKEND_INTEGRATION.md`).
-- [ ] Config decisions enumerated for the user (`CONFIGURATION.md`).
-- [ ] CSRF-middleware requirement for Phase 1 is documented (`start.ts` defined).
-- [ ] Role set recorded: `admin`, `operator`, `viewer`, `auditor`.
-- [ ] Missing backend capabilities are documented, not mocked as real (`ATLAS_LIMITATIONS.md`).
-- [ ] Auth/session strategy and role mapping are approved by the user.
-- [ ] **Gate:** user confirms Phase 1 start.
+- [x] Atlas checkout path and tested commit are recorded (`595ef62`).
+- [x] Atlas origin is recorded.
+- [x] SSE contract verified against source: `after=<seq>`, `id`/`seq` dedupe, `event: close`, no `Last-Event-ID`.
+- [x] Workflow node compatibility matrix verified against Atlas source (`BACKEND_INTEGRATION.md`).
+- [x] Config decisions enumerated for the user (`CONFIGURATION.md`).
+- [x] CSRF-middleware requirement for Phase 1 is documented (`start.ts` defined).
+- [x] Role set recorded: `admin`, `operator`, `viewer`, `auditor`.
+- [x] Missing backend capabilities are documented, not mocked as real (`ATLAS_LIMITATIONS.md`).
+- [x] Auth/session strategy and role mapping are approved by the user.
+- [x] **Gate:** user confirmed Phase 1 start (recorded in `CONFIGURATION.md`; later phases completed).
 
 ## Phase 1 — Transport and auth
 
@@ -39,9 +39,9 @@ Use this checklist with the phase gate in `docs/IMPLEMENTATION_PLAN.md`. Check i
 - [x] Session cookie/token handling is secure for the target runtime (httpOnly, signed/encrypted, flow-designer-owned).
 - [x] Each private server function validates the request session and calls a typed, fixed Atlas operation; no generic proxy or duplicate frontend RBAC exists.
 - [x] 401 clears session and redirects correctly.
-- [ ] 403 renders a forbidden state. — _partial, see note below._
+- [x] 403 renders a forbidden state. — Closed in Phase 5 on the Users/Audit/Usage/Deliveries pages and browser-tested for restricted roles.
 - [x] Atlas/worker credentials are absent from browser output (no bearer in bundle, `localStorage`, or query string).
-- [ ] **Gate:** user confirms Phase 2 start.
+- [x] **Gate:** user confirmed Phase 2 start (later phases completed).
 
 ### Phase 1 verification evidence (2026-07-20, after gate-rejection remediation)
 
@@ -102,7 +102,7 @@ disagrees with the architecture.
 - [x] Static arrays are removed or explicitly documented as unavailable. — Removed on the six migrated pages. Artifacts, Triggers, Deliveries, Conversations, Usage, Audit, Users, and Settings still render static arrays, but each now carries a `PlaceholderNotice` saying the page is not connected to Atlas, that its actions do nothing, and which Atlas endpoint will serve it. Ticked on the "explicitly documented as unavailable" branch, not the "removed" one — Phase 5 still owns wiring them. `IMPLEMENTATION_PLAN.md` assigns those pages to both Phase 2 (lines 70–71) and Phase 5 (line 142); see "Open scope question for the gate" below.
 - [x] Pagination/filter state is URL-safe where appropriate. (`limit` on workflows/runs/jobs, the runs' `workflow` filter, the run/job `state` filter, and the open job pane are all URL search parameters, parsed defensively and clamped to Atlas's range.)
 - [x] Lists are treated as a bounded `limit` window (no assumed offset/cursor/total). (`WindowNotice` states the window on every list; a full window is reported as "may have more", which is the only — and genuinely ambiguous — signal Atlas provides.)
-- [ ] **Gate:** user confirms Phase 3 start.
+- [x] **Gate:** user confirmed Phase 3 start (later phases completed).
 
 ### Phase 2 verification evidence (2026-07-20)
 
@@ -393,7 +393,7 @@ updated to the current labels; no application code was changed for this.
 - [x] Audit uses Atlas audit data. — Newest-first, `limit`/`from`/`to` applied by Atlas, CSV through `/api/exports/audit-csv` (which also fixes Atlas's wrong `atlas-usage.csv` filename); admin/auditor only, everyone else sees the explicit forbidden state — the rendered 403 screen Phases 1–2 could not produce now exists and is browser-tested.
 - [x] Users/tokens use Atlas admin endpoints. — User CRUD (create — not "invite"; partial PUT; disable; delete with a confirmation naming the token cascade) and token mint/rename/revoke (`DELETE`; the `POST /revoke` alias deliberately unused). The raw token is shown once in transient dialog state, never enters any TanStack cache/storage/URL, and is asserted unrecoverable after close and reload.
 - [x] Settings does not imply unsupported mutations. — Read-only: Atlas version, schema version, and server time from `GET /api/metrics`, labelled with their source; the fabricated hostname/TLS/integrations/retention/danger-zone rows are deleted and the absence of an Atlas settings API is stated.
-- [ ] **Gate:** user confirms Phase 6 start.
+- [x] **Gate:** user confirmed Phase 6 start (Phase 6 completed and reviewed).
 
 ### Phase 5 verification evidence (2026-07-21)
 
@@ -516,7 +516,7 @@ before display").
 
 - [x] Hardcoded color classes (`bg-black`, `text-white`, `bg-[#...]`) are replaced with `src/styles.css` tokens. — Fresh inventory: 30 literals in 8 files (not the checklist's stale pre-rewrite counts). Overlay dims via `--overlay`; white washes via `--highlight`; canvas edge labels via `--surface-raised`/`--edge-label-*` fed through React Flow's own `--xy-edge-label-*` variables (the old rules were dead — scoped under a class no component applies since Phase 3 — leaving labels on RF's white defaults); dead scaffold CSS (`.atlas-grid`, `.workflow-canvas`, `.inspector-*`) deleted rather than tokenized; `error-page.ts` declares its own minimal obsidian token block instead of a hardcoded light theme. Values are byte-identical where the rule was live — no redesign, no layout change, dark theme only. Exemptions honoured: dimension arbitraries untouched; `:root`/`@theme` definitions are the tokens; `chart.tsx`'s Recharts attribute selectors kept as-is.
 - [x] Loading/empty/error/forbidden/not-found/conflict/disconnected states use tokens consistently. — All state components (`states.tsx`, stream pills, editor notices) already drew from tokens; the static scan now proves it repo-wide, and `tests/e2e/phase6-tokens.spec.ts` proves the promoted tokens _render_ (overlay at black/80, non-transparent table wash, `#101a27` edge labels, zoom controls never white-on-white — plus the pre-existing editor contrast test). Visual QA screenshots reviewed: dashboard, editor + zoom controls, run detail, destructive dialog + overlay, jobs pane, auth, audit/usage tables, not-found.
-- [ ] **Gate:** user confirms Phase 7 start.
+- [x] **Gate:** user explicitly confirmed Phase 6 closure and Phase 7 start (2026-07-21).
 
 ### Phase 6 verification evidence (2026-07-21)
 
@@ -592,15 +592,49 @@ warnings), format:check, unit **383**, contract **136 + 3 skipped** (real Atlas)
 
 ## Phase 7 — Verification and release
 
-- [ ] `typecheck`, `build`, and `lint` pass.
-- [ ] Contract tests pass against a real/fixture Atlas.
-- [ ] Stream tests pass (replay, dedupe, reconnect, terminal `close`).
-- [ ] Browser acceptance tests pass (login, two tabs, expired auth, worker offline, disconnect, Atlas restart).
-- [ ] Local Atlas restart behavior is verified.
-- [ ] Deployment origin/CORS/HTTPS/cookie attributes are verified.
-- [ ] Known Atlas limitations are included in release notes.
+- [x] `typecheck`, `build`, and `lint` pass.
+- [x] Contract tests pass against a real/fixture Atlas.
+- [x] Stream tests pass (replay, dedupe, reconnect, terminal `close`).
+- [x] Browser acceptance tests pass (login, two tabs, expired auth, worker offline, disconnect, Atlas restart).
+- [x] Local Atlas restart behavior is verified.
+- [x] Deployment origin/CORS/HTTPS/cookie attributes are verified in the remote-like built-Node suite. Exact production origins remain deployment inputs, not invented values.
+- [x] Known Atlas limitations are included in release notes.
 - [ ] **Production blocker:** Atlas token lifecycle (expiring tokens, orphan token cleanup, login rate limiting) is fixed or explicitly risk-accepted (`ATLAS_LIMITATIONS.md`).
-- [ ] Backup and rollback procedure is documented.
-- [ ] `src/routeTree.gen.ts` and Lovable history are untouched.
-- [ ] Commit message identifies the completed phase.
+- [x] Backup and rollback procedure is documented.
+- [x] `src/routeTree.gen.ts` and Lovable history are untouched.
+- [x] Commit messages identify Phase 7 logical slices.
 - [ ] **Gate:** user confirms release/commit.
+
+### Phase 7 verification evidence (2026-07-21)
+
+Frontend baseline: `64eeae9`. Tested implementation: `7740797`; Node-runtime harness:
+`49aa84f`. Atlas:
+`595ef62bcfa38c1135867807bfe2fae320e37b0c`. The real-Atlas contract suite was repeated
+against a clean temporary archive of that exact commit because the existing Atlas checkout had
+user-owned uncommitted changes; the checkout was not modified.
+
+| Check                                              | Exit | Result                                                                        |
+| -------------------------------------------------- | ---- | ----------------------------------------------------------------------------- |
+| `bun run typecheck`                                | 0    | 0 errors                                                                      |
+| `bun run lint`                                     | 0    | 0 errors; the same 6 existing Fast Refresh warnings                           |
+| `bun run format:check`                             | 0    | all files formatted                                                           |
+| `bun run test`                                     | 0    | 391 passed                                                                    |
+| `bun run test:contract`                            | 0    | 136 passed, 3 skipped, real Atlas                                             |
+| clean `595ef62` archive + `bun run test:contract`  | 0    | 136 passed, 3 skipped                                                         |
+| `bun run test:stream`                              | 0    | 24 passed                                                                     |
+| `bun run test:e2e`                                 | 0    | 94 passed                                                                     |
+| `PHASE7_NODE_BINARY=<Node 24> bun run test:remote` | 0    | 1 passed on Node v24.14.0: HTTPS public origin → built server → private Atlas |
+| production canary `bun run build`                  | 0    | Nitro `node-server` output succeeded                                          |
+| production canary `bun run scan:bundle`            | 0    | 57 files clean; symbol/value scan + positive control                          |
+| `git diff --check`                                 | 0    | clean                                                                         |
+
+Remote-like coverage includes normalized `PUBLIC_ORIGIN`, wrong-origin CSRF rejection,
+`HttpOnly; Secure; SameSite=Lax` host-only cookie behavior, private `ATLAS_API_ORIGIN`, and all
+same-origin transport routes (artifact, audit CSV, usage CSV, SSE). The restart test now also
+proves the cached-data stale warning against a real stopped Atlas process.
+
+**Release decision:** local/controlled demo ready; **production not ready**. Atlas still has no
+login-token expiry, orphan `"dashboard login"` cleanup/cap, or login rate limiting, and no risk
+acceptance was recorded. Exact production origins/secret store are also still unset. Full matrix
+and operator handoff: `RELEASE_READINESS.md`, `RELEASE_NOTES_PHASE_7.md`, and
+`runbooks/release.md`.

@@ -1,6 +1,6 @@
 # Atlas Control Plane Web UI completion plan
 
-Status: implemented through Phase 6; Phase 7 remains planned
+Status: implemented through Phase 7 verification; production release remains blocked
 
 Date: 2026-07-20
 
@@ -183,10 +183,11 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 
 ### Work
 
-- Run typecheck/build/lint and contract tests.
-- Test against a real local Atlas instance and at least one remote-like origin.
-- Test reload, two tabs, expired auth, slow worker, worker offline, stream disconnect, duplicate event, and Atlas restart.
-- Document deployment topology: frontend replicas are allowed; Atlas remains the single primary until backend scaling work lands.
+- Run typecheck/build/lint and contract tests. — **met**; full results in `RELEASE_READINESS.md`.
+- Test against a real local Atlas instance and at least one remote-like origin. — **met**; the
+  remote-like suite uses a built Node server behind HTTPS and a separate private Atlas origin.
+- Test reload, two tabs, expired auth, slow worker, worker offline, stream disconnect, duplicate event, and Atlas restart. — **met**; scenario-to-test matrix recorded in `RELEASE_READINESS.md`.
+- Document deployment topology: frontend replicas are allowed; Atlas remains the single primary until backend scaling work lands. — **met** in the release runbook.
 
 ### Release gate
 
@@ -196,3 +197,7 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 - **Production blocker:** the Atlas auth-token lifecycle (expiring login tokens, orphan `"dashboard login"` token cleanup, login rate limiting — see `ATLAS_LIMITATIONS.md`) is fixed in Atlas or explicitly risk-accepted for this release.
 - No published history rewrite.
 - User confirms release/commit step.
+
+Phase 7 decision (2026-07-21): verification work is complete, but the production blocker is not
+fixed or risk-accepted. Exact production origins and secret-store selection also remain operator
+inputs. The candidate is suitable for local/controlled demo use, not production shipment.

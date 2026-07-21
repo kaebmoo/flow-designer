@@ -14,6 +14,8 @@ This project is the web UI for the existing Atlas Control Plane. It is not a sec
 - [Frontend engineering rules](FRONTEND_ENGINEERING.md)
 - [Configuration decisions for Phase 1](CONFIGURATION.md)
 - [Testing and QA strategy](TESTING_AND_QA.md)
+- [Phase 7 release readiness](RELEASE_READINESS.md)
+- [Phase 7 release notes](RELEASE_NOTES_PHASE_7.md)
 - [Atlas limitations and backend backlog](ATLAS_LIMITATIONS.md)
 - [ADR-0001: Atlas is the source of truth](adr/0001-atlas-is-source-of-truth.md)
 

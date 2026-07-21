@@ -1,6 +1,11 @@
-# Configuration decisions for Phase 1
+# Configuration decisions and deployment inputs
 
 Phase 0 does not select values or install anything. This document lists the configuration Phase 1 requires, records what is already fixed by Atlas source, and turns the rest into explicit user decisions with a recommendation and trade-off for each.
+
+Phase 7 status: self-hosted releases are pinned to Nitro `node-server` on Node 24.x. Production
+startup rejects an HTTP `PUBLIC_ORIGIN` and the committed example `SESSION_SECRET`. Exact
+production public/private origins and the production secret store remain undecided, so no
+specific production deployment is configured.
 
 ## Fixed by Atlas source (not decisions)
 
@@ -55,7 +60,7 @@ Two implementation details worth recording, both discovered by reading the insta
 
 Treat the package manager and the production runtime as two independent choices.
 
-**Package manager — Pinned: Bun 1.3.14.** `bun.lock` already exists and `package.json` records `"packageManager": "bun@1.3.14"`, so contributors and CI use the same package-manager version. Bun is **not installed on this machine** — installation still requires approval before Phase 1. This is orthogonal to where the app runs in production.
+**Package manager — Pinned: Bun 1.3.14.** `bun.lock` already exists and `package.json` records `"packageManager": "bun@1.3.14"`, so contributors and CI use the same package-manager version. The Phase 7 matrix ran with Bun 1.3.14. This is orthogonal to where the app runs in production.
 
 **Production runtime — Decided: Node 24 LTS for Node-based deployments (VPS/Fly/containers).** As of July 2026, per the [Node.js release schedule](https://github.com/nodejs/release): **Node 24 is Active LTS**, **Node 20 is EOL**, and **Node 25** (the odd/current line installed here) is a short-lived non-LTS line, also past support. Do not target Node 20 or Node 25.
 

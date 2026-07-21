@@ -138,6 +138,10 @@ Backend follow-up:
 
 **Production release blocker** for anything beyond local/demo use. Confirmed in Atlas source:
 
+**Phase 7 re-verification (2026-07-21):** unchanged in both a clean archive of Atlas `595ef62`
+and the current checkout. The clean-archive contract suite passed (136 + 3 skipped), but passing
+the wire contract does not fix this lifecycle design. No release risk acceptance was recorded.
+
 - The `api_tokens` table has **no `expires_at`** column (`atlas/db.py:172`). Login/session tokens never expire; they are valid until explicitly revoked.
 - `POST /api/auth/login` mints a **new** token named `"dashboard login"` on every successful login (`atlas/app.py:263`), so repeated logins accumulate orphaned but still-valid tokens.
 - No login brute-force protection / rate limiting was found on `verify_user_password`.

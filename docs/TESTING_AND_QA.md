@@ -1,6 +1,6 @@
 # Testing and QA strategy
 
-Status: implemented through Phase 6 and reconciled on 2026-07-21.
+Status: implemented through Phase 7 and reconciled on 2026-07-21.
 
 ## Runners and scripts
 
@@ -16,6 +16,8 @@ Status: implemented through Phase 6 and reconciled on 2026-07-21.
 | `bun run test:contract` | Contract tests against real isolated Atlas             |
 | `bun run test:stream`   | Phase 4 SSE adapter/transport tests (fails when empty) |
 | `bun run test:e2e`      | Playwright acceptance suite                            |
+| `bun run test:remote`   | Built-Node remote-like HTTPS/private-origin acceptance |
+| `bun run scan:bundle`   | Client bundle symbol + optional real-canary scan       |
 
 The package manager is Bun 1.3.14, as pinned by `package.json` and `bun.lock`. Production
 runtime selection remains a deployment decision in `CONFIGURATION.md`.
@@ -105,6 +107,24 @@ Record the following for each release:
 - stream behavior result
 - known Atlas limitations exercised
 - build/lint/test output
+
+## Phase 7 evidence and strategy additions (2026-07-21)
+
+The Phase 7 matrix is recorded in `RELEASE_READINESS.md`. The new remote-like suite builds the
+production Node artifact and runs three distinct origins: browser-facing HTTPS proxy, internal
+flow-designer HTTP server, and private Atlas. It asserts production cookie attributes, CSRF
+origin matching, the absence of direct browser→Atlas requests, and successful artifact/CSV/SSE
+same-origin routes. The harness rejects non-24 Node runtimes; the recorded rerun executed the
+artifact on Node v24.14.0. A clean temporary archive of Atlas `595ef62` supplied a second real-Atlas
+contract run so an existing dirty Atlas checkout could not be misreported as a pristine commit.
+
+The restart browser test now warms two query windows, kills the real isolated Atlas process, and
+asserts the shell's cached-data warning after the background refetch reaches the dead socket. Unit
+coverage keeps terminal authorization/validation/conflict failures out of that outage signal.
+
+Full results: typecheck/lint/format/build exit 0; unit 391; real-Atlas contract 136 + 3 skipped;
+stream 24; browser 94; remote-like 1 on Node v24.14.0; canary bundle scan clean across 57 public
+files.
 
 ## Phase 6 evidence and strategy additions (2026-07-21)
 
