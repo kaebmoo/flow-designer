@@ -59,6 +59,10 @@
   --color-warning: var(--warning);
   --color-danger: var(--danger);
 
+  /* Phase 6 surface tokens — see the :root definitions for what each one means. */
+  --color-overlay: var(--overlay);
+  --color-highlight: var(--highlight);
+
   @keyframes flow {
     0% {
       stroke-dashoffset: 24;
@@ -126,6 +130,21 @@
   --sidebar-accent-foreground: oklch(0.97 0.01 240);
   --sidebar-border: oklch(0.32 0.03 254);
   --sidebar-ring: oklch(0.82 0.15 200);
+
+  /*
+   * Phase 6 semantic surface tokens. The values are the exact literals that previously sat
+   * inline in components and canvas rules, promoted here so every use names a role, not a
+   * colour. Semantic names on purpose: an overlay is not "black", a highlight wash is not
+   * "white" — the roles survive a future palette change.
+   */
+  /* Dimming layer behind modal dialogs, drawers, and sheets. */
+  --overlay: oklch(0 0 0 / 0.8);
+  /* Light wash over dark surfaces (table header/hover, nav hover); use with /5-style alpha. */
+  --highlight: oklch(1 0 0);
+  /* Edge condition labels on the canvases: a raised chip above --card, with its own border. */
+  --surface-raised: #101a27;
+  --edge-label-border: #33475a;
+  --edge-label-foreground: #b6c7d7;
 }
 
 .dark {
@@ -150,59 +169,6 @@
   .font-mono {
     font-family: var(--font-mono);
   }
-
-  /* Radial canvas grid for editor surfaces */
-  .atlas-grid {
-    background-image: radial-gradient(circle at center, oklch(1 0 0 / 0.05) 1px, transparent 1px);
-    background-size: 24px 24px;
-  }
-
-  .workflow-canvas {
-    background-color: #0b1420;
-    background-image:
-      radial-gradient(circle at 1px 1px, rgb(130 155 180 / 0.13) 1px, transparent 1.2px),
-      radial-gradient(ellipse at 50% 0%, rgb(21 207 226 / 0.035), transparent 58%);
-    background-size:
-      22px 22px,
-      100% 100%;
-  }
-
-  .inspector-input {
-    width: 100%;
-    border: 1px solid #33475a;
-    border-radius: 0.625rem;
-    background: #0c1622;
-    padding: 0.625rem 0.75rem;
-    color: var(--color-foreground);
-    font-size: 0.8125rem;
-    outline: none;
-    transition:
-      border-color 150ms ease,
-      box-shadow 150ms ease,
-      background 150ms ease;
-  }
-  .inspector-input:hover {
-    border-color: #4b6278;
-  }
-  .inspector-input:focus {
-    border-color: var(--color-primary);
-    background: #0e1a28;
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 14%, transparent);
-  }
-  .inspector-input option {
-    background: #101a27;
-    color: var(--color-foreground);
-  }
-  .inspector-help {
-    margin-top: 0.5rem;
-    font-size: 0.6875rem;
-    line-height: 1.45;
-    color: var(--color-muted-foreground);
-  }
-  .inspector-help code {
-    color: var(--color-primary);
-    font-family: var(--font-mono);
-  }
 }
 
 /* React Flow overrides — match obsidian theme */
@@ -217,12 +183,14 @@
 .react-flow__edge.selected .react-flow__edge-path {
   stroke-opacity: 1;
 }
-.workflow-editor .react-flow__edge-textbg {
-  fill: #101a27;
-  stroke: #33475a;
+.react-flow {
+  --xy-edge-label-background-color: var(--surface-raised);
+  --xy-edge-label-color: var(--edge-label-foreground);
 }
-.workflow-editor .react-flow__edge-text {
-  fill: #b6c7d7;
+.react-flow__edge-textbg {
+  stroke: var(--edge-label-border);
+}
+.react-flow__edge-text {
   font-family: var(--font-mono);
   font-size: 10px;
 }

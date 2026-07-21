@@ -36,7 +36,7 @@ export function StatusPill({
       "bg-[var(--color-success)]/10 text-[var(--color-success)] border-[var(--color-success)]/30",
     warning: "bg-accent/10 text-accent border-accent/30",
     danger: "bg-destructive/10 text-destructive border-destructive/30",
-    muted: "bg-white/5 text-muted-foreground border-white/10",
+    muted: "bg-highlight/5 text-muted-foreground border-highlight/10",
   };
   return (
     <span
@@ -71,7 +71,7 @@ export function DataTable<T>({
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
       <table className="w-full text-sm">
-        <thead className="bg-white/[0.03]">
+        <thead className="bg-highlight/[0.03]">
           <tr>
             {columns.map((c) => (
               <th
@@ -111,7 +111,7 @@ export function DataTable<T>({
                     }
                   : undefined
               }
-              className={`border-t border-border transition-colors ${onRowClick ? "cursor-pointer hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring" : ""}`}
+              className={`border-t border-border transition-colors ${onRowClick ? "cursor-pointer hover:bg-highlight/[0.03] focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring" : ""}`}
             >
               {columns.map((c) => (
                 <td key={String(c.key)} className={`px-4 py-3 align-middle ${c.className ?? ""}`}>
@@ -130,7 +130,7 @@ export function DataTable<T>({
 
 export function EmptyHint({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-dashed border-border bg-white/[0.02] p-10 text-center text-sm text-muted-foreground">
+    <div className="rounded-lg border border-dashed border-border bg-highlight/[0.02] p-10 text-center text-sm text-muted-foreground">
       {children}
     </div>
   );
