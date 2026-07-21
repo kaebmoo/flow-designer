@@ -11,7 +11,13 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { AtlasError, atlasGetMe, atlasLogin, atlasLogout } from "@/lib/atlas-api.server";
+import {
+  AtlasError,
+  atlasGetMe,
+  atlasGetMeResponse,
+  atlasLogin,
+  atlasLogout,
+} from "@/lib/atlas-api.server";
 import { resetServerEnvCache } from "@/lib/env.server";
 import {
   ADMIN_CREDENTIALS,
@@ -52,6 +58,8 @@ describe.skipIf(!available)("Atlas auth contract", () => {
     expect(result.token.length).toBeGreaterThan(0);
     expect(result.user.username).toBe("admin");
     expect(result.user.role).toBe("admin");
+    expect(result.session?.token_id).toBeTruthy();
+    expect(Date.parse(result.session?.expires_at ?? "")).toBeGreaterThan(Date.now());
   });
 
   it("rejects a wrong password as unauthorized, not as a validation error", async () => {
@@ -72,10 +80,12 @@ describe.skipIf(!available)("Atlas auth contract", () => {
 
   it("resolves the current identity for a live bearer", async () => {
     const { token } = await atlasLogin(ADMIN_CREDENTIALS);
-    const user = await atlasGetMe(token);
+    const response = await atlasGetMeResponse(token);
 
-    expect(user.username).toBe("admin");
-    expect(user.role).toBe("admin");
+    expect(response.user.username).toBe("admin");
+    expect(response.user.role).toBe("admin");
+    expect(response.session?.token_id).toBeTruthy();
+    expect(response.session?.expires_at).toBeTruthy();
   });
 
   it("rejects a missing or garbage bearer with 401", async () => {
@@ -168,6 +178,24 @@ describe.skipIf(!available)("Atlas auth contract", () => {
     expect(response.status).toBe(401);
     expect(response.headers.get("content-type")).toContain("application/json");
     await expect(response.json()).resolves.toEqual({ error: "unauthorized" });
+  });
+
+  it("exposes a bounded Retry-After delta when login rate limiting engages", async () => {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const response = await fetch(`${atlas!.origin}/api/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "rate-limited-user", password: "wrong" }),
+      });
+      if (response.status === 429) {
+        const retryAfter = response.headers.get("retry-after");
+        expect(retryAfter).toMatch(/^[1-9]\d*$/);
+        expect(Number(retryAfter)).toBeLessThanOrEqual(3600);
+        return;
+      }
+      expect(response.status).toBe(401);
+    }
+    throw new Error("Atlas did not rate-limit the sixth login attempt");
   });
 });
 

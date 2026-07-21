@@ -190,6 +190,19 @@ function optionalPositiveInteger(data: unknown, key: string): number | undefined
   return parsed;
 }
 
+function optionalFutureUtc(data: unknown, key: string): string | undefined {
+  const value = field(data, key);
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || !/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    throw new Error(`${key} must be an ISO timestamp with an explicit UTC offset.`);
+  }
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp) || timestamp <= Date.now()) {
+    throw new Error(`${key} must be in the future.`);
+  }
+  return value;
+}
+
 function plainObject(data: unknown, key: string): Record<string, unknown> {
   const value = field(data, key);
   if (value === undefined || value === null) return {};
@@ -1012,6 +1025,7 @@ export const createApiTokenFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => ({
     userId: requiredId(data, "userId"),
     name: requiredName(data, "name"),
+    expiresAt: optionalFutureUtc(data, "expiresAt"),
   }))
   .handler(
     async ({ data }): Promise<AtlasResult<{ token: ApiTokenView; apiToken: string }>> =>

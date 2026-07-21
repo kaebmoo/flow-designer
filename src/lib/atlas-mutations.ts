@@ -441,7 +441,7 @@ export function useRevokeApiToken() {
  */
 export async function mintApiToken(
   queryClient: { invalidateQueries: (filters: { queryKey: QueryKey }) => Promise<unknown> },
-  data: { userId: string; name: string },
+  data: { userId: string; name: string; expiresAt?: string },
   mint: typeof createApiTokenFn = createApiTokenFn,
 ): Promise<{ token: ApiTokenView; apiToken: string }> {
   const result = unwrapMutation(await mint({ data }));
@@ -456,5 +456,6 @@ export async function mintApiToken(
 
 export function useMintApiToken() {
   const queryClient = useQueryClient();
-  return (data: { userId: string; name: string }) => mintApiToken(queryClient, data);
+  return (data: { userId: string; name: string; expiresAt?: string }) =>
+    mintApiToken(queryClient, data);
 }

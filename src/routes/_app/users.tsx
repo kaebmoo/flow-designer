@@ -65,6 +65,8 @@ export const Route = createFileRoute("/_app/users")({
 function UsersPage() {
   const identity = appRoute.useLoaderData();
   const currentUsername = identity.status === "authenticated" ? identity.identity.username : null;
+  const currentSessionTokenId =
+    identity.status === "authenticated" ? identity.identity.sessionTokenId : undefined;
 
   const users = useQuery(usersQuery());
   const tokens = useQuery(apiTokensQuery());
@@ -241,14 +243,36 @@ function UsersPage() {
                 ),
               },
               {
+                key: "purpose",
+                header: "Purpose",
+                render: (token: ApiTokenView) => (
+                  <span className="font-mono text-xs uppercase">
+                    {token.purpose}
+                    {token.id === currentSessionTokenId ? (
+                      <span data-testid="current-session-token" className="ml-2 text-primary">
+                        current session
+                      </span>
+                    ) : null}
+                  </span>
+                ),
+              },
+              {
                 key: "status",
                 header: "Status",
-                render: (token: ApiTokenView) =>
-                  token.revoked ? (
-                    <StatusPill tone="muted">revoked</StatusPill>
-                  ) : (
-                    <StatusPill tone="success">active</StatusPill>
-                  ),
+                render: (token: ApiTokenView) => (
+                  <StatusPill tone={token.lifecycle === "active" ? "success" : "muted"}>
+                    {token.lifecycle}
+                  </StatusPill>
+                ),
+              },
+              {
+                key: "expiresAt",
+                header: "Expires",
+                render: (token: ApiTokenView) => (
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {token.expiresAt ?? "never"}
+                  </span>
+                ),
               },
               {
                 key: "lastUsedAt",
@@ -301,8 +325,8 @@ function UsersPage() {
           <p className="mt-4 text-xs text-muted-foreground">
             Atlas stores only a hash of each token, so a token's value is shown exactly once — at
             mint time. Revocation is permanent and keeps the row for the audit trail. Note that
-            signing in to this UI also mints a &ldquo;dashboard login&rdquo; token per session;
-            those are revoked on sign-out.
+            signing in to this UI also mints a session token per session; Atlas can revoke it on
+            sign-out, expiry, or when the five-session cap evicts the oldest session.
           </p>
         </section>
       </div>
@@ -559,6 +583,7 @@ function MintTokenDialog({ users, onClose }: { users: UserAdminView[]; onClose: 
   const mint = useMintApiToken();
   const [userId, setUserId] = useState(users[0]?.id ?? "");
   const [name, setName] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<AtlasMutationError | null>(null);
   /** The one-time raw token. Transient component state only; cleared when the dialog closes. */
@@ -570,7 +595,11 @@ function MintTokenDialog({ users, onClose }: { users: UserAdminView[]; onClose: 
     setPending(true);
     setError(null);
     try {
-      const result = await mint({ userId, name: name.trim() });
+      const result = await mint({
+        userId,
+        name: name.trim(),
+        ...(expiresAt ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
+      });
       setMinted(result.apiToken);
     } catch (thrown) {
       setError(
@@ -663,6 +692,18 @@ function MintTokenDialog({ users, onClose }: { users: UserAdminView[]; onClose: 
                 className="mt-1"
                 autoFocus
               />
+            </div>
+            <div>
+              <Label htmlFor="token-expires">Expiry (optional)</Label>
+              <Input
+                id="token-expires"
+                type="datetime-local"
+                value={expiresAt}
+                onChange={(event) => setExpiresAt(event.target.value)}
+                min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                className="mt-1"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">Submitted to Atlas as UTC.</p>
             </div>
             <MutationErrorText error={error} />
             <DialogFooter>

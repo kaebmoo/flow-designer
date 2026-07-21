@@ -10,6 +10,8 @@
 
 import { AlertTriangle, Loader2, Lock, SearchX } from "lucide-react";
 import type { ReactNode } from "react";
+import { useEffect } from "react";
+import { useRouter } from "@tanstack/react-router";
 
 import { describeAtlasError, type ClientAtlasError } from "@/lib/atlas-mappers";
 
@@ -131,6 +133,14 @@ export function AtlasErrorState({
   error: ClientAtlasError;
   onRetry?: () => void;
 }) {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (error.kind === "unauthorized") {
+      void router.navigate({ to: "/auth" });
+    }
+  }, [error.kind, router]);
+
   if (error.kind === "forbidden") {
     return <ForbiddenState description={error.message} />;
   }

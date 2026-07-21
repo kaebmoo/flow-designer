@@ -106,9 +106,22 @@ describe("toApiTokenView", () => {
   it("maps metadata and derives revoked from revoked_at", () => {
     const live = toApiTokenView(tokenRow);
     expect(live.revoked).toBe(false);
+    expect(live.lifecycle).toBe("active");
     const revoked = toApiTokenView({ ...tokenRow, revoked_at: "2026-07-21T08:00:00Z" });
     expect(revoked.revoked).toBe(true);
     expect(revoked.revokedAt).toBe("2026-07-21 08:00:00 UTC");
+    expect(revoked.lifecycle).toBe("revoked");
+  });
+
+  it("derives expiry without inferring session purpose from the display name", () => {
+    const expired = toApiTokenView({
+      ...tokenRow,
+      name: "dashboard session",
+      purpose: "api",
+      expires_at: "2020-01-01T00:00:00Z",
+    });
+    expect(expired.lifecycle).toBe("expired");
+    expect(expired.purpose).toBe("api");
   });
 
   it("labels an unnamed token", () => {

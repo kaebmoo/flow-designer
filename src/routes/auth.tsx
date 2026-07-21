@@ -33,6 +33,7 @@ function AuthPage() {
   const queryClient = useQueryClient();
 
   const [submitting, setSubmitting] = useState(false);
+  const [retrySeconds, setRetrySeconds] = useState(0);
   const [error, setError] = useState<ClientAtlasError | null>(loaderError);
 
   /**
@@ -44,6 +45,14 @@ function AuthPage() {
    */
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
+  useEffect(() => {
+    if (retrySeconds <= 0) return;
+    const timer = window.setInterval(
+      () => setRetrySeconds((current) => Math.max(0, current - 1)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [retrySeconds]);
 
   /**
    * The fields are deliberately uncontrolled, and the values are read from the DOM at submit
@@ -59,7 +68,7 @@ function AuthPage() {
    */
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || retrySeconds > 0) return;
 
     const form = event.currentTarget;
     const formData = new FormData(form);
@@ -79,6 +88,10 @@ function AuthPage() {
       const result = await loginFn({ data: { username, password } });
       if (!result.ok) {
         setError(result.error);
+        if (result.error.kind === "rate_limited") {
+          setRetrySeconds(result.error.retryAfterSeconds ?? 0);
+          form.reset();
+        }
         return;
       }
       // Drop the credentials from the DOM as soon as they are no longer needed.
@@ -93,6 +106,7 @@ function AuthPage() {
        * too, but this path also covers a session that simply expired.
        */
       queryClient.clear();
+      setRetrySeconds(0);
       await router.invalidate();
       await router.navigate({ to: "/dashboard" });
     } catch {
@@ -112,9 +126,11 @@ function AuthPage() {
       ? null
       : error.kind === "unauthorized"
         ? "Incorrect username or password."
-        : error.kind === "network" || error.kind === "timeout"
-          ? "Atlas is unreachable right now. Try again in a moment."
-          : error.message;
+        : error.kind === "rate_limited"
+          ? `Atlas is rate limiting login attempts. Try again in ${Math.max(0, retrySeconds)} second${retrySeconds === 1 ? "" : "s"}.`
+          : error.kind === "network" || error.kind === "timeout"
+            ? "Atlas is unreachable right now. Try again in a moment."
+            : error.message;
 
   return (
     <div className="atlas-grid flex min-h-screen items-center justify-center bg-background px-4 py-12">
@@ -160,7 +176,7 @@ function AuthPage() {
                 autoComplete="username"
                 autoFocus
                 required
-                disabled={submitting}
+                disabled={submitting || retrySeconds > 0}
                 aria-invalid={message !== null}
                 aria-describedby={message !== null ? "auth-error" : undefined}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60"
@@ -180,7 +196,7 @@ function AuthPage() {
                 type="password"
                 autoComplete="current-password"
                 required
-                disabled={submitting}
+                disabled={submitting || retrySeconds > 0}
                 aria-invalid={message !== null}
                 aria-describedby={message !== null ? "auth-error" : undefined}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60"
@@ -200,7 +216,7 @@ function AuthPage() {
 
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || retrySeconds > 0}
             className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? (
@@ -208,6 +224,8 @@ function AuthPage() {
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 Signing in
               </>
+            ) : retrySeconds > 0 ? (
+              `Try again in ${retrySeconds}s`
             ) : (
               "Sign in"
             )}

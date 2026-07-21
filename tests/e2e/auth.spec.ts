@@ -61,6 +61,41 @@ test("bad credentials render an inline error and do not sign the user in", async
   await expect(page).toHaveURL(/\/auth$/);
 });
 
+test("login rate limiting disables submit, counts down, and clears the password", async ({
+  page,
+}) => {
+  await gotoAuthHydrated(page);
+  await page.getByLabel("Username").fill("rate-limited-browser");
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await page.getByLabel("Password").fill("not-the-password");
+    await page.getByRole("button", { name: /sign in|try again/i }).click();
+    if (attempt < 4) {
+      await expect(page.getByRole("alert")).toContainText(/incorrect username or password/i);
+    }
+  }
+
+  await expect(page.getByRole("alert")).toContainText(/try again in \d+ second/i);
+  await expect(page.getByRole("button", { name: /try again in/i })).toBeDisabled();
+  await expect(page.getByLabel("Password")).toHaveValue("");
+});
+
+test("the five-minute session warning is accessible and remains a warning", async ({ page }) => {
+  // Atlas issues an eight-hour session. Move only the browser clock close to its expiry so the
+  // real session metadata crosses the warning boundary without shortening the shared fixture.
+  await page.addInitScript(() => {
+    const realNow = Date.now;
+    Date.now = () => realNow() + (7 * 60 + 56) * 60 * 1000;
+  });
+  await signIn(page, ADMIN_CREDENTIALS);
+
+  const warning = page.getByTestId("session-warning");
+  await expect(warning).toBeVisible();
+  await expect(warning).toHaveAttribute("role", "status");
+  await expect(warning).toHaveAttribute("aria-live", "polite");
+  await expect(warning).toContainText(/session expires/i);
+});
+
 test("the session survives a full page reload", async ({ page }) => {
   await signIn(page, ADMIN_CREDENTIALS);
   await expect(page).toHaveURL(/\/dashboard$/);

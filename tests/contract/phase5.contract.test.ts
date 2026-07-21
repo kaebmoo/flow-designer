@@ -540,9 +540,12 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
       const created = await atlasCreateApiToken(adminToken, {
         userId: viewer.id,
         name: "contract token",
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       });
       expect(created.api_token.length).toBeGreaterThan(10);
       expect("token_hash" in created.token).toBe(false);
+      expect(created.token.purpose).toBe("api");
+      expect(Date.parse(created.token.expires_at ?? "")).toBeGreaterThan(Date.now());
 
       // The raw value is a real bearer.
       const me = await rawRequest("GET", "/api/me", created.api_token);
