@@ -59,12 +59,33 @@ interface AtlasRunDetail {
   }>;
 }
 
+interface AtlasRunEventPage {
+  events: Array<{ seq: number }>;
+  after: number;
+  next_after: number | null;
+  has_more: boolean;
+}
+
 async function atlasRun(request: APIRequestContext, runId: string): Promise<AtlasRunDetail> {
   const response = await request.get(`${seedIds().atlasOrigin}/api/workflow-runs/${runId}`, {
     headers: atlasHeaders(),
   });
   expect(response.status()).toBe(200);
   return (await response.json()) as AtlasRunDetail;
+}
+
+async function atlasRunEvents(
+  request: APIRequestContext,
+  runId: string,
+  after: number,
+  limit: number,
+): Promise<AtlasRunEventPage> {
+  const response = await request.get(
+    `${seedIds().atlasOrigin}/api/workflow-runs/${runId}/events?after=${after}&limit=${limit}`,
+    { headers: atlasHeaders() },
+  );
+  expect(response.status()).toBe(200);
+  return (await response.json()) as AtlasRunEventPage;
 }
 
 /**
@@ -168,6 +189,50 @@ async function branchingGateRun(request: APIRequestContext): Promise<string> {
   return startParkedRun(request, workflowId);
 }
 
+/**
+ * Walks six real human-gate transitions. Each produces node, approval, edge, and completion
+ * history, so the resulting persisted history is safely larger than a 25-row cursor page.
+ */
+async function pagedHistoryRun(request: APIRequestContext): Promise<string> {
+  workflowCounter += 1;
+  const gates = Array.from({ length: 6 }, (_, index) => ({
+    id: `gate_${index + 1}`,
+    type: "human_gate",
+    label: `Gate ${index + 1}`,
+  }));
+  const edges = gates.slice(0, -1).map((gate, index) => ({
+    from: gate.id,
+    to: gates[index + 1]!.id,
+    condition: { type: "always" },
+  }));
+  const workflowId = await createWorkflow(request, `E2E paged history ${workflowCounter}`, {
+    start: gates[0]!.id,
+    nodes: gates,
+    edges,
+  });
+  const runId = await startParkedRun(request, workflowId);
+
+  for (let index = 0; index < gates.length; index += 1) {
+    const detail = await untilRun(request, runId, `pending ${gates[index]!.id}`, (run) =>
+      run.approvals.some(
+        (approval) => approval.node_key === gates[index]!.id && approval.state === "pending",
+      ),
+    );
+    const approval = detail.approvals.find(
+      (item) => item.node_key === gates[index]!.id && item.state === "pending",
+    );
+    expect(approval).toBeDefined();
+    const response = await request.post(
+      `${seedIds().atlasOrigin}/api/approvals/${approval!.id}/approve`,
+      { headers: atlasHeaders(), data: {} },
+    );
+    expect(response.status()).toBe(202);
+  }
+
+  await untilRun(request, runId, "succeeded", (detail) => detail.run.state === "succeeded");
+  return runId;
+}
+
 async function signIn(page: Page) {
   await page.goto("/auth");
   await page.locator('form[data-hydrated="true"]').waitFor({ state: "attached" });
@@ -207,6 +272,59 @@ test.describe("run detail", () => {
     await expect(approvals).toContainText("Sign off");
     await expect(approvals.getByRole("button", { name: "Approve" })).toBeVisible();
     await expect(approvals.getByRole("button", { name: "Reject" })).toBeVisible();
+  });
+
+  test("cursor event history reveals rows incrementally and keeps them while loading the next page", async ({
+    page,
+    request,
+  }) => {
+    const runId = await pagedHistoryRun(request);
+    const firstPage = await atlasRunEvents(request, runId, 0, 25);
+    expect(firstPage.events).toHaveLength(25);
+    expect(firstPage.has_more).toBe(true);
+    expect(firstPage.next_after).toBe(firstPage.events.at(-1)?.seq);
+
+    await openRun(page, runId);
+    const history = section(page, /^Run events$/);
+    const rows = history.locator("tbody tr");
+
+    // The server's 500-row window is only a memory cap. The DOM begins at PAGE_STEP rows.
+    await expect(rows).toHaveCount(25);
+    await history.getByRole("button", { name: "Show 6 more events" }).click();
+    await expect(rows).toHaveCount(31);
+
+    // Choose a 25-row cursor page, then hold the real server-function request before it reaches
+    // Atlas. This makes the intermediate loading state deterministic without substituting data.
+    await history.getByRole("button", { name: "25", exact: true }).click();
+    await expect(rows).toHaveCount(25);
+    const loadMore = history.getByRole("button", { name: "Load more events" });
+    await expect(loadMore).toBeVisible();
+
+    let releaseRequest: (() => void) | undefined;
+    const requestHeld = new Promise<void>((resolve) => {
+      void page.route("**/_serverFn/**", async (route) => {
+        const encoded = new URL(route.request().url()).pathname.split("/_serverFn/")[1] ?? "";
+        const functionName = Buffer.from(encoded, "base64").toString();
+        if (functionName.includes("listRunEventsFn")) {
+          resolve();
+          await new Promise<void>((release) => {
+            releaseRequest = release;
+          });
+        }
+        await route.continue();
+      });
+    });
+
+    await loadMore.click();
+    await requestHeld;
+    await expect(rows).toHaveCount(25);
+    await expect(history.getByText("Loading run events")).toHaveCount(0);
+
+    releaseRequest?.();
+    await expect(loadMore).toHaveCount(0);
+    await expect(rows).toHaveCount(25);
+    await history.getByRole("button", { name: "Show 6 more events" }).click();
+    await expect(rows).toHaveCount(31);
   });
 
   /**

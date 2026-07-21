@@ -7,7 +7,7 @@
  * error handling stay identical everywhere the same data is read.
  */
 
-import { queryOptions } from "@tanstack/react-query";
+import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 
 import { isClientAtlasError, type ClientAtlasError } from "./atlas-mappers";
 import {
@@ -238,6 +238,9 @@ export function runEventsQuery(runId: string, params: { limit: number; after: nu
           signal,
         }),
       ),
+    // Cursor pages have distinct keys. Keep the completed page visible while the next exclusive
+    // cursor fetch is in flight, so loading another page appends instead of blanking the table.
+    placeholderData: keepPreviousData,
     ...shared,
   });
 }

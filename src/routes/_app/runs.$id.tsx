@@ -974,11 +974,13 @@ function DeliveriesSection({ run }: { run: RunView }) {
 function EventsSection({ runId }: { runId: string }) {
   const [eventWindow, setEventWindow] = useState<number>(500);
   const [after, setAfter] = useState(0);
+  const [shown, setShown] = useState(PAGE_STEP);
   const [history, setHistory] = useState(EMPTY_RUN_EVENT_HISTORY);
   const events = useQuery(runEventsQuery(runId, { limit: eventWindow, after }));
 
   useEffect(() => {
     setAfter(0);
+    setShown(PAGE_STEP);
     setHistory(EMPTY_RUN_EVENT_HISTORY);
   }, [runId, eventWindow]);
 
@@ -996,7 +998,7 @@ function EventsSection({ runId }: { runId: string }) {
     () => [...history.events].sort((a, b) => b.seq - a.seq),
     [history.events],
   );
-  const rows = newestFirst;
+  const rows = newestFirst.slice(0, shown);
   const hasMore = events.data?.hasMore ?? false;
 
   return (
@@ -1026,7 +1028,7 @@ function EventsSection({ runId }: { runId: string }) {
         Run events
       </SectionHeading>
 
-      {events.isPending ? (
+      {events.isPending && history.events.length === 0 ? (
         <SectionLoading label="Loading run events" />
       ) : events.isError ? (
         <SectionError error={events.error} onRetry={() => void events.refetch()} />
@@ -1083,13 +1085,19 @@ function EventsSection({ runId }: { runId: string }) {
             ]}
           />
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Showing {rows.length} loaded events, newest first. Atlas pages this history with an
-            exclusive sequence cursor;{" "}
+            Showing {rows.length} of {history.events.length} loaded events, newest first. Atlas
+            pages this history with an exclusive sequence cursor;{" "}
             {hasMore ? "load more to continue." : "the full history is loaded."}
             {history.dropped > 0
               ? ` Older rows are outside the ${RUN_EVENT_HISTORY_CAP}-event UI cap.`
               : ""}
           </p>
+          <ShowMore
+            shown={rows.length}
+            total={newestFirst.length}
+            noun="events"
+            onShowMore={() => setShown((current) => current + PAGE_STEP)}
+          />
           {hasMore ? (
             <button
               type="button"
