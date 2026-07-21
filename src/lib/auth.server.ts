@@ -12,8 +12,8 @@
 
 import { useSession } from "@tanstack/react-start/server";
 
-import { AtlasError, atlasGetMe, atlasLogin, atlasLogout } from "./atlas-api.server";
-import type { AtlasRole, AtlasUser } from "./atlas-types";
+import { AtlasError, atlasGetMeResponse, atlasLogin, atlasLogout } from "./atlas-api.server";
+import type { AtlasRole, AtlasSession, AtlasUser } from "./atlas-types";
 import { getServerEnv } from "./env.server";
 
 /** Host-only cookie name. Distinct from Start's default `start` so its purpose is legible. */
@@ -31,6 +31,8 @@ export interface FlowDesignerSessionData {
   userId: string | null;
   username: string;
   role: AtlasRole;
+  sessionTokenId?: string;
+  sessionExpiresAt?: string;
   [key: string]: unknown;
 }
 
@@ -77,12 +79,19 @@ export async function clearSession(): Promise<void> {
   await session.clear();
 }
 
-function toSessionData(token: string, user: AtlasUser): FlowDesignerSessionData {
+export type AuthIdentity = AtlasUser & { session?: AtlasSession };
+
+function toSessionData(
+  token: string,
+  user: AtlasUser,
+  session?: AtlasSession,
+): FlowDesignerSessionData {
   return {
     atlasToken: token,
     userId: user.id,
     username: user.username,
     role: user.role,
+    ...(session ? { sessionTokenId: session.token_id, sessionExpiresAt: session.expires_at } : {}),
   };
 }
 
@@ -110,8 +119,8 @@ export async function requireAtlasToken(): Promise<string> {
 export async function loginWithAtlas(credentials: {
   username: string;
   password: string;
-}): Promise<AtlasUser> {
-  const { token, user } = await atlasLogin(credentials);
+}): Promise<AuthIdentity> {
+  const { token, user, session: atlasSession } = await atlasLogin(credentials);
   const session = await getSession();
 
   /**
@@ -124,8 +133,8 @@ export async function loginWithAtlas(credentials: {
    * anonymous page load instead of to sign-in.
    */
   await session.clear();
-  await session.update(toSessionData(token, user));
-  return user;
+  await session.update(toSessionData(token, user, atlasSession));
+  return { ...user, ...(atlasSession ? { session: atlasSession } : {}) };
 }
 
 /**
@@ -135,12 +144,13 @@ export async function loginWithAtlas(credentials: {
  * revoked token takes effect on the next request. A 401 means the bearer is gone (expired,
  * revoked, or logged out elsewhere), so the local session is cleared to match.
  */
-export async function currentIdentity(): Promise<AtlasUser | null> {
+export async function currentIdentity(): Promise<AuthIdentity | null> {
   const session = await readSession();
   if (!session) return null;
 
   try {
-    return await atlasGetMe(session.atlasToken);
+    const response = await atlasGetMeResponse(session.atlasToken);
+    return { ...response.user, ...(response.session ? { session: response.session } : {}) };
   } catch (error) {
     if (error instanceof AtlasError && error.kind === "unauthorized") {
       await clearSession();

@@ -977,7 +977,7 @@ function EventsSection({ runId }: { runId: string }) {
   const events = useQuery(runEventsQuery(runId, { limit: eventWindow }));
 
   const newestFirst = useMemo(
-    () => [...(events.data ?? [])].sort((a, b) => b.seq - a.seq),
+    () => [...(events.data?.events ?? [])].sort((a, b) => b.seq - a.seq),
     [events.data],
   );
   const rows = newestFirst.slice(0, shown);

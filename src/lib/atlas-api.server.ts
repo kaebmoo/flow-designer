@@ -18,7 +18,11 @@
 import {
   isAtlasRowEnvelope,
   isAtlasRowListEnvelope,
+  isAtlasApiToken,
+  isAtlasSession,
   isAtlasUser,
+  isAtlasWorkflowDefaultReply,
+  isAtlasWorkflowEventPage,
   readAtlasErrorMessage,
   type AtlasApiToken,
   type AtlasApproval,
@@ -41,7 +45,7 @@ import {
   type AtlasUserRow,
   type AtlasWorker,
   type AtlasWorkflowDefinition,
-  type AtlasWorkflowEvent,
+  type AtlasWorkflowEventPage,
   type AtlasWorkflowRun,
   type AtlasWorkflowRunDetail,
   type AtlasWorkflowTrigger,
@@ -53,6 +57,7 @@ import { getServerEnv } from "./env.server";
 
 /** Atlas is on a private network; 10s is generous for it and still bounds a hung socket. */
 export const DEFAULT_ATLAS_TIMEOUT_MS = 10_000;
+export const MAX_RETRY_AFTER_SECONDS = 3_600;
 
 export class AtlasError extends Error {
   readonly kind: AtlasErrorKind;
@@ -60,17 +65,25 @@ export class AtlasError extends Error {
   readonly status?: number;
   /** True when Atlas's own `{"error": "..."}` text produced this message. */
   readonly fromAtlas: boolean;
+  /** Safe delta-seconds value from a 429 Retry-After header, when valid and bounded. */
+  readonly retryAfterSeconds?: number;
 
   constructor(
     kind: AtlasErrorKind,
     message: string,
-    options: { status?: number; fromAtlas?: boolean; cause?: unknown } = {},
+    options: {
+      status?: number;
+      fromAtlas?: boolean;
+      retryAfterSeconds?: number;
+      cause?: unknown;
+    } = {},
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "AtlasError";
     this.kind = kind;
     this.status = options.status;
     this.fromAtlas = options.fromAtlas ?? false;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 
@@ -118,6 +131,15 @@ function defaultMessageForKind(kind: AtlasErrorKind): string {
   }
 }
 
+/** Atlas uses delta-seconds for login backoff; reject dates, decimals, negatives, and huge values. */
+export function parseRetryAfterSeconds(value: string | null): number | undefined {
+  if (value === null || !/^\d+$/.test(value.trim())) return undefined;
+  const seconds = Number(value.trim());
+  return Number.isSafeInteger(seconds) && seconds > 0 && seconds <= MAX_RETRY_AFTER_SECONDS
+    ? seconds
+    : undefined;
+}
+
 interface AtlasRequestOptions {
   method: "GET" | "POST" | "PUT" | "DELETE";
   path: `/api/${string}`;
@@ -157,30 +179,10 @@ async function atlasRequest(options: AtlasRequestOptions): Promise<unknown> {
 
   // Atlas reads bodies by Content-Length, so a POST/PUT always carries an explicit JSON body —
   // `{}` when there is nothing to send — rather than no body at all. DELETE carries none,
-  // which is also why it needs no desync workaround: there are no leftover bytes to strand.
+  // which is also why it needs no request-body handling on the client.
   const hasBody = options.method === "POST" || options.method === "PUT";
   if (hasBody) {
     headers["content-type"] = "application/json";
-    /**
-     * Works around an Atlas connection-desync bug (docs/ATLAS_LIMITATIONS.md).
-     *
-     * Atlas speaks HTTP/1.1 with keep-alive (`atlas/app.py:156`) but answers 401/403 *before*
-     * reading the request body (`atlas/app.py:237-242`). The undrained body then sits in the
-     * socket, so the next request reused on that connection is parsed starting at the leftover
-     * bytes and comes back as a 501 HTML page — corrupting an unrelated later request rather
-     * than the rejected one. Reproduced against Atlas 595ef62; closing the connection after
-     * every POST removes it entirely.
-     *
-     * Phase 3 widened the exposure rather than narrowing it: several mutation routes never
-     * read the body **on the success path** either — `pause`, `cancel`, `deliver`, `approve`,
-     * `reject`, and `delivery retry` all skip `_read_json()` (`atlas/app.py:718-751, 839-843`)
-     * — so the `{}` this client must send by Content-Length is stranded on a *200*, not only
-     * on a rejection. The same header covers both.
-     *
-     * ponytail: costs one TCP handshake per mutation on a private network. Drop this header
-     * once Atlas drains the request body on its rejection paths.
-     */
-    headers.connection = "close";
   }
 
   let search = "";
@@ -238,6 +240,10 @@ async function atlasRequest(options: AtlasRequestOptions): Promise<unknown> {
     throw new AtlasError(kind, atlasMessage ?? defaultMessageForKind(kind), {
       status: response.status,
       fromAtlas: atlasMessage !== undefined,
+      retryAfterSeconds:
+        kind === "rate_limited"
+          ? parseRetryAfterSeconds(response.headers.get("retry-after"))
+          : undefined,
     });
   }
 
@@ -266,6 +272,17 @@ function hasUser(payload: unknown): boolean {
   );
 }
 
+function hasWorkflow(payload: unknown): boolean {
+  if (!isAtlasRowEnvelope(payload, "workflow")) return false;
+  const workflow = (payload as { workflow: Record<string, unknown> }).workflow;
+  return (
+    (workflow.default_reply === undefined || isAtlasWorkflowDefaultReply(workflow.default_reply)) &&
+    typeof workflow.version === "number" &&
+    Number.isInteger(workflow.version) &&
+    workflow.version >= 1
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Typed, fixed Atlas operations. Phase 1 exposes authentication only.
 // ---------------------------------------------------------------------------
@@ -281,9 +298,7 @@ export interface AtlasCallOptions {
 /**
  * `POST /api/auth/login`.
  *
- * Unauthenticated by definition — this is where a bearer is obtained. Atlas mints a fresh
- * `"dashboard login"` token per call and never expires it; see docs/ATLAS_LIMITATIONS.md,
- * where token lifecycle remains a production-release blocker.
+ * Unauthenticated by definition — this is where a bearer and public session metadata are obtained.
  */
 export async function atlasLogin(
   credentials: { username: string; password: string },
@@ -301,7 +316,9 @@ export async function atlasLogin(
     (value) =>
       hasUser(value) &&
       typeof (value as Record<string, unknown>).token === "string" &&
-      ((value as Record<string, unknown>).token as string).length > 0,
+      ((value as Record<string, unknown>).token as string).length > 0 &&
+      ((value as Record<string, unknown>).session === undefined ||
+        isAtlasSession((value as Record<string, unknown>).session)),
   );
 }
 
@@ -311,10 +328,10 @@ export async function atlasLogin(
  * Throws `AtlasError("unauthorized")` when the token is missing, invalid, expired, or
  * revoked (Atlas returns 401 for all four).
  */
-export async function atlasGetMe(
+export async function atlasGetMeResponse(
   token: string,
   options: AtlasCallOptions = {},
-): Promise<AtlasUser> {
+): Promise<AtlasMeResponse> {
   const payload = await atlasRequest({
     method: "GET",
     path: "/api/me",
@@ -322,7 +339,20 @@ export async function atlasGetMe(
     ...options,
   });
 
-  return expectShape<AtlasMeResponse>(payload, hasUser).user;
+  return expectShape<AtlasMeResponse>(
+    payload,
+    (value) =>
+      hasUser(value) &&
+      ((value as Record<string, unknown>).session === undefined ||
+        isAtlasSession((value as Record<string, unknown>).session)),
+  );
+}
+
+export async function atlasGetMe(
+  token: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasUser> {
+  return (await atlasGetMeResponse(token, options)).user;
 }
 
 /**
@@ -490,9 +520,7 @@ export async function atlasGetWorkflow(
     ...options,
   });
 
-  return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, (value) =>
-    isAtlasRowEnvelope(value, "workflow"),
-  ).workflow;
+  return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, hasWorkflow).workflow;
 }
 
 /**
@@ -688,10 +716,10 @@ export async function atlasGetArtifact(
 }
 
 /**
- * `GET /api/workflow-runs/{id}/events?limit=` — persisted run history.
+ * `GET /api/workflow-runs/{id}/events?after=&limit=` — persisted run history.
  *
- * Not SSE and not resumable: there is no `after` cursor, only `limit` (default 500). Live
- * progress is Phase 4's per-job SSE; this is the durable record that survives a reload.
+ * The response is a sequence-cursor page. Live progress remains Phase 4's per-job SSE; this is
+ * the durable record that survives a reload.
  *
  * These rows carry an integer `id`, so the row-envelope guards that require a string id do not
  * apply and the shape is checked directly.
@@ -699,24 +727,18 @@ export async function atlasGetArtifact(
 export async function atlasListRunEvents(
   token: string,
   runId: string,
-  params: { limit?: number } = {},
+  params: { limit?: number; after?: number } = {},
   options: AtlasCallOptions = {},
-): Promise<AtlasWorkflowEvent[]> {
+): Promise<AtlasWorkflowEventPage> {
   const payload = await atlasRequest({
     method: "GET",
     path: `/api/workflow-runs/${encodeURIComponent(runId)}/events`,
     token,
-    query: { limit: clampAtlasLimit(params.limit) },
+    query: { limit: clampAtlasLimit(params.limit), after: params.after ?? 0 },
     ...options,
   });
 
-  return expectShape<{ events: AtlasWorkflowEvent[] }>(
-    payload,
-    (value) =>
-      value !== null &&
-      typeof value === "object" &&
-      Array.isArray((value as Record<string, unknown>).events),
-  ).events;
+  return expectShape<AtlasWorkflowEventPage>(payload, isAtlasWorkflowEventPage);
 }
 
 /** `GET /api/workflow-triggers?limit=&workflow_definition_id=`. */
@@ -755,6 +777,8 @@ export interface AtlasWorkflowWrite {
   description?: string;
   graph: Record<string, unknown>;
   policy: Record<string, unknown>;
+  default_reply?: Record<string, unknown> | null;
+  expected_version?: number;
 }
 
 /**
@@ -779,13 +803,12 @@ export async function atlasCreateWorkflow(
       description: workflow.description ?? "",
       graph: workflow.graph,
       policy: workflow.policy,
+      ...(workflow.default_reply === undefined ? {} : { default_reply: workflow.default_reply }),
     },
     ...options,
   });
 
-  return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, (value) =>
-    isAtlasRowEnvelope(value, "workflow"),
-  ).workflow;
+  return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, hasWorkflow).workflow;
 }
 
 /**
@@ -794,11 +817,8 @@ export async function atlasCreateWorkflow(
  * Atlas re-validates the merged graph and policy, then persists whichever keys the body
  * carries (`atlas/app.py:592-599`).
  *
- * `version` is deliberately **not** sent. It is a client-controlled column that Atlas never
- * increments on its own (`atlas/db.py:1102-1123`), so it is not a concurrency token and
- * bumping it on every save would only invalidate the locally stored layout, which is keyed by
- * it. Atlas offers no ETag and no `If-Match`, so the lost-update guard lives in the caller and
- * compares the server-set `updated_at` instead.
+ * `expected_version` is the only concurrency precondition. Atlas increments its server version
+ * exactly once on a matching save and rejects a stale write with 409; `version` is never sent.
  */
 export async function atlasUpdateWorkflow(
   token: string,
@@ -815,13 +835,15 @@ export async function atlasUpdateWorkflow(
       description: workflow.description ?? "",
       graph: workflow.graph,
       policy: workflow.policy,
+      ...(workflow.default_reply === undefined ? {} : { default_reply: workflow.default_reply }),
+      ...(workflow.expected_version === undefined
+        ? {}
+        : { expected_version: workflow.expected_version }),
     },
     ...options,
   });
 
-  return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, (value) =>
-    isAtlasRowEnvelope(value, "workflow"),
-  ).workflow;
+  return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, hasWorkflow).workflow;
 }
 
 /** `DELETE /api/workflows/{id}` — 200 `{"deleted": true}`; 404 when it was already gone. */
@@ -1614,8 +1636,13 @@ export async function atlasListApiTokens(
     ...options,
   });
 
-  return expectShape<{ tokens: AtlasApiToken[] }>(payload, (value) =>
-    isAtlasRowListEnvelope(value, "tokens"),
+  return expectShape<{ tokens: AtlasApiToken[] }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      Array.isArray((value as Record<string, unknown>).tokens) &&
+      ((value as Record<string, unknown>).tokens as unknown[]).every(isAtlasApiToken),
   ).tokens;
 }
 
@@ -1628,14 +1655,18 @@ export async function atlasListApiTokens(
  */
 export async function atlasCreateApiToken(
   token: string,
-  params: { userId: string; name: string },
+  params: { userId: string; name: string; expiresAt?: string | null },
   options: AtlasCallOptions = {},
 ): Promise<AtlasTokenCreated> {
   const payload = await atlasRequest({
     method: "POST",
     path: "/api/tokens",
     token,
-    body: { user_id: params.userId, name: params.name },
+    body: {
+      user_id: params.userId,
+      name: params.name,
+      ...(params.expiresAt === undefined ? {} : { expires_at: params.expiresAt }),
+    },
     ...options,
   });
 
@@ -1643,6 +1674,7 @@ export async function atlasCreateApiToken(
     payload,
     (value) =>
       isAtlasRowEnvelope(value, "token") &&
+      isAtlasApiToken((value as Record<string, unknown>).token) &&
       typeof (value as Record<string, unknown>).api_token === "string" &&
       ((value as Record<string, unknown>).api_token as string).length > 0,
   );
@@ -1663,8 +1695,11 @@ export async function atlasRenameApiToken(
     ...options,
   });
 
-  return expectShape<{ token: AtlasApiToken }>(payload, (value) =>
-    isAtlasRowEnvelope(value, "token"),
+  return expectShape<{ token: AtlasApiToken }>(
+    payload,
+    (value) =>
+      isAtlasRowEnvelope(value, "token") &&
+      isAtlasApiToken((value as Record<string, unknown>).token),
   ).token;
 }
 

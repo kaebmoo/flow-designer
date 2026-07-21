@@ -2,12 +2,12 @@
  * API-facing Atlas types.
  *
  * These mirror what Atlas actually returns (verified against the Atlas checkout at
- * 595ef62), not what would be convenient for the UI. Components consume the view models in
+ * 82207f7), not what would be convenient for the UI. Components consume the view models in
  * `atlas-mappers.ts` instead of these shapes, so an Atlas response change is absorbed in one
  * place. This module is import-safe from client code: it contains types and pure guards only.
  *
  * Phase 2 adds the read-only domain entities. Every field below was read out of the Atlas
- * checkout at `595ef62` (`atlas/db.py` schema + `atlas/app.py` handlers), not out of the
+ * checkout at `82207f7` (`atlas/db.py` schema + `atlas/app.py` handlers), not out of the
  * OpenAPI document — where the two disagree, the code is what ships.
  */
 
@@ -40,11 +40,31 @@ export interface AtlasUser {
 export interface AtlasLoginResponse {
   token: string;
   user: AtlasUser;
+  session?: AtlasSession;
 }
 
 /** `GET /api/me` — 200. */
 export interface AtlasMeResponse {
   user: AtlasUser;
+  session?: AtlasSession;
+}
+
+/** Public dashboard-session metadata; never the bearer secret. */
+export interface AtlasSession {
+  token_id: string;
+  expires_at: string;
+}
+
+export function isAtlasSession(value: unknown): value is AtlasSession {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.token_id === "string" &&
+    candidate.token_id.length > 0 &&
+    typeof candidate.expires_at === "string" &&
+    candidate.expires_at.length > 0 &&
+    !Number.isNaN(Date.parse(candidate.expires_at))
+  );
 }
 
 /** `POST /api/auth/logout` — 200. */
@@ -64,10 +84,8 @@ export interface AtlasErrorBody {
  * Normalised failure kinds. Every Atlas call funnels into exactly one of these so callers
  * branch on a closed union instead of re-deriving meaning from status codes.
  *
- * `conflict` and `rate_limited` are carried because the integration contract requires them,
- * but note: the Atlas build at 595ef62 never emits 409 or 429 — a duplicate username, for
- * example, surfaces as 400. They are kept so a future Atlas can adopt them without a client
- * change, not because they fire today.
+ * `conflict` and `rate_limited` are carried because Atlas `82207f7` emits them for conditional
+ * workflow saves and login backoff respectively.
  */
 export type AtlasErrorKind =
   | "validation" // 400/422 — request rejected
@@ -182,8 +200,38 @@ export interface AtlasWorkflowDefinition {
   status: string;
   graph: AtlasWorkflowGraph;
   policy: Record<string, unknown>;
+  default_reply?: AtlasWorkflowDefaultReply | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AtlasWorkflowDefaultReply {
+  mode?: "webhook" | "none";
+  callback_url?: string | null;
+  correlation_id?: string;
+  [key: string]: unknown;
+}
+
+export function isAtlasWorkflowDefaultReply(
+  value: unknown,
+): value is AtlasWorkflowDefaultReply | null {
+  if (value === null) return true;
+  if (value === undefined || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.mode !== undefined && candidate.mode !== "webhook" && candidate.mode !== "none") {
+    return false;
+  }
+  if (
+    candidate.callback_url !== undefined &&
+    candidate.callback_url !== null &&
+    typeof candidate.callback_url !== "string"
+  ) {
+    return false;
+  }
+  if (candidate.correlation_id !== undefined && typeof candidate.correlation_id !== "string") {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -432,6 +480,46 @@ export interface AtlasWorkflowEvent {
   created_at: string;
 }
 
+export interface AtlasWorkflowEventPage {
+  events: AtlasWorkflowEvent[];
+  after: number;
+  next_after: number;
+  has_more: boolean;
+}
+
+export function isAtlasWorkflowEventPage(value: unknown): value is AtlasWorkflowEventPage {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  if (!Array.isArray(candidate.events) || !candidate.events.every(isAtlasWorkflowEvent))
+    return false;
+  return (
+    isNonNegativeInteger(candidate.after) &&
+    isNonNegativeInteger(candidate.next_after) &&
+    typeof candidate.has_more === "boolean" &&
+    candidate.next_after >= candidate.after
+  );
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function isAtlasWorkflowEvent(value: unknown): value is AtlasWorkflowEvent {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    isNonNegativeInteger(candidate.id) &&
+    typeof candidate.run_id === "string" &&
+    isNonNegativeInteger(candidate.seq) &&
+    typeof candidate.event_type === "string" &&
+    (candidate.node_key === null || typeof candidate.node_key === "string") &&
+    candidate.payload !== null &&
+    typeof candidate.payload === "object" &&
+    !Array.isArray(candidate.payload) &&
+    typeof candidate.created_at === "string"
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Operational-page entities (Phase 5)
 // ---------------------------------------------------------------------------
@@ -490,6 +578,26 @@ export interface AtlasApiToken {
   created_at: string;
   revoked_at: string | null;
   username: string;
+  purpose: "api" | "session";
+  expires_at: string | null;
+}
+
+export function isAtlasApiToken(value: unknown): value is AtlasApiToken {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.user_id === "string" &&
+    typeof candidate.name === "string" &&
+    (candidate.purpose === "api" || candidate.purpose === "session") &&
+    (candidate.expires_at === null ||
+      (typeof candidate.expires_at === "string" &&
+        !Number.isNaN(Date.parse(candidate.expires_at)))) &&
+    (candidate.last_used_at === null || typeof candidate.last_used_at === "string") &&
+    typeof candidate.created_at === "string" &&
+    (candidate.revoked_at === null || typeof candidate.revoked_at === "string") &&
+    typeof candidate.username === "string"
+  );
 }
 
 /**

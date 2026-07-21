@@ -98,6 +98,8 @@ const tokenRow: AtlasApiToken = {
   created_at: "2026-07-01T00:00:00Z",
   revoked_at: null,
   username: "ops-lead",
+  purpose: "api",
+  expires_at: null,
 };
 
 describe("toApiTokenView", () => {
@@ -126,9 +128,12 @@ describe("toApiTokenView", () => {
     expect(serialized).not.toContain("deadbeef");
     expect(Object.keys(view).sort()).toEqual([
       "createdAt",
+      "expiresAt",
       "id",
       "lastUsedAt",
+      "lifecycle",
       "name",
+      "purpose",
       "revoked",
       "revokedAt",
       "userId",

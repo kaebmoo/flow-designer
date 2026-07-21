@@ -28,6 +28,7 @@ import type {
   AtlasJobListRow,
   AtlasMetrics,
   AtlasRole,
+  AtlasSession,
   AtlasRuntimeEdge,
   AtlasRuntimeNode,
   AtlasUsageEvent,
@@ -38,6 +39,7 @@ import type {
   AtlasWorker,
   AtlasWorkflowDefinition,
   AtlasWorkflowEvent,
+  AtlasWorkflowEventPage,
   AtlasWorkflowGraph,
   AtlasWorkflowRun,
   AtlasWorkflowRunDetail,
@@ -55,6 +57,7 @@ import type {
 export interface ClientAtlasError {
   kind: AtlasErrorKind;
   message: string;
+  retryAfterSeconds?: number;
 }
 
 /** Identity for UI rendering. */
@@ -69,6 +72,8 @@ export interface IdentityView {
   role: AtlasRole;
   roleLabel: string;
   initials: string;
+  sessionTokenId?: string;
+  sessionExpiresAt?: string;
 }
 
 const ROLE_LABELS: Record<AtlasRole, string> = {
@@ -82,13 +87,14 @@ export function roleLabel(role: AtlasRole): string {
   return ROLE_LABELS[role];
 }
 
-export function toIdentityView(user: AtlasUser): IdentityView {
+export function toIdentityView(user: AtlasUser, session?: AtlasSession): IdentityView {
   return {
     id: user.id,
     username: user.username,
     role: user.role,
     roleLabel: roleLabel(user.role),
     initials: user.username.slice(0, 2).toUpperCase(),
+    ...(session ? { sessionTokenId: session.token_id, sessionExpiresAt: session.expires_at } : {}),
   };
 }
 
@@ -132,7 +138,18 @@ export function toClientAtlasError(value: unknown): ClientAtlasError {
     if (value.kind === "server") {
       return { kind: "server", message: SERVER_FAILURE_MESSAGE };
     }
-    return { kind: value.kind, message: value.message };
+    const retryAfterSeconds =
+      typeof value.retryAfterSeconds === "number" &&
+      Number.isInteger(value.retryAfterSeconds) &&
+      value.retryAfterSeconds > 0 &&
+      value.retryAfterSeconds <= 3_600
+        ? value.retryAfterSeconds
+        : undefined;
+    return {
+      kind: value.kind,
+      message: value.message,
+      ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+    };
   }
   return { kind: "server", message: SERVER_FAILURE_MESSAGE };
 }
@@ -1122,6 +1139,22 @@ export function toRunEventView(event: AtlasWorkflowEvent): RunEventView {
   };
 }
 
+export interface RunEventPageView {
+  events: RunEventView[];
+  after: number;
+  nextAfter: number;
+  hasMore: boolean;
+}
+
+export function toRunEventPageView(page: AtlasWorkflowEventPage): RunEventPageView {
+  return {
+    events: page.events.map(toRunEventView),
+    after: page.after,
+    nextAfter: page.next_after,
+    hasMore: page.has_more,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Operational-page view models (Phase 5)
 // ---------------------------------------------------------------------------
@@ -1196,18 +1229,26 @@ export interface ApiTokenView {
   lastUsedAt: string;
   createdAt: string;
   revokedAt: string;
+  purpose: "api" | "session";
+  expiresAt: string | null;
+  lifecycle: "active" | "expired" | "revoked";
 }
 
 export function toApiTokenView(token: AtlasApiToken): ApiTokenView {
+  const revoked = token.revoked_at !== null && token.revoked_at !== undefined;
+  const expired = token.expires_at !== null && Date.parse(token.expires_at) <= Date.now();
   return {
     id: token.id,
     userId: token.user_id,
     username: token.username,
     name: token.name || "(unnamed)",
-    revoked: token.revoked_at !== null && token.revoked_at !== undefined,
+    revoked,
     lastUsedAt: formatAtlasTimestamp(token.last_used_at),
     createdAt: formatAtlasTimestamp(token.created_at),
     revokedAt: formatAtlasTimestamp(token.revoked_at),
+    purpose: token.purpose,
+    expiresAt: token.expires_at,
+    lifecycle: revoked ? "revoked" : expired ? "expired" : "active",
   };
 }
 

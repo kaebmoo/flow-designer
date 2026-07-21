@@ -148,10 +148,8 @@ describe.skipIf(!available)("Atlas auth contract", () => {
   });
 
   /**
-   * Regression guard for the Atlas keep-alive desync (docs/ATLAS_LIMITATIONS.md): Atlas
-   * answers a POST with 401 before draining the request body, so a reused connection would
-   * parse the leftover bytes as the next request line and return a 501 HTML page. Without the
-   * `Connection: close` workaround in the client this loop fails within a few iterations.
+   * Regression guard for Atlas `82207f7`'s unread-body rejection fix: the client no longer sends
+   * `Connection: close`, and repeated rejected POSTs must not corrupt a later login request.
    */
   it("survives repeated rejected POSTs without corrupting a later request", async () => {
     for (let attempt = 0; attempt < 5; attempt++) {

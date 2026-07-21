@@ -6,6 +6,7 @@ import {
   atlasGetMe,
   atlasLogin,
   atlasLogout,
+  parseRetryAfterSeconds,
 } from "@/lib/atlas-api.server";
 import { resetServerEnvCache } from "@/lib/env.server";
 
@@ -77,6 +78,37 @@ describe("atlasErrorKindForStatus", () => {
   });
 });
 
+describe("Retry-After contract", () => {
+  it.each([
+    ["1", 1],
+    [" 30 ", 30],
+    ["3600", 3600],
+  ])("accepts bounded delta-seconds %s", (header, expected) => {
+    expect(parseRetryAfterSeconds(header)).toBe(expected);
+  });
+
+  it.each([null, "", "0", "3601", "1.5", "Wed, 21 Oct 2015 07:28:00 GMT", "-1"])(
+    "rejects unsafe Retry-After %s",
+    (header) => {
+      expect(parseRetryAfterSeconds(header)).toBeUndefined();
+    },
+  );
+
+  it("carries only a valid 429 header into AtlasError", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "slow down" }), {
+          status: 429,
+          headers: { "content-type": "application/json", "retry-after": "17" },
+        }),
+      ),
+    );
+    const error = await atlasGetMe("tok").catch((e) => e);
+    expect(error).toMatchObject({ kind: "rate_limited", retryAfterSeconds: 17 });
+  });
+});
+
 describe("request construction", () => {
   it("sends the bearer in the Authorization header and never in the URL", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ user: ADMIN_USER }));
@@ -114,20 +146,17 @@ describe("request construction", () => {
     expect(init.headers["content-type"]).toBe("application/json");
   });
 
-  /**
-   * Guards the workaround for Atlas's keep-alive desync: it rejects a POST with 401/403
-   * before draining the body, poisoning the pooled connection for a later request.
-   */
-  it("closes the connection after a POST but reuses it for GET", async () => {
+  /** Atlas `82207f7` closes unread-body rejection paths, so the client need not force close. */
+  it("does not force connection close after a POST and reuses GET transport defaults", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ logged_out: true }));
     vi.stubGlobal("fetch", fetchMock);
     await atlasLogout("tok");
-    expect(fetchMock.mock.calls[0]![1].headers.connection).toBe("close");
+    expect(fetchMock.mock.calls[0]![1].headers.connection).toBeUndefined();
 
     const getMock = vi.fn().mockResolvedValue(jsonResponse({ user: ADMIN_USER }));
     vi.stubGlobal("fetch", getMock);
     await atlasGetMe("tok");
-    // A GET carries no body, so it can never desync and need not pay for a new connection.
+    // A GET carries no body and keeps the default transport behavior.
     expect(getMock.mock.calls[0]![1].headers.connection).toBeUndefined();
   });
 

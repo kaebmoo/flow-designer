@@ -69,7 +69,7 @@ import {
   toClientAtlasError,
   toConversationView,
   toDeliveryView,
-  toRunEventView,
+  toRunEventPageView,
   toRunView,
   toTriggerView,
   toWorkerView,
@@ -83,7 +83,7 @@ import {
   type ArtifactView,
   type ConversationView,
   type DeliveryView,
-  type RunEventView,
+  type RunEventPageView,
   type RunView,
   type TriggerView,
   type WorkerView,
@@ -179,6 +179,15 @@ function requiredLimit(data: unknown): number {
   const parsed = typeof raw === "number" ? raw : Number(raw);
   if (!Number.isFinite(parsed)) throw new Error("limit must be a number.");
   return clampAtlasLimit(parsed);
+}
+
+function optionalPositiveInteger(data: unknown, key: string): number | undefined {
+  const value = field(data, key);
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0)
+    throw new Error(`${key} must be a non-negative integer.`);
+  return parsed;
 }
 
 function plainObject(data: unknown, key: string): Record<string, unknown> {
@@ -373,23 +382,24 @@ export const listRunArtifactsFn = createServerFn({ method: "GET" })
       ),
   );
 
-/** `GET /api/workflow-runs/{id}/events?limit=` — persisted history, newest `seq` last. */
+/** `GET /api/workflow-runs/{id}/events?after=&limit=` — persisted history cursor page. */
 export const listRunEventsFn = createServerFn({ method: "GET" })
   .validator((data: unknown) => ({
     runId: requiredId(data, "runId"),
     limit: requiredLimit(data),
+    after: optionalPositiveInteger(data, "after") ?? 0,
   }))
   .handler(
-    async ({ data }): Promise<AtlasResult<RunEventView[]>> =>
+    async ({ data }): Promise<AtlasResult<RunEventPageView>> =>
       mutate(async (token) =>
-        (
+        toRunEventPageView(
           await atlasListRunEvents(
             token,
             data.runId,
-            { limit: data.limit },
+            { limit: data.limit, after: data.after },
             { signal: currentRequestSignal() },
-          )
-        ).map(toRunEventView),
+          ),
+        ),
       ),
   );
 

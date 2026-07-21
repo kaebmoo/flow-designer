@@ -80,8 +80,8 @@ export const loginFn = createServerFn({ method: "POST" })
   .validator(validateLoginInput)
   .handler(async ({ data }): Promise<LoginResult> => {
     try {
-      const user = await loginWithAtlas(data);
-      return { ok: true, identity: toIdentityView(user) };
+      const result = await loginWithAtlas(data);
+      return { ok: true, identity: toIdentityView(result, result.session) };
     } catch (error) {
       return { ok: false, error: toClientAtlasError(error) };
     }
@@ -96,9 +96,9 @@ export const loginFn = createServerFn({ method: "POST" })
 export const getIdentityFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<IdentityResult> => {
     try {
-      const user = await currentIdentity();
-      if (!user) return { status: "unauthenticated" };
-      return { status: "authenticated", identity: toIdentityView(user) };
+      const result = await currentIdentity();
+      if (!result) return { status: "unauthenticated" };
+      return { status: "authenticated", identity: toIdentityView(result, result.session) };
     } catch (error) {
       // Forbidden stays forbidden, a timeout stays a timeout. Never relabelled as signed-out.
       return { status: "error", error: toClientAtlasError(error) };
