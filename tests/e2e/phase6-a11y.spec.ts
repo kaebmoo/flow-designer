@@ -161,6 +161,47 @@ test("a slow mutation keeps its dialog open, blocks duplicate submits, and close
   await expect(page.getByText(title)).toBeVisible();
 });
 
+test("a pending destructive dialog cannot be dismissed by Escape and still reports the refusal", async ({
+  page,
+}) => {
+  await signIn(page, ADMIN_CREDENTIALS);
+  await page.getByRole("link", { name: "Workers", exact: true }).click();
+  await waitForHydration(page);
+
+  // Hold the delete RPC open long enough to press Escape mid-flight. The request still goes
+  // to the real Atlas, which refuses this delete outright — the seeded worker has job
+  // history — so the test mutates nothing.
+  await page.route(
+    (url) => url.pathname.includes("/_serverFn/"),
+    async (route) => {
+      if (route.request().method() === "POST") {
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+      }
+      await route.continue();
+    },
+  );
+
+  await page.getByRole("button", { name: "Delete Contract Worker" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Delete worker" }).click();
+
+  // While the mutation is pending, Escape must not unmount the dialog: dismissing here would
+  // hide Atlas's answer as if nothing had been asked.
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+
+  // Atlas's refusal lands inside the still-open dialog, and the worker is untouched.
+  await expect(dialog.getByRole("alert")).toBeVisible({ timeout: 15_000 });
+  await expect(dialog).toBeVisible();
+
+  // Once settled, Escape works again.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("Contract Worker").first()).toBeVisible();
+});
+
 test("navigation announces the current page and auth errors are tied to their fields", async ({
   page,
 }) => {

@@ -553,6 +553,25 @@ Additional checks against the tree at this commit:
 | `graphify-out/`                        | untouched, not committed                                                                                                             |
 | Published history                      | no amend/rebase/squash/force-push; the user's mid-phase commit `4120524` sits unmodified in sequence                                 |
 
+### Post-gate review fix (2026-07-21)
+
+The gate review of `d17027d` found one P2 the destructive-action audit missed: five
+conditionally-mounted destructive dialogs (delete worker, delete workspace, delete user,
+revoke token, delete trigger) disabled their buttons while pending but still let
+`onOpenChange` dismiss the dialog on Escape/overlay-click mid-mutation — unmounting the
+dialog and hiding Atlas's refusal, the same class of defect Phase 6 had fixed for cancel
+run/reject/recovery/delete workflow. All five now carry the same guard (`if (open ||
+mutation.isPending) return`). Regression e2e added: confirm a delete Atlas is guaranteed to
+refuse (the seeded worker has job history, so nothing mutates), press Escape while the RPC is
+held open — the dialog must stay, then show the refusal in place, then close normally once
+settled. The test was **confirmed to fail with the guard removed** before being confirmed to
+pass with it.
+
+Full matrix re-run after the fix — every command exit 0: typecheck, lint (same 6 pre-existing
+warnings), format:check, unit **383**, contract **136 + 3 skipped** (real Atlas), stream
+**24**, e2e **94** (93 + the new regression), build, bundle scan (clean, positive control),
+`git diff --check`.
+
 ### What Phase 6 deliberately did not do
 
 - **No Phase 7 release/deployment work**: no production origins chosen, no secret store, no

@@ -495,7 +495,10 @@ function TriggersPage() {
       <AlertDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open) setPendingDelete(null);
+          // No dismissal while the request is in flight: Escape here would clear the target
+          // mid-mutation and hide Atlas's refusal as if nothing had been asked.
+          if (open || remove.isPending) return;
+          setPendingDelete(null);
         }}
       >
         <AlertDialogContent>

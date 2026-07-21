@@ -506,7 +506,15 @@ function DeleteUserDialog({
 }) {
   const remove = useDeleteUser();
   return (
-    <AlertDialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    // No dismissal while the request is in flight: Escape here would unmount the
+    // dialog mid-mutation and hide Atlas's refusal as if nothing had been asked.
+    <AlertDialog
+      open
+      onOpenChange={(next) => {
+        if (next || remove.isPending) return;
+        onClose();
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete {user.username}?</AlertDialogTitle>
@@ -720,7 +728,15 @@ function RenameTokenDialog({ token, onClose }: { token: ApiTokenView; onClose: (
 function RevokeTokenDialog({ token, onClose }: { token: ApiTokenView; onClose: () => void }) {
   const revoke = useRevokeApiToken();
   return (
-    <AlertDialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+    // No dismissal while the request is in flight: Escape here would unmount the
+    // dialog mid-mutation and hide Atlas's refusal as if nothing had been asked.
+    <AlertDialog
+      open
+      onOpenChange={(next) => {
+        if (next || revoke.isPending) return;
+        onClose();
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Revoke &ldquo;{token.name}&rdquo;?</AlertDialogTitle>

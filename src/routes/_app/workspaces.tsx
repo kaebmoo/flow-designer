@@ -551,7 +551,15 @@ function DeleteWorkspaceDialog({
   const remove = useDeleteWorkspace();
 
   return (
-    <AlertDialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+    // No dismissal while the request is in flight: Escape here would unmount the
+    // dialog mid-mutation and hide Atlas's refusal as if nothing had been asked.
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (open || remove.isPending) return;
+        onClose();
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Delete {workspace.workspaceKey}?</AlertDialogTitle>
