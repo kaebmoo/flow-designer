@@ -1,6 +1,6 @@
 # Atlas Control Plane Web UI completion plan
 
-Status: implemented through Phase 5; Phase 6–7 remain planned
+Status: implemented through Phase 6; Phase 7 remains planned
 
 Date: 2026-07-20
 
@@ -169,9 +169,14 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 
 ### Exit criteria
 
-- Security and accessibility checklist passes.
-- Browser bundle contains no Atlas service token or worker token.
-- All destructive actions have correct permission and confirmation behavior.
+- Security and accessibility checklist passes. — **met** (2026-07-21): see the Phase 6 section
+  of `CHECKLIST.md` for the per-item evidence and the full command/exit-code table.
+- Browser bundle contains no Atlas service token or worker token. — **met**: reproducible scan
+  (`scripts/scan-client-bundle.mjs`) with a positive control, clean at this commit.
+- All destructive actions have correct permission and confirmation behavior. — **met**: audit
+  and fixes recorded in `CHECKLIST.md`; the optimistic-close dialogs were corrected, job
+  cancellation gained its promised UI, and React Flow's confirmation-bypassing delete key was
+  disabled.
 - **Gate:** user confirms Phase 7 start.
 
 ## Phase 7 — Verification and release

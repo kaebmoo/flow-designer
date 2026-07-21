@@ -13,7 +13,7 @@ Use this checklist with the phase gate in `docs/IMPLEMENTATION_PLAN.md`. Check i
 - [x] Each private server function validates the flow-designer session and calls a typed, fixed Atlas operation; Atlas alone authorizes it (a route `beforeLoad` is UI-only).
 - [x] The Atlas bearer token is never in browser code, `localStorage`, or a URL query string. (Client bundle scanned with positive controls; browser test asserts empty `localStorage`/`sessionStorage`, an httpOnly cookie, and no token in any request URL.)
 - [x] Thin stream route glue contains no domain logic or secrets. (Phase 4's `src/routes/api.jobs.$id.events.ts` validates the session, validates `after` as the single permitted query parameter, opens one typed fixed Atlas operation, and relays the byte stream — no frame is parsed or rewritten, nothing is cached, and the bearer is attached server-side only.)
-- [ ] Design tokens are used; no new hardcoded color classes. — The Phase 3 audit found none in `workflow-editor.tsx` or `workflow-node.tsx`; the repo-wide cleanup remains a Phase 6 responsibility, so this global rule stays unticked.
+- [x] Design tokens are used; no new hardcoded color classes. — Closed by the Phase 6 repo-wide cleanup: a fresh inventory found 30 literals across 8 files (the "51+11 in the editor" figures below predate the Phase 3 rewrite, which already tokenized the canvas); all were promoted to semantic tokens, deleted as dead scaffold CSS, or re-wired through React Flow's own variables. A static regression scan (`tests/unit/design-tokens.test.ts`) now fails the unit suite on any new literal.
 - [x] Loader routes have `errorComponent` and `notFoundComponent`. (`/auth`, `/_app`, and the two Phase 2 detail routes `/workflows/$id` and `/runs/$id`; all four have both.)
 - [x] Existing user changes and Lovable history are preserved. (Commit `e509e79` left intact; no rebase, amend, squash, or force-push in either phase. The untracked `graphify-out/` directory was left alone and not committed.)
 
@@ -494,29 +494,82 @@ before display").
 
 ### Security
 
-- [ ] CSRF middleware verified active for all mutation server functions.
-- [ ] No Atlas/worker token in the browser bundle, logs, `localStorage`, or URLs.
-- [ ] Server error messages are normalized before display.
-- [ ] Destructive actions require permission checks and confirmation.
+- [x] CSRF middleware verified active for all mutation server functions. — `createCsrfMiddleware()` in `src/start.ts` was not replaced or weakened; its `origin` matcher moved to the pure `matchesConfiguredOrigin` (`src/lib/csrf-origin.ts`) so the `PUBLIC_ORIGIN` normalisation is unit-tested (trailing slash, case, explicit default ports, unset-denies). `tests/e2e/phase6-security.spec.ts` drives the **production middleware** with a captured real RPC: same-origin `Sec-Fetch-Site` executes; cross-site is 403; a wrong `Origin` is 403 and the matching one (any case) executes; `Referer` fallback works; a request with none of the three is 403; and a forged cross-site logout carrying a **live session cookie** is refused without revoking anything. Coverage includes login and an authenticated mutation — the filter is `handlerType === "serverFn"`, so every server function is behind it.
+- [x] No Atlas/worker token in the browser bundle, logs, `localStorage`, or URLs. — `scripts/scan-client-bundle.mjs` (new, reproducible) scans `.output/public` for `SESSION_SECRET`, `ATLAS_API_ORIGIN`, `atlasToken`, `fd_session`, `api_token`, `token_hash`, `requireAtlasToken` with a positive control that fails the scan if it is not reading real bundle text: **clean, 58 files, exit 0**. Browser storage/URL assertions from Phases 1–5 re-ran green in this suite. Server logs are covered by the next row.
+- [x] Server error messages are normalized before display. — The shared `transportErrorResponse` (`src/lib/transport-error.server.ts`) is now the only failure path in all four same-origin transport routes (artifact bytes, job SSE, both CSV exports), applying `toClientAtlasError`'s rule: an Atlas 5xx — raw Python exception text that can name the database file — is replaced with generic copy; caller-facing validation/403/404/409 text passes through. This closes the deferred Phase 5 finding on `api.artifacts.$id.content.ts` and the same latent relay in `api.jobs.$id.events.ts`; the CSV routes additionally validate query params in an isolated block so a 400 can only carry rule-describing copy. Server-side logging goes through `logServerError` (`src/lib/safe-error-log.ts`) in `start.ts`/`server.ts`: error kind + HTTP status (+ Atlas's caller-safe text), never the `cause` chain (private Atlas origin), Atlas 5xx text, headers, cookies, or bodies. `__root.tsx`'s boundary logs in `useEffect` only — browser-held, post-redaction data — and the Lovable reporting hook is safe by the same construction (everything it can see already crossed the redaction boundary; stacks are client-bundle stacks). Unit coverage: `tests/unit/transport-security.test.ts` (29 tests).
+- [x] Destructive actions require permission checks and confirmation. — Audited across the repo (delete worker/workspace/workflow/trigger/user, revoke token, cancel run/job, reject approval, recovery retry, editor node/edge deletion). Fixes: the shared `ConfirmAction` (cancel run, reject approval, authorize recovery retry) and the delete-workflow dialog **no longer close optimistically** — confirm disables both buttons, blocks Escape while in flight, and closes only when Atlas answers; **job cancellation UI was wired** (promised in Phase 3's plan; the contract-tested `atlasCancelJob` stack existed with no button) — admin/operator UX-gating with Atlas enforcing, a confirmation stating the real `cancel_requested` semantics, terminal jobs refused with the reason, viewers offered nothing; React Flow's built-in delete key is disabled (`deleteKeyCode={null}`) because it bypassed the confirmation, the start-node protection, and the semantic graph. Editor **edge** deletion stays unconfirmed deliberately: it is local until Save and recoverable by discarding — recorded as a decision, not an omission. Every confirmation names its resource and states the known cascade (worker → live workspace list; user → token cascade; trigger → fire history; workflow → triggers + runs).
 
 ### Resilience
 
-- [ ] 401/403/404/409/429/5xx are all handled.
-- [ ] Bounded retries/backoff apply only to safe reads and streams.
-- [ ] Requests cancel on route change.
-- [ ] Reconnect/refetch recovers from stream and Atlas restarts.
+- [x] 401/403/404/409/429/5xx are all handled. — 401 (3 guard layers + stream stop) and 403/404 states re-verified by the existing suites at this commit; 409 keeps the editor's conflict flow; 429/5xx cannot be produced by a real Atlas (no rate limiting; 500s need a fault), so they are driven through the **production fetch path** against a local fixture HTTP server at the Atlas boundary (`tests/unit/cancellation-retry.test.ts`): 429 → `rate_limited` (bounded retry, "Slow down" copy), 5xx → `server` with `fromAtlas` set for the redaction layer, proxy HTML → classified by status and never parsed as the contract. The real-Atlas contract suite still passes in full (136 + 3 skipped).
+- [x] Bounded retries/backoff apply only to safe reads and streams. — `retryRead` unchanged in spirit, now with the backoff stated: `readRetryDelayMs` pins 1s→2s exponential capped at 30s beside the existing ≤2-retry bound; terminal kinds (401/403/404/validation/409) never retry; every read query factory carries exactly this pair (asserted). Mutations remain `retry: false` (asserted against the module). Stream policy untouched from Phase 4 (24 stream tests unchanged).
+- [x] Requests cancel on route change. — End-to-end through the real path: TanStack Query's signal → `createServerFn` call option (supported by the installed version — verified in `serverFnFetcher`, the signal rides the RPC fetch and never enters the serialized payload) → `getRequest().signal` server-side (`src/lib/request-signal.server.ts`) → the typed Atlas operation's existing `signal` option → the Atlas socket. Safe reads only; mutations deliberately never auto-cancel (Atlas may already hold the side effect). Proven at the socket (a local server observes the connection close on abort; the error stays an `AbortError`, never an `AtlasError`; a deadline beside a live signal stays `kind=timeout`) and in the browser (`tests/e2e/phase6-resilience.spec.ts`: navigating away aborts the held-open jobs RPC — `ERR_ABORTED` observed — with no stale or error UI on either side, and a return visit refetches cleanly).
+- [x] Reconnect/refetch recovers from stream and Atlas restarts. — Stream recovery is Phase 4's tested behaviour (stale → recovered, re-verified). Atlas restart is now genuinely exercised (`tests/e2e/zz-resilience.spec.ts`, runs last): the suite's Atlas is killed by pid, a navigation renders the truthful unreachable state with **no** `/auth` redirect (an outage is not a 401), a replacement boots on the same port against the same SQLite file, and the page's own "Try again" recovers with every persisted row intact. Warm-cache pages keep rendering cached data through a blip by design — the assertion targets a never-visited page.
 
 ### Accessibility
 
-- [ ] Keyboard and focus behavior work for editor, dialogs, filters, and approval actions.
-- [ ] Live regions/announcements for stream and mutation results where appropriate.
-- [ ] Color is not the only signal for node/run state.
+- [x] Keyboard and focus behavior work for editor, dialogs, filters, and approval actions. — Clickable table rows are now tab-reachable and answer Enter/Space with a visible focus ring; the jobs pane (non-modal panel — no false `aria-modal`) takes focus on open, closes on Escape, and returns focus; conditionally-mounted destructive dialogs return focus to their trigger via `useReturnFocus` (Radix's restore dies with the unmount — the new e2e failed before the fix); dialog focus containment/Escape asserted on real DOM; editor keyboard delete + start-node protection + Escape/cancel semantics already covered by the editor suite and still green. Enter submits dialog forms; a slow mutation keeps its dialog open with the submit disabled (duplicate submits impossible), verified with a delayed real RPC.
+- [x] Live regions/announcements for stream and mutation results where appropriate. — The stream status pill and gap notice are `role="status"` (phase transitions announce; individual SSE text frames deliberately never do); mutation results/refusals surface in existing `role="alert"`/`role="status"` regions; the auth error is `aria-describedby`-linked to both fields; inspector field errors announce on appearance. Asserted in `zz-live` (live region on a genuinely streaming pill) and `phase6-a11y`.
+- [x] Color is not the only signal for node/run state. — Node run-state prints as text on the node and in the runtime tables; state pills carry their state word; an issue node now shows a labelled warning icon beside its red ring; the policy-tab dot carries sr-only text; fired edges differ by stroke width as well as colour; `aria-current="page"` marks the active nav item.
 
 ### Design-token cleanup
 
-- [ ] Hardcoded color classes (`bg-black`, `text-white`, `bg-[#...]`) are replaced with `src/styles.css` tokens.
-- [ ] Loading/empty/error/forbidden/not-found/conflict/disconnected states use tokens consistently.
+- [x] Hardcoded color classes (`bg-black`, `text-white`, `bg-[#...]`) are replaced with `src/styles.css` tokens. — Fresh inventory: 30 literals in 8 files (not the checklist's stale pre-rewrite counts). Overlay dims via `--overlay`; white washes via `--highlight`; canvas edge labels via `--surface-raised`/`--edge-label-*` fed through React Flow's own `--xy-edge-label-*` variables (the old rules were dead — scoped under a class no component applies since Phase 3 — leaving labels on RF's white defaults); dead scaffold CSS (`.atlas-grid`, `.workflow-canvas`, `.inspector-*`) deleted rather than tokenized; `error-page.ts` declares its own minimal obsidian token block instead of a hardcoded light theme. Values are byte-identical where the rule was live — no redesign, no layout change, dark theme only. Exemptions honoured: dimension arbitraries untouched; `:root`/`@theme` definitions are the tokens; `chart.tsx`'s Recharts attribute selectors kept as-is.
+- [x] Loading/empty/error/forbidden/not-found/conflict/disconnected states use tokens consistently. — All state components (`states.tsx`, stream pills, editor notices) already drew from tokens; the static scan now proves it repo-wide, and `tests/e2e/phase6-tokens.spec.ts` proves the promoted tokens _render_ (overlay at black/80, non-transparent table wash, `#101a27` edge labels, zoom controls never white-on-white — plus the pre-existing editor contrast test). Visual QA screenshots reviewed: dashboard, editor + zoom controls, run detail, destructive dialog + overlay, jobs pane, auth, audit/usage tables, not-found.
 - [ ] **Gate:** user confirms Phase 7 start.
+
+### Phase 6 verification evidence (2026-07-21)
+
+Atlas commit tested: `595ef62`. Baseline before Phase 6: **`748252a`** (plus the user's own
+`4120524` "Clarify webhook delivery labels", which landed mid-phase and is preserved untouched
+in sequence). Instances: isolated temp databases on ephemeral ports — no developer or
+production Atlas data touched.
+
+Every row is a whole-repository result and an actual process exit code.
+
+| Check                   | Exit | Result                                                                      |
+| ----------------------- | ---- | --------------------------------------------------------------------------- |
+| `bun run typecheck`     | 0    | 0 errors repo-wide                                                          |
+| `bun run lint`          | 0    | 0 errors; 6 pre-existing `react-refresh` warnings, unchanged since Phase 1  |
+| `bun run format:check`  | 0    | all files formatted                                                         |
+| `bun run test`          | 0    | 383 passed (330 at Phase 5)                                                 |
+| `bun run test:contract` | 0    | 136 passed, 3 skipped, against real isolated Atlas (unchanged from Phase 5) |
+| `bun run test:stream`   | 0    | 24 passed (unchanged)                                                       |
+| `bun run test:e2e`      | 0    | 93 passed (80 at Phase 5)                                                   |
+| `bun run build`         | 0    | succeeded                                                                   |
+| `git diff --check`      | 0    | clean                                                                       |
+
+Additional checks against the tree at this commit:
+
+| Check                                  | Result                                                                                                                               |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Client bundle credential scan          | clean — `scripts/scan-client-bundle.mjs`, 58 files, positive control present, exit 0                                                 |
+| Client imports of `*.server.ts`        | none (ESLint rule + manual grep; the new `transport-error.server.ts`/`request-signal.server.ts` are imported only by exempted files) |
+| Dynamic import of a server function    | none (the only dynamic import remains the framework's own server entry in `src/server.ts`)                                           |
+| Mutations `retry: false`               | asserted by unit test against the module source                                                                                      |
+| Unbounded retry/refetch/reconnect loop | none — read retries ≤2 with a 30s-capped backoff (asserted); stream policy unchanged (6-attempt cap, manual Retry)                   |
+| Timer-driven node/run/stream state     | none — no new timer outside the deferred focus-restore tick and test helpers                                                         |
+| `src/routeTree.gen.ts`                 | byte-identical to the Phase 5 baseline (no route was added)                                                                          |
+| `graphify-out/`                        | untouched, not committed                                                                                                             |
+| Published history                      | no amend/rebase/squash/force-push; the user's mid-phase commit `4120524` sits unmodified in sequence                                 |
+
+### What Phase 6 deliberately did not do
+
+- **No Phase 7 release/deployment work**: no production origins chosen, no secret store, no
+  remote-like deployment matrix, no release notes.
+- **No new domain features or Atlas endpoints.** The one UI addition — the job-cancel button —
+  completes a Phase 3 plan item whose entire stack below the button already existed and was
+  contract-tested; it introduces no new Atlas operation.
+- **The Atlas token-lifecycle P0 is untouched and unresolved** (non-expiring tokens, orphan
+  `"dashboard login"` accumulation, no login rate limiting): it is an Atlas backend fix and
+  remains the production-release blocker in `ATLAS_LIMITATIONS.md`. Nothing in Phase 6 claims
+  otherwise.
+- **No stale-while-error indicator for warm-cache reads.** During an Atlas outage a page whose
+  window is still fresh in the query cache keeps rendering it (by design); a "data may be
+  stale" affordance for that window is noted as possible future polish, not a Phase 6 gap —
+  pages with no cache render the truthful failure state, which is what the restart spec
+  asserts.
+- **No light theme, no redesign, no layout changes.** Colour cleanup only.
 
 ## Phase 7 — Verification and release
 

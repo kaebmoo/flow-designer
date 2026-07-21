@@ -1,6 +1,6 @@
 # Testing and QA strategy
 
-Status: implemented through Phase 5 and reconciled on 2026-07-21.
+Status: implemented through Phase 6 and reconciled on 2026-07-21.
 
 ## Runners and scripts
 
@@ -105,6 +105,39 @@ Record the following for each release:
 - stream behavior result
 - known Atlas limitations exercised
 - build/lint/test output
+
+## Phase 6 evidence and strategy additions (2026-07-21)
+
+Phase 6 added four test strategies worth keeping:
+
+- **Production-middleware CSRF testing** (`tests/e2e/phase6-security.spec.ts`): capture a real
+  RPC the app issues (URL, body, functional headers), then replay it with crafted
+  `Sec-Fetch-Site`/`Origin`/`Referer` through Playwright's request API. This drives the actual
+  middleware in `src/start.ts` — never a re-implementation of its rules — and can present a
+  live session cookie cross-site, which is the attack CSRF exists to stop.
+- **Socket-level cancellation proof** (`tests/unit/cancellation-retry.test.ts`): a real local
+  HTTP server (not a stubbed `fetch`) observes its connection close when a read is aborted, so
+  "cancellation propagates to Atlas" is proven at the layer Atlas experiences it. The same
+  fixture server supplies the statuses a real Atlas cannot be made to emit (429, 5xx with
+  exception text, proxy HTML) through the production fetch path — permitted at the Atlas HTTP
+  boundary precisely because the real-Atlas contract suite still passes in full beside it.
+- **Atlas-restart recovery** (`tests/e2e/zz-resilience.spec.ts`, runs last by name): the
+  suite's shared Atlas is killed by pid and respawned on the same port against the same SQLite
+  file via `respawnAtlas` (`tests/contract/atlas-instance.ts`), asserting a truthful outage
+  state (no `/auth` redirect), recovery via the page's own retry control, and no lost
+  persisted state. Restart info travels in the e2e seed file (`atlasRestart`).
+- **Static design-token regression scan** (`tests/unit/design-tokens.test.ts`): fails the unit
+  suite on any new literal colour class or hex/rgb/oklch value outside token definitions,
+  distinguishing colour arbitraries from dimension arbitraries and carrying the two deliberate
+  exemptions (the standalone error page's declared token block; `chart.tsx`'s Recharts
+  attribute selectors). Paired with computed-style e2e checks
+  (`tests/e2e/phase6-tokens.spec.ts`) so a token that resolves to nothing cannot pass.
+
+Accessibility acceptance (`tests/e2e/phase6-a11y.spec.ts`) asserts on real DOM: dialog focus
+containment/Escape/restore, keyboard-operable table rows, pane focus management, duplicate-
+submit guards against a genuinely slow (delayed, not mocked) RPC, `aria-current`, and the auth
+error's `aria-describedby` association. `scripts/scan-client-bundle.mjs` makes the credential
+bundle scan reproducible with a positive control. Full command results are in `CHECKLIST.md`.
 
 ## Phase 5 evidence (2026-07-21)
 
