@@ -159,7 +159,25 @@ async function startProxy() {
   });
 }
 
+async function cleanup() {
+  await new Promise<void>((resolve) => proxy?.close(() => resolve()) ?? resolve());
+  app?.kill("SIGTERM");
+  atlas?.stop();
+  if (certificateDir) rmSync(certificateDir, { recursive: true, force: true });
+}
+
 export default async function globalSetup() {
+  try {
+    return await startEverything();
+  } catch (error) {
+    // A failure mid-setup (build, node check, readiness probe) must not leak the Atlas or
+    // app child processes — Playwright never calls a teardown that was never returned.
+    await cleanup();
+    throw error;
+  }
+}
+
+async function startEverything() {
   atlas = await startIsolatedAtlas({ ATLAS_OUTBOUND_ALLOWLIST: "127.0.0.1" });
   const token = await login(atlas.origin);
   const seeded = await seedAtlas(atlas.origin, token);
@@ -189,7 +207,8 @@ export default async function globalSetup() {
 
   const nodeBinary = process.env.PHASE7_NODE_BINARY ?? "node";
   const nodeVersionResult = spawnSync(nodeBinary, ["--version"], { encoding: "utf-8" });
-  const nodeVersion = nodeVersionResult.stdout.trim();
+  // stdout is null (not "") when the binary itself is missing; keep the guidance error.
+  const nodeVersion = (nodeVersionResult.stdout ?? "").trim();
   if (nodeVersionResult.status !== 0 || !/^v24\./.test(nodeVersion)) {
     throw new Error(
       `Phase 7 requires Node 24.x, got ${nodeVersion || "an unreadable version"}. ` +
@@ -215,10 +234,5 @@ export default async function globalSetup() {
   await waitFor(INTERNAL_APP_ORIGIN, app);
   await startProxy();
 
-  return async () => {
-    await new Promise<void>((resolve) => proxy?.close(() => resolve()) ?? resolve());
-    app?.kill("SIGTERM");
-    atlas?.stop();
-    if (certificateDir) rmSync(certificateDir, { recursive: true, force: true });
-  };
+  return cleanup;
 }
