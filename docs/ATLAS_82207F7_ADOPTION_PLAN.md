@@ -1,6 +1,6 @@
 # Atlas `82207f7` adoption plan
 
-Status: **planned; no flow-designer implementation has landed yet**
+Status: **implemented; production release remains blocked pending deployment/operator inputs**
 
 Discovery date: 2026-07-21 (Asia/Bangkok)
 
