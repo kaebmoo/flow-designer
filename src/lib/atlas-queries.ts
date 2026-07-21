@@ -65,7 +65,7 @@ const TERMINAL_KINDS = new Set<ClientAtlasError["kind"]>([
  * screen; retrying a timeout or a restart is worth one or two attempts. Mutations get no
  * retry policy here at all — they arrive in Phase 3 and need explicit user retry.
  */
-function retryRead(failureCount: number, error: unknown): boolean {
+export function retryRead(failureCount: number, error: unknown): boolean {
   if (isClientAtlasError(error) && TERMINAL_KINDS.has(error.kind)) return false;
   return failureCount < 2;
 }
@@ -79,12 +79,25 @@ function retryRead(failureCount: number, error: unknown): boolean {
  */
 const STALE_TIME_MS = 10_000;
 
-const shared = { retry: retryRead, staleTime: STALE_TIME_MS } as const;
+/**
+ * Exponential backoff between read retries, stated rather than inherited: 1s, 2s, 4s, ...
+ * capped at 30s. With `retryRead` allowing at most 2 retries, the worst case is one request
+ * plus two more spaced 1s and 2s apart — a bounded recovery probe, never a hammer.
+ */
+export function readRetryDelayMs(attemptIndex: number): number {
+  return Math.min(1_000 * 2 ** attemptIndex, 30_000);
+}
+
+const shared = {
+  retry: retryRead,
+  retryDelay: readRetryDelayMs,
+  staleTime: STALE_TIME_MS,
+} as const;
 
 export function metricsQuery() {
   return queryOptions({
     queryKey: queryKeys.metrics(),
-    queryFn: async () => unwrap(await getMetricsFn()),
+    queryFn: async ({ signal }) => unwrap(await getMetricsFn({ signal })),
     ...shared,
   });
 }
@@ -92,7 +105,7 @@ export function metricsQuery() {
 export function workersQuery() {
   return queryOptions({
     queryKey: queryKeys.workers(),
-    queryFn: async () => unwrap(await listWorkersFn()),
+    queryFn: async ({ signal }) => unwrap(await listWorkersFn({ signal })),
     ...shared,
   });
 }
@@ -100,7 +113,7 @@ export function workersQuery() {
 export function workspacesQuery() {
   return queryOptions({
     queryKey: queryKeys.workspaces(),
-    queryFn: async () => unwrap(await listWorkspacesFn()),
+    queryFn: async ({ signal }) => unwrap(await listWorkspacesFn({ signal })),
     ...shared,
   });
 }
@@ -108,7 +121,8 @@ export function workspacesQuery() {
 export function workflowsQuery(params: { limit: number }) {
   return queryOptions({
     queryKey: queryKeys.workflowList(params),
-    queryFn: async () => unwrap(await listWorkflowsFn({ data: { limit: params.limit } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await listWorkflowsFn({ data: { limit: params.limit }, signal })),
     ...shared,
   });
 }
@@ -116,7 +130,7 @@ export function workflowsQuery(params: { limit: number }) {
 export function workflowQuery(workflowId: string) {
   return queryOptions({
     queryKey: queryKeys.workflowDetail(workflowId),
-    queryFn: async () => unwrap(await getWorkflowFn({ data: { workflowId } })),
+    queryFn: async ({ signal }) => unwrap(await getWorkflowFn({ data: { workflowId }, signal })),
     ...shared,
   });
 }
@@ -124,10 +138,11 @@ export function workflowQuery(workflowId: string) {
 export function runsQuery(params: { limit: number; workflowDefinitionId?: string }) {
   return queryOptions({
     queryKey: queryKeys.runList(params),
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await listRunsFn({
           data: { limit: params.limit, workflowDefinitionId: params.workflowDefinitionId },
+          signal,
         }),
       ),
     ...shared,
@@ -137,7 +152,7 @@ export function runsQuery(params: { limit: number; workflowDefinitionId?: string
 export function runQuery(runId: string) {
   return queryOptions({
     queryKey: queryKeys.runDetail(runId),
-    queryFn: async () => unwrap(await getRunFn({ data: { runId } })),
+    queryFn: async ({ signal }) => unwrap(await getRunFn({ data: { runId }, signal })),
     ...shared,
   });
 }
@@ -145,7 +160,8 @@ export function runQuery(runId: string) {
 export function jobsQuery(params: { limit: number }) {
   return queryOptions({
     queryKey: queryKeys.jobList(params),
-    queryFn: async () => unwrap(await listJobsFn({ data: { limit: params.limit } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await listJobsFn({ data: { limit: params.limit }, signal })),
     ...shared,
   });
 }
@@ -153,7 +169,7 @@ export function jobsQuery(params: { limit: number }) {
 export function jobQuery(jobId: string) {
   return queryOptions({
     queryKey: queryKeys.jobDetail(jobId),
-    queryFn: async () => unwrap(await getJobFn({ data: { jobId } })),
+    queryFn: async ({ signal }) => unwrap(await getJobFn({ data: { jobId }, signal })),
     ...shared,
   });
 }
@@ -172,8 +188,10 @@ export function jobQuery(jobId: string) {
 export function editableWorkflowQuery(workflowId: string) {
   return queryOptions({
     queryKey: queryKeys.workflowDetail(workflowId),
-    queryFn: async () => unwrap(await getEditableWorkflowFn({ data: { workflowId } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await getEditableWorkflowFn({ data: { workflowId }, signal })),
     retry: retryRead,
+    retryDelay: readRetryDelayMs,
     staleTime: 0,
   });
 }
@@ -181,7 +199,7 @@ export function editableWorkflowQuery(workflowId: string) {
 export function triggersQuery(params: { limit: number; workflowDefinitionId?: string }) {
   return queryOptions({
     queryKey: queryKeys.triggerList(params),
-    queryFn: async () => unwrap(await listTriggersFn({ data: params })),
+    queryFn: async ({ signal }) => unwrap(await listTriggersFn({ data: params, signal })),
     ...shared,
   });
 }
@@ -189,7 +207,7 @@ export function triggersQuery(params: { limit: number; workflowDefinitionId?: st
 export function approvalsQuery(params: { limit: number; state?: string; runId?: string }) {
   return queryOptions({
     queryKey: queryKeys.approvalList(params),
-    queryFn: async () => unwrap(await listApprovalsFn({ data: params })),
+    queryFn: async ({ signal }) => unwrap(await listApprovalsFn({ data: params, signal })),
     ...shared,
   });
 }
@@ -197,7 +215,7 @@ export function approvalsQuery(params: { limit: number; state?: string; runId?: 
 export function deliveriesQuery(params: { limit: number; runId?: string; status?: string }) {
   return queryOptions({
     queryKey: queryKeys.deliveryList(params),
-    queryFn: async () => unwrap(await listDeliveriesFn({ data: params })),
+    queryFn: async ({ signal }) => unwrap(await listDeliveriesFn({ data: params, signal })),
     ...shared,
   });
 }
@@ -205,7 +223,7 @@ export function deliveriesQuery(params: { limit: number; runId?: string; status?
 export function runArtifactsQuery(runId: string) {
   return queryOptions({
     queryKey: queryKeys.runArtifacts(runId),
-    queryFn: async () => unwrap(await listRunArtifactsFn({ data: { runId } })),
+    queryFn: async ({ signal }) => unwrap(await listRunArtifactsFn({ data: { runId }, signal })),
     ...shared,
   });
 }
@@ -213,7 +231,8 @@ export function runArtifactsQuery(runId: string) {
 export function runEventsQuery(runId: string, params: { limit: number }) {
   return queryOptions({
     queryKey: queryKeys.runEvents(runId, params),
-    queryFn: async () => unwrap(await listRunEventsFn({ data: { runId, limit: params.limit } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await listRunEventsFn({ data: { runId, limit: params.limit }, signal })),
     ...shared,
   });
 }
@@ -228,7 +247,7 @@ export function runEventsQuery(runId: string, params: { limit: number }) {
 export function conversationsQuery() {
   return queryOptions({
     queryKey: queryKeys.conversations(),
-    queryFn: async () => unwrap(await listConversationsFn()),
+    queryFn: async ({ signal }) => unwrap(await listConversationsFn({ signal })),
     ...shared,
   });
 }
@@ -236,7 +255,7 @@ export function conversationsQuery() {
 export function usersQuery() {
   return queryOptions({
     queryKey: queryKeys.users(),
-    queryFn: async () => unwrap(await listUsersFn()),
+    queryFn: async ({ signal }) => unwrap(await listUsersFn({ signal })),
     ...shared,
   });
 }
@@ -244,7 +263,7 @@ export function usersQuery() {
 export function apiTokensQuery() {
   return queryOptions({
     queryKey: queryKeys.tokens(),
-    queryFn: async () => unwrap(await listApiTokensFn()),
+    queryFn: async ({ signal }) => unwrap(await listApiTokensFn({ signal })),
     ...shared,
   });
 }
@@ -252,7 +271,7 @@ export function apiTokensQuery() {
 export function auditQuery(params: { limit: number; from?: string; to?: string }) {
   return queryOptions({
     queryKey: queryKeys.auditList(params),
-    queryFn: async () => unwrap(await listAuditFn({ data: params })),
+    queryFn: async ({ signal }) => unwrap(await listAuditFn({ data: params, signal })),
     ...shared,
   });
 }
@@ -260,7 +279,7 @@ export function auditQuery(params: { limit: number; from?: string; to?: string }
 export function usageQuery(params: { from?: string; to?: string }) {
   return queryOptions({
     queryKey: queryKeys.usageRange(params),
-    queryFn: async () => unwrap(await getUsageFn({ data: params })),
+    queryFn: async ({ signal }) => unwrap(await getUsageFn({ data: params, signal })),
     ...shared,
   });
 }

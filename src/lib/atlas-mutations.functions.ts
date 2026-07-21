@@ -93,6 +93,7 @@ import {
 } from "./atlas-mappers";
 import { ATLAS_ROLES, ATLAS_USER_STATUSES } from "./atlas-types";
 import { clearSession, requireAtlasToken } from "./auth.server";
+import { currentRequestSignal } from "./request-signal.server";
 import type { AtlasResult } from "./atlas-reads.functions";
 import {
   parseWorkflowGraph,
@@ -282,6 +283,11 @@ async function saveMutation<T>(build: (token: string) => Promise<T>): Promise<Sa
 
 // ---------------------------------------------------------------------------
 // Reads the mutation surfaces depend on.
+//
+// These are safe reads, so like the read boundary they carry the incoming request's abort
+// signal (Phase 6): a navigation that cancels the RPC cancels the Atlas fetch too. The
+// mutations below deliberately do NOT — Atlas may have accepted a side effect already, and
+// an auto-cancelled response would report the action as not-taken.
 // ---------------------------------------------------------------------------
 
 /** `GET /api/workflows/{id}`, parsed into the editor's semantic model (or a refusal). */
@@ -289,7 +295,11 @@ export const getEditableWorkflowFn = createServerFn({ method: "GET" })
   .validator((data: unknown) => requiredId(data, "workflowId"))
   .handler(
     async ({ data: workflowId }): Promise<AtlasResult<WorkflowEditableView>> =>
-      mutate(async (token) => toWorkflowEditableView(await atlasGetWorkflow(token, workflowId))),
+      mutate(async (token) =>
+        toWorkflowEditableView(
+          await atlasGetWorkflow(token, workflowId, { signal: currentRequestSignal() }),
+        ),
+      ),
   );
 
 /** `GET /api/workflow-triggers?limit=&workflow_definition_id=`. */
@@ -300,7 +310,11 @@ export const listTriggersFn = createServerFn({ method: "GET" })
   }))
   .handler(
     async ({ data }): Promise<AtlasResult<TriggerView[]>> =>
-      mutate(async (token) => (await atlasListWorkflowTriggers(token, data)).map(toTriggerView)),
+      mutate(async (token) =>
+        (await atlasListWorkflowTriggers(token, data, { signal: currentRequestSignal() })).map(
+          toTriggerView,
+        ),
+      ),
   );
 
 /** `GET /api/approvals?limit=&state=&run_id=` — the untruncated list a run detail cannot give. */
@@ -318,7 +332,11 @@ export const listApprovalsFn = createServerFn({ method: "GET" })
   })
   .handler(
     async ({ data }): Promise<AtlasResult<ApprovalView[]>> =>
-      mutate(async (token) => (await atlasListApprovals(token, data)).map(toApprovalView)),
+      mutate(async (token) =>
+        (await atlasListApprovals(token, data, { signal: currentRequestSignal() })).map(
+          toApprovalView,
+        ),
+      ),
   );
 
 /** `GET /api/deliveries?limit=&run_id=&status=`. Requires the `deliveries.read` permission. */
@@ -336,7 +354,11 @@ export const listDeliveriesFn = createServerFn({ method: "GET" })
   })
   .handler(
     async ({ data }): Promise<AtlasResult<DeliveryView[]>> =>
-      mutate(async (token) => (await atlasListDeliveries(token, data)).map(toDeliveryView)),
+      mutate(async (token) =>
+        (await atlasListDeliveries(token, data, { signal: currentRequestSignal() })).map(
+          toDeliveryView,
+        ),
+      ),
   );
 
 /** `GET /api/workflow-runs/{id}/artifacts` — the full set; Atlas does not truncate this one. */
@@ -344,7 +366,11 @@ export const listRunArtifactsFn = createServerFn({ method: "GET" })
   .validator((data: unknown) => requiredId(data, "runId"))
   .handler(
     async ({ data: runId }): Promise<AtlasResult<ArtifactView[]>> =>
-      mutate(async (token) => (await atlasListRunArtifacts(token, runId)).map(toArtifactView)),
+      mutate(async (token) =>
+        (await atlasListRunArtifacts(token, runId, { signal: currentRequestSignal() })).map(
+          toArtifactView,
+        ),
+      ),
   );
 
 /** `GET /api/workflow-runs/{id}/events?limit=` — persisted history, newest `seq` last. */
@@ -356,7 +382,14 @@ export const listRunEventsFn = createServerFn({ method: "GET" })
   .handler(
     async ({ data }): Promise<AtlasResult<RunEventView[]>> =>
       mutate(async (token) =>
-        (await atlasListRunEvents(token, data.runId, { limit: data.limit })).map(toRunEventView),
+        (
+          await atlasListRunEvents(
+            token,
+            data.runId,
+            { limit: data.limit },
+            { signal: currentRequestSignal() },
+          )
+        ).map(toRunEventView),
       ),
   );
 

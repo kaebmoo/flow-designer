@@ -89,6 +89,16 @@ export interface AtlasInstance {
   stop: () => void;
   /** Everything Atlas wrote to stdout/stderr, for diagnosing a failing contract test. */
   logs: () => string;
+  /**
+   * What a restart test needs to kill this instance and boot a replacement on the same port
+   * against the same database (Phase 6: Atlas-restart recovery without lost persisted state).
+   */
+  restart: {
+    pid: number | undefined;
+    port: number;
+    dbPath: string;
+    uploadDir: string;
+  };
 }
 
 export async function startIsolatedAtlas(
@@ -188,5 +198,59 @@ export async function startIsolatedAtlas(
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
-  return { origin, stop, logs: () => logs.join("") };
+  return {
+    origin,
+    stop,
+    logs: () => logs.join(""),
+    restart: { pid: child.pid, port, dbPath, uploadDir: join(dataDir, "uploads") },
+  };
+}
+
+/**
+ * Boots a replacement Atlas on the same port against the same database, for restart tests.
+ *
+ * Same env discipline as `startIsolatedAtlas` — auth bypasses stay off — but no seeding and
+ * no temp-dir creation: the database already exists and holds the state whose survival the
+ * test asserts.
+ */
+export async function respawnAtlas(restart: {
+  port: number;
+  dbPath: string;
+  uploadDir: string;
+}): Promise<{ stop: () => void }> {
+  const env = {
+    ...process.env,
+    ATLAS_DB: restart.dbPath,
+    ATLAS_SECRET_KEY: "contract-test-secret-key",
+    ATLAS_UPLOAD_DIR: restart.uploadDir,
+    ATLAS_OUTBOUND_ALLOWLIST: "127.0.0.1",
+    ATLAS_LOOPBACK_NO_AUTH: "",
+    ATLAS_API_TOKEN: "",
+  };
+  const child: ChildProcess = spawn(
+    "python3",
+    ["-m", "atlas", "--host", "127.0.0.1", "--port", String(restart.port)],
+    { cwd: ATLAS_REPO, env, stdio: ["ignore", "ignore", "ignore"] },
+  );
+  const stop = () => child.kill("SIGTERM");
+
+  const origin = `http://127.0.0.1:${restart.port}`;
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    if (child.exitCode !== null) {
+      throw new Error(`respawned Atlas exited early with code ${child.exitCode}`);
+    }
+    try {
+      const response = await fetch(`${origin}/api/me`, { signal: AbortSignal.timeout(1_000) });
+      if (response.status === 401) break;
+    } catch {
+      // not listening yet
+    }
+    if (Date.now() > deadline) {
+      stop();
+      throw new Error("respawned Atlas did not become ready within 30s");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return { stop };
 }

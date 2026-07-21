@@ -33,6 +33,13 @@ export const SEED_FILE = "test-results/e2e-seed.json";
 export interface E2ESeed extends SeededAtlas {
   atlasOrigin: string;
   adminToken: string;
+  /** Restart handle for the Atlas-restart recovery spec (kill by pid, respawn on same db/port). */
+  atlasRestart: {
+    pid: number | undefined;
+    port: number;
+    dbPath: string;
+    uploadDir: string;
+  };
 }
 
 export function readSeed(): E2ESeed {
@@ -85,7 +92,11 @@ export default async function globalSetup() {
   mkdirSync(dirname(SEED_FILE), { recursive: true });
   writeFileSync(
     SEED_FILE,
-    JSON.stringify({ ...seeded, atlasOrigin: atlas.origin, adminToken: token }, null, 2),
+    JSON.stringify(
+      { ...seeded, atlasOrigin: atlas.origin, adminToken: token, atlasRestart: atlas.restart },
+      null,
+      2,
+    ),
   );
 
   devServer = spawn(

@@ -72,6 +72,7 @@ import {
   type WorkspaceView,
 } from "./atlas-mappers";
 import { clearSession, requireAtlasToken } from "./auth.server";
+import { currentRequestSignal } from "./request-signal.server";
 
 /** Every read resolves to data or to a normalised Atlas failure — never to a bare throw. */
 export type AtlasResult<T> = { ok: true; data: T } | { ok: false; error: ClientAtlasError };
@@ -101,11 +102,21 @@ function windowOf<T>(items: T[], limit: number): AtlasWindow<T> {
  * useless. Leaving it in place would keep the browser presenting a dead credential on every
  * subsequent request, and — worse — would leave the app looking signed in while nothing loads.
  * This mirrors what `currentIdentity` already does for `/api/me`.
+ *
+ * Every operation receives the incoming request's abort signal (Phase 6): when the browser
+ * cancels the RPC — TanStack Query aborts its signal on navigation — the runtime aborts the
+ * request, and passing that on is what cancels the Atlas fetch instead of letting it run to
+ * completion for a reader that is gone. This applies to reads only; mutations deliberately
+ * never auto-cancel (see `request-signal.server.ts`). An abort surfaces here as a non-Atlas
+ * throw and falls into the generic envelope, which no one receives — the connection that
+ * would carry it is already closed.
  */
-async function read<T>(operation: (token: string) => Promise<T>): Promise<AtlasResult<T>> {
+async function read<T>(
+  operation: (token: string, options: { signal?: AbortSignal }) => Promise<T>,
+): Promise<AtlasResult<T>> {
   try {
     const token = await requireAtlasToken();
-    return { ok: true, data: await operation(token) };
+    return { ok: true, data: await operation(token, { signal: currentRequestSignal() }) };
   } catch (error) {
     const clientError = toClientAtlasError(error);
     if (clientError.kind === "unauthorized") {
@@ -182,19 +193,21 @@ function validateOptionalId(data: unknown, field: string): string | undefined {
  */
 export const getMetricsFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<AtlasResult<MetricsView>> =>
-    read(async (token) => toMetricsView(await atlasGetMetrics(token))),
+    read(async (token, options) => toMetricsView(await atlasGetMetrics(token, options))),
 );
 
 /** `GET /api/workers` — the whole table; Atlas accepts no limit or filter on this route. */
 export const listWorkersFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<AtlasResult<WorkerView[]>> =>
-    read(async (token) => (await atlasListWorkers(token)).map(toWorkerView)),
+    read(async (token, options) => (await atlasListWorkers(token, options)).map(toWorkerView)),
 );
 
 /** `GET /api/workspaces` — the whole table, joined with each workspace's worker. */
 export const listWorkspacesFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<AtlasResult<WorkspaceView[]>> =>
-    read(async (token) => (await atlasListWorkspaces(token)).map(toWorkspaceView)),
+    read(async (token, options) =>
+      (await atlasListWorkspaces(token, options)).map(toWorkspaceView),
+    ),
 );
 
 /** `GET /api/workflows?limit=` — a bounded, newest-updated-first window. */
@@ -202,8 +215,8 @@ export const listWorkflowsFn = createServerFn({ method: "GET" })
   .validator(validateLimit)
   .handler(
     async ({ data: limit }): Promise<AtlasResult<AtlasWindow<WorkflowView>>> =>
-      read(async (token) =>
-        windowOf((await atlasListWorkflows(token, { limit })).map(toWorkflowView), limit),
+      read(async (token, options) =>
+        windowOf((await atlasListWorkflows(token, { limit }, options)).map(toWorkflowView), limit),
       ),
   );
 
@@ -212,7 +225,9 @@ export const getWorkflowFn = createServerFn({ method: "GET" })
   .validator((data: unknown) => validateId(data, "workflowId"))
   .handler(
     async ({ data: workflowId }): Promise<AtlasResult<WorkflowDetailView>> =>
-      read(async (token) => toWorkflowDetailView(await atlasGetWorkflow(token, workflowId))),
+      read(async (token, options) =>
+        toWorkflowDetailView(await atlasGetWorkflow(token, workflowId, options)),
+      ),
   );
 
 /** `GET /api/workflow-runs?limit=&workflow_definition_id=` — a bounded, newest-first window. */
@@ -223,8 +238,8 @@ export const listRunsFn = createServerFn({ method: "GET" })
   }))
   .handler(
     async ({ data }): Promise<AtlasResult<AtlasWindow<RunView>>> =>
-      read(async (token) =>
-        windowOf((await atlasListWorkflowRuns(token, data)).map(toRunView), data.limit),
+      read(async (token, options) =>
+        windowOf((await atlasListWorkflowRuns(token, data, options)).map(toRunView), data.limit),
       ),
   );
 
@@ -233,7 +248,9 @@ export const getRunFn = createServerFn({ method: "GET" })
   .validator((data: unknown) => validateId(data, "runId"))
   .handler(
     async ({ data: runId }): Promise<AtlasResult<RunDetailView>> =>
-      read(async (token) => toRunDetailView(await atlasGetWorkflowRun(token, runId))),
+      read(async (token, options) =>
+        toRunDetailView(await atlasGetWorkflowRun(token, runId, options)),
+      ),
   );
 
 /** `GET /api/jobs?limit=` — a bounded, newest-first window. Atlas has no state filter here. */
@@ -241,8 +258,8 @@ export const listJobsFn = createServerFn({ method: "GET" })
   .validator(validateLimit)
   .handler(
     async ({ data: limit }): Promise<AtlasResult<AtlasWindow<JobView>>> =>
-      read(async (token) =>
-        windowOf((await atlasListJobs(token, { limit })).map(toJobListView), limit),
+      read(async (token, options) =>
+        windowOf((await atlasListJobs(token, { limit }, options)).map(toJobListView), limit),
       ),
   );
 
@@ -251,7 +268,7 @@ export const getJobFn = createServerFn({ method: "GET" })
   .validator((data: unknown) => validateId(data, "jobId"))
   .handler(
     async ({ data: jobId }): Promise<AtlasResult<JobDetailView>> =>
-      read(async (token) => toJobDetailView(await atlasGetJob(token, jobId))),
+      read(async (token, options) => toJobDetailView(await atlasGetJob(token, jobId, options))),
   );
 
 // ---------------------------------------------------------------------------
@@ -273,8 +290,8 @@ export interface ConversationWindow {
 /** `GET /api/conversations` — the 100 most recently updated rows; any role can read. */
 export const listConversationsFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<AtlasResult<ConversationWindow>> =>
-    read(async (token) => {
-      const items = (await atlasListConversations(token)).map(toConversationView);
+    read(async (token, options) => {
+      const items = (await atlasListConversations(token, options)).map(toConversationView);
       return { items, limit: 100 as const, mayHaveMore: items.length >= 100 };
     }),
 );
@@ -282,13 +299,15 @@ export const listConversationsFn = createServerFn({ method: "GET" }).handler(
 /** `GET /api/users` — admin only; a non-admin receives Atlas's 403 as a forbidden result. */
 export const listUsersFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<AtlasResult<UserAdminView[]>> =>
-    read(async (token) => (await atlasListUsers(token)).map(toUserAdminView)),
+    read(async (token, options) => (await atlasListUsers(token, options)).map(toUserAdminView)),
 );
 
 /** `GET /api/tokens` — admin only. Metadata rows only; a token value never appears here. */
 export const listApiTokensFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<AtlasResult<ApiTokenView[]>> =>
-    read(async (token) => (await atlasListApiTokens(token)).map(toApiTokenView)),
+    read(async (token, options) =>
+      (await atlasListApiTokens(token, {}, options)).map(toApiTokenView),
+    ),
 );
 
 /**
@@ -318,8 +337,8 @@ export const listAuditFn = createServerFn({ method: "GET" })
   }))
   .handler(
     async ({ data }): Promise<AtlasResult<AuditWindow>> =>
-      read(async (token) => {
-        const items = (await atlasListAudit(token, data)).map(toAuditEntryView);
+      read(async (token, options) => {
+        const items = (await atlasListAudit(token, data, options)).map(toAuditEntryView);
         return { items, limit: data.limit, mayHaveMore: items.length >= data.limit };
       }),
   );
@@ -345,5 +364,5 @@ export const getUsageFn = createServerFn({ method: "GET" })
   }))
   .handler(
     async ({ data }): Promise<AtlasResult<UsageView>> =>
-      read(async (token) => toUsageView(await atlasGetUsage(token, data))),
+      read(async (token, options) => toUsageView(await atlasGetUsage(token, data, options))),
   );
