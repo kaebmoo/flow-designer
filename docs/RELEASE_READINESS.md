@@ -141,3 +141,60 @@ The clean current Atlas source and commits `60d4190`, `ffe96c5`, `d4bec5b`, `6c4
 Atlas's gate is GREEN and the old flow contract remains compatible, but production may proceed
 only after the new behaviors are adopted and covered by the full release matrix plus exact
 deployment inputs.
+
+## Post-adoption review and fix passes (2026-07-21, later)
+
+An independent review of the adoption commits above (`6619542`, `ef83d08`, `701027d`, `8671e08`,
+`d2f3662`) found 9 issues by reproducing every claimed test result for real and reading each
+slice against its own acceptance criteria. Four commits closed 8 of the 9 (this document was not
+updated at the time; recorded here for the trail): `23f4b16` (restored the incremental run-event
+DOM reveal and cursor-page retention Slice 4 had dropped), `388f79d` (removed a leftover
+`connection: close` workaround from e2e test fixtures — the production client had already lost
+it in `6619542`), `519ee46` (rate-limit accessibility, a 0-second-countdown edge case, a shared
+`Retry-After` bound, and token-lifecycle UI test coverage), and `5abaac8` (marked the adoption
+plan implemented).
+
+A second review of that fix pass reproduced the full matrix again, including finishing a
+`bun run test:e2e` run that a prior sub-agent had been cut off before completing. Real result:
+**98/99 passed, not clean** — `tests/e2e/editor.spec.ts`'s save/reload/layout test failed
+intermittently. Rerunning it 10 times in isolation reproduced the failure once, matching a
+"critical" finding from the first review round that a save's query-cache invalidation could
+advance the workflow version an editor effect reads before the layout migration for that version
+had finished, transiently resetting the canvas to auto-layout — a finding the first round had
+incorrectly marked REFUTED based on a synthetic (not live) reproduction.
+
+Fixing that "critical" finding turned out to require correcting the diagnosis, not just the code:
+
+- `fix(runs)` — `runEventsQuery`'s `placeholderData: keepPreviousData` masked `isPending` for
+  _any_ query-key change on that observer, not only a cursor-page advance, so switching the
+  run-events window size could transiently show stale rows or an empty state instead of a real
+  loading indicator. Narrowed to same-run/same-limit transitions only.
+- `test(atlas)` — added the malformed-input regression tests for `isAtlasSession`,
+  `isAtlasWorkflowEventPage`, and `isAtlasApiToken` that Slice 1's own acceptance criteria called
+  for and no commit had added.
+- `test(editor)` — live-instrumented the actual failing browser run rather than reasoning about
+  it abstractly. The production layout effect read the correctly migrated data on every single
+  traced run, with no exception; the real bug was in the _test's own helper_,
+  `readStoredLayout`, which scanned `Object.keys(localStorage)` for "any key with the layout
+  prefix." `migrateLayoutVersion` copies a layout forward without deleting the version it copied
+  from, so once more than one save has happened, more than one version's key exists at once, and
+  which one `Array.prototype.find` returns is an accident of key insertion order — not the
+  workflow's current version. Fixed to read the exact key the app itself uses; a speculative
+  production-code change made during the (wrong) initial diagnosis was reverted once this was
+  confirmed. 20 consecutive real reruns after the fix: zero failures.
+
+| Check               | Result | Actual evidence                                                 |
+| ------------------- | ------ | --------------------------------------------------------------- |
+| TypeScript          | Pass   | `bun run typecheck`, exit 0                                     |
+| ESLint              | Pass   | `bun run lint`, exit 0; 8 warnings, 0 errors                    |
+| Formatting          | Pass   | `bun run format:check`, exit 0                                  |
+| Unit                | Pass   | `bun run test`, 436 passed                                      |
+| Real-Atlas contract | Pass   | `bun run test:contract`, 143 passed, 3 skipped                  |
+| Stream              | Pass   | `bun run test:stream`, 27 passed                                |
+| Browser acceptance  | Pass   | `bun run test:e2e`, 99 passed (full run, not cut off)           |
+| Production build    | Pass   | `bun run build`; Nitro `preset: node-server`                    |
+| Client bundle       | Pass   | `bun run scan:bundle`; 57 files clean, positive control present |
+
+Commits: `1a34544` (run-events placeholder), `cfd7c38` (malformed-guard tests), `aaec1e0`
+(layout-test fix and diagnosis correction). No Atlas source was changed and no push was
+performed.

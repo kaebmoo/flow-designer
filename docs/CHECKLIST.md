@@ -682,3 +682,18 @@ commands used the correctly escalated localhost runner when sandbox policy rejec
 
 Detailed slices and acceptance criteria: `ATLAS_82207F7_ADOPTION_PLAN.md`. Ready-to-run coding
 instructions: `ATLAS_82207F7_CODING_PROMPT.md`.
+
+### Post-adoption fix passes (2026-07-21, later)
+
+A review of the commits above found 9 issues; `23f4b16`, `388f79d`, `519ee46`, and `5abaac8`
+fixed 8 of them (run-event DOM virtualization and cursor retention, the stale test-only
+`connection: close` header, rate-limit accessibility and edge cases, a shared `Retry-After`
+bound, and token-lifecycle UI test coverage). A second review reproduced the full matrix again
+— including a complete `bun run test:e2e` run, which the first review's sub-agent had been cut
+off before finishing — and found the 9th issue was mis-fixed on the first attempt: a "critical"
+finding that saves could reset the canvas to auto-layout was live-debugged rather than reasoned
+about abstractly, which showed the production code was already correct and the actual bug was
+an ambiguous `localStorage` key lookup in the test's own helper. `1a34544`, `cfd7c38`, and
+`aaec1e0` close the remaining issue (with the correct root cause) and add the missing
+malformed-input guard tests and a `runEventsQuery` placeholder-scope fix a stricter re-read
+surfaced. Full evidence: `RELEASE_READINESS.md`.

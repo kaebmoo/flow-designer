@@ -89,6 +89,11 @@ store, proxy SSE buffering/idle settings (>45 seconds), backup destination/reten
 drill, and the log sink. Keep Atlas as one primary and do not push or deploy from this adoption
 task.
 
+Two post-adoption review-and-fix passes followed the same day (`23f4b16`, `388f79d`, `519ee46`,
+`5abaac8`, then `1a34544`, `cfd7c38`, `aaec1e0`); current evidence is unit `436 passed`, contract
+`143 passed, 3 skipped`, stream `27 passed`, browser `99 passed`. Full account, including a
+diagnosis correction on a flaky layout test, in `RELEASE_READINESS.md`.
+
 Before tagging or deploying, also confirm:
 
 - `git diff --check` exits 0;

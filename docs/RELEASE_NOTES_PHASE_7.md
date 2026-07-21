@@ -20,6 +20,16 @@ Decision: **no production ship**. Exact `PUBLIC_ORIGIN`, private `ATLAS_API_ORIG
 secret-store value, proxy buffering/timeout configuration, backup/restore drill, and log sink are
 still deployment/operator inputs. Local and controlled-demo use is ready; no push was performed.
 
+### Post-adoption fix passes (2026-07-21, later)
+
+Two review rounds followed. `23f4b16`/`388f79d`/`519ee46`/`5abaac8` fixed 8 of 9 issues the first
+round found; `1a34544`/`cfd7c38`/`aaec1e0` close the last one after a live-debugged correction —
+the "critical" layout-reset finding was actually a test bug (an ambiguous `localStorage` key
+lookup made worse by the second round's own new test coverage repeating the save more times),
+not a production race, and the second review's own initial fix for it was reverted once that was
+confirmed. Current evidence: unit `436 passed`; contract `143 passed, 3 skipped`; stream `27
+passed`; browser `99 passed`. Full account: `RELEASE_READINESS.md`.
+
 > **Backend status update (2026-07-21):** These notes record the Phase 7 candidate tested against
 > Atlas `595ef62`. Atlas `82207f7` subsequently implemented expiry/capping/rate limiting plus
 > additive workflow/event/HTTP contracts. The old backend P0 is closed, but this candidate remains
