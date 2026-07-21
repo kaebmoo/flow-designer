@@ -1,3 +1,5 @@
+import { isAtlasWorkflowDefaultReply } from "@/lib/atlas-types";
+
 import type { WorkflowDefaultReply } from "./workflow-inspector";
 
 /** Semantic-only draft persisted per browser tab; credentials and canvas layout never enter it. */
@@ -34,8 +36,16 @@ export function readSemanticWorkflowDraft(
       Array.isArray(candidate.graph) ||
       candidate.policy === null ||
       typeof candidate.policy !== "object" ||
-      Array.isArray(candidate.policy)
+      Array.isArray(candidate.policy) ||
+      // Absent means "inherit nothing" and is valid; anything present must be a shape the
+      // editor could actually have written, or restoring it would feed a doomed payload
+      // straight into the next save.
+      (candidate.defaultReply !== undefined && !isAtlasWorkflowDefaultReply(candidate.defaultReply))
     ) {
+      // sessionStorage is shared with anything else running in this tab and survives app
+      // upgrades within it; a draft that fails validation is corrupt or stale, so drop it
+      // rather than re-parsing the same garbage on every mount.
+      clearSemanticWorkflowDraft(workflowId, version);
       return undefined;
     }
     return candidate as SemanticWorkflowDraft;

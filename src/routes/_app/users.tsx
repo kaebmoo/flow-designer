@@ -572,6 +572,20 @@ function DeleteUserDialog({
 }
 
 /**
+ * A `datetime-local` `min` one minute from now, in *local* wall-clock time.
+ *
+ * `toISOString().slice(0, 16)` would be wrong here: the input interprets its `min` as local
+ * time, so a UTC string lets anyone east of Greenwich pick a moment already in the past —
+ * which Atlas then rejects on submit. The real validation stays server-side
+ * (`optionalFutureUtc`); this only keeps the picker from offering doomed values.
+ */
+function localMinuteFromNow(): string {
+  const min = new Date(Date.now() + 60_000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${min.getFullYear()}-${pad(min.getMonth() + 1)}-${pad(min.getDate())}T${pad(min.getHours())}:${pad(min.getMinutes())}`;
+}
+
+/**
  * Mints a token and shows its value exactly once.
  *
  * The raw token lives in this component's `useState` and nowhere else — deliberately not in a
@@ -700,7 +714,7 @@ function MintTokenDialog({ users, onClose }: { users: UserAdminView[]; onClose: 
                 type="datetime-local"
                 value={expiresAt}
                 onChange={(event) => setExpiresAt(event.target.value)}
-                min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                min={localMinuteFromNow()}
                 className="mt-1"
               />
               <p className="mt-1 text-xs text-muted-foreground">Submitted to Atlas as UTC.</p>

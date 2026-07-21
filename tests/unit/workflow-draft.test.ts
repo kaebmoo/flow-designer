@@ -40,6 +40,41 @@ describe("semantic workflow draft recovery", () => {
     expect(JSON.stringify([...store.values()])).not.toMatch(/token|bearer|password|layout/i);
   });
 
+  it.each([
+    ["an array", []],
+    ["an unknown mode", { mode: "email" }],
+    ["a non-string callback_url", { mode: "webhook", callback_url: 7 }],
+    ["a non-string correlation_id", { mode: "none", correlation_id: {} }],
+  ])("rejects and clears a stored draft whose default reply is %s", (_case, defaultReply) => {
+    const key = "flow-designer:draft:wfd_1:v3";
+    store.set(
+      key,
+      JSON.stringify({
+        version: 3,
+        name: "local",
+        description: "",
+        graph: {},
+        policy: {},
+        defaultReply,
+      }),
+    );
+    expect(readSemanticWorkflowDraft("wfd_1", 3)).toBeUndefined();
+    // Corrupt/stale drafts are dropped on sight, not re-parsed on every mount.
+    expect(store.has(key)).toBe(false);
+  });
+
+  it("accepts an explicit null default reply — that is the stored 'clear it' state", () => {
+    writeSemanticWorkflowDraft("wfd_1", {
+      version: 3,
+      name: "local",
+      description: "",
+      graph: {},
+      policy: {},
+      defaultReply: null,
+    });
+    expect(readSemanticWorkflowDraft("wfd_1", 3)?.defaultReply).toBeNull();
+  });
+
   it("rejects a draft saved against another server version and clears explicitly", () => {
     writeSemanticWorkflowDraft("wfd_1", {
       version: 3,
