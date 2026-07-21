@@ -31,8 +31,7 @@ function seedIds() {
 }
 
 function atlasHeaders(): Record<string, string> {
-  // `connection: close` is the Atlas keep-alive desync workaround; docs/ATLAS_LIMITATIONS.md.
-  return { authorization: `Bearer ${seedIds().adminToken}`, connection: "close" };
+  return { authorization: `Bearer ${seedIds().adminToken}` };
 }
 
 let stub: StubWorker;

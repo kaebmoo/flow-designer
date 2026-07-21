@@ -34,12 +34,8 @@ function seedIds() {
   return cachedSeed;
 }
 
-/**
- * `connection: close` is the Atlas keep-alive desync workaround the production client applies
- * too — a rejected POST otherwise poisons the reused connection. See `docs/ATLAS_LIMITATIONS.md`.
- */
 function atlasHeaders(): Record<string, string> {
-  return { authorization: `Bearer ${seedIds().adminToken}`, connection: "close" };
+  return { authorization: `Bearer ${seedIds().adminToken}` };
 }
 
 interface AtlasRunDetail {

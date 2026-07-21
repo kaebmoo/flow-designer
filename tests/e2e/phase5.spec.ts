@@ -46,7 +46,6 @@ async function atlasPost(path: string, body: unknown): Promise<Record<string, un
     headers: {
       authorization: `Bearer ${adminToken}`,
       "content-type": "application/json",
-      connection: "close",
     },
     body: JSON.stringify(body),
   });
