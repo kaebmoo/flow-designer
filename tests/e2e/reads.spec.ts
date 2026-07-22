@@ -36,6 +36,26 @@ async function signIn(page: Page, creds: typeof ADMIN_CREDENTIALS) {
   await expect(page).toHaveURL(/\/dashboard$/);
 }
 
+async function waitForSeededWorkflowJob(): Promise<string> {
+  const seed = seedIds();
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const response = await fetch(`${seed.atlasOrigin}/api/workflow-runs/${seed.runId}`, {
+      headers: { authorization: `Bearer ${seed.adminToken}`, connection: "close" },
+    });
+    if (!response.ok) {
+      throw new Error(`seed run read failed: ${response.status} ${await response.text()}`);
+    }
+    const payload = (await response.json()) as {
+      nodes?: Array<{ job_id?: string | null }>;
+    };
+    const jobId = payload.nodes?.find((node) => typeof node.job_id === "string")?.job_id;
+    if (jobId) return jobId;
+    if (Date.now() > deadline) throw new Error("seed workflow run never created a job");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 test.describe("Atlas-backed reads", () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page, ADMIN_CREDENTIALS);
@@ -168,6 +188,32 @@ test.describe("Atlas-backed reads", () => {
 
     // The scaffold's canned "Streamed Output" transcript is gone.
     await expect(page.getByText("Extracted 12 priority signals")).toHaveCount(0);
+
+    await page.locator("tbody tr", { hasText: seedIds().jobId }).getByText(seedIds().jobId).click();
+    await expect(page.getByRole("heading", { name: seedIds().jobId })).toHaveCount(0);
+  });
+
+  test("jobs can be filtered and grouped by workflow from runtime node links", async ({ page }) => {
+    const workflowJobId = await waitForSeededWorkflowJob();
+
+    await page.goto(`/jobs?workflow=${seedIds().workflowId}`);
+    await expect(page.getByText(/Filtered to workflow/)).toBeVisible();
+    await expect(
+      page.getByText(/Atlas offers no workflow filter on the jobs endpoint/i),
+    ).toBeVisible();
+    await expect(page.getByText(workflowJobId).first()).toBeVisible();
+    await expect(page.getByText(seedIds().jobId).first()).toHaveCount(0);
+
+    await page.goto("/jobs?group=workflow");
+    await expect(page.getByRole("heading", { name: "Contract Workflow" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Standalone or unmatched" })).toBeVisible();
+    await expect(page.getByText(workflowJobId).first()).toBeVisible();
+    await expect(page.getByText(seedIds().jobId).first()).toBeVisible();
+
+    await page.getByRole("button", { name: "Filter Contract Workflow" }).click();
+    await expect(page).toHaveURL(new RegExp(`workflow=${seedIds().workflowId}`));
+    await expect(page.getByText(workflowJobId).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Standalone or unmatched" })).toHaveCount(0);
   });
 
   /**
