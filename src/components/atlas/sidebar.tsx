@@ -97,7 +97,7 @@ export function AtlasSidebar({ identity }: { identity?: IdentityView }) {
           A
         </div>
         <div className="flex flex-col leading-tight">
-          <span className="text-sm font-bold tracking-tight">ATLAS.OS</span>
+          <span className="text-sm font-bold tracking-tight">ATLAS</span>
           {/* No version here: the scaffold's "v2.4" was invented. The real Atlas version is
               on the dashboard header and the Settings page, sourced from /api/metrics. */}
           <span className="font-mono text-[10px] text-muted-foreground">control plane</span>
