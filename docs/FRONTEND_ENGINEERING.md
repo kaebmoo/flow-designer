@@ -54,6 +54,11 @@ Client components may import types, mappers that have no secrets, and query hook
 - Treat nullable workflow `default_reply` as root metadata, not policy. Preserve unknown
   additive keys while editing known reply fields; run-level `_meta.reply` always wins.
 - Serialize only supported node/edge fields; always emit `join.mode`/`quorum`, `manager.schema`, and an edge `condition`.
+- Keep result and file semantics separate: `outputs[0]` names the worker reply artifact, while
+  `collect_files` asks the worker to snapshot workspace files as downloadable `file_ref`
+  artifacts. Edge `push_files` is only valid when workflow policy `file_handoff` is enabled.
+- Treat `company` and `model` as Atlas runtime fields, not UI labels: `company` participates in
+  workspace routing, and `model` is forwarded to the selected worker as the requested model.
 - Fail closed on any unknown Atlas node or condition type — surface it, never silently drop it or send it to Atlas.
 - Validate graph shape before save and before run.
 - Use stable node IDs from Atlas; do not use array index as identity.

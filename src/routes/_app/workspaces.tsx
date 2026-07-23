@@ -208,7 +208,7 @@ function WorkspacesPage() {
               },
               {
                 key: "company",
-                header: "Company",
+                header: "Workspace company",
                 render: (w) => <span className="text-sm">{w.company || "—"}</span>,
               },
               {
@@ -488,7 +488,7 @@ function WorkspaceFormDialog({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="workspace-company">Company</Label>
+              <Label htmlFor="workspace-company">Workspace company</Label>
               <Input
                 id="workspace-company"
                 value={company}
@@ -496,6 +496,9 @@ function WorkspaceFormDialog({
                 placeholder="Acme"
                 autoComplete="off"
               />
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Workflow nodes can use this value as a workspace routing hint.
+              </p>
             </div>
 
             <div className="space-y-1.5">

@@ -2,6 +2,20 @@
 
 This project is the web UI for the existing Atlas Control Plane. It is not a second control plane.
 
+## User guide
+
+- [Web User Guide — English](guides/web-user-guide-en.md)
+- [คู่มือใช้งานผ่านเว็บ — ภาษาไทย](guides/web-user-guide-th.md)
+
+The guides above are for operators: navigation, fleet, jobs, the workflow
+editor, runs and approvals, triggers, deliveries, the artifact ledger, usage,
+and audit — including what is deliberately out of scope today (ad-hoc job
+composition, run file uploads, and solution-pack import/export remain
+API-only; see
+[Atlas's own Web User Guide](https://github.com/kaebmoo/atlas-control-plane/blob/main/docs/guides/web-user-guide-en.md)
+for the minimal embedded ops console that ships with Atlas itself). Everything
+below this section is engineering documentation.
+
 ## Read first
 
 1. [Architecture](ARCHITECTURE.md)

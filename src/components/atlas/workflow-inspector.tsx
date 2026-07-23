@@ -315,7 +315,7 @@ export function NodeInspector({
                 className="text-xs"
               />
             </Field>
-            <Field label="Company">
+            <Field label="Workspace company" hint="Routing hint used when no workspace id is set.">
               <Input
                 value={node.company ?? ""}
                 onChange={(event) =>

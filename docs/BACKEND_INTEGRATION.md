@@ -132,6 +132,20 @@ The UI mock combines worker and workspace data. Atlas separates them. The adapte
 - Workspace relations to workspace keys; do not invent directories locally.
 - Atlas worker state/error fields to the UI status vocabulary.
 
+### Worker and workspace writes
+
+Workers and workspaces are separate Atlas resources:
+
+- `POST /api/workers` is an upsert matched by `id` or `base_url`. A worker create/edit carries
+  `name`, `base_url`, optional `role`/`tags`, and an optional `token`. It does not carry workspace
+  mappings. Omitting `token` preserves the stored credential.
+- `POST /api/workspaces` is an upsert matched by `id` or by `(worker_id, workspace_key)`. A
+  workspace create/edit must carry `worker_id`, `workspace_key`, and `workspace_dir`; `company`
+  and `tags` are optional. The `worker_id` is required because the directory exists on that
+  worker's machine.
+- Creating a workspace with the same `(worker_id, workspace_key)` rewrites that existing mapping
+  rather than adding a duplicate. Deleting a worker deletes its workspace rows by Atlas cascade.
+
 ### Workflow definition
 
 The canvas must serialize the Atlas semantic graph, not the React Flow layout object. Verified against `atlas/workflows.py` (`validate_workflow_graph`) and `docs/specs/workflow-definition.schema.json`, the graph requires:
@@ -153,6 +167,40 @@ re-validates it against the **current** outbound allowlist; an explicit run repl
 blocked by a stale stored default. Trigger-started and synchronous definition-backed runs share
 that path. `POST /api/workflows/{id}/validate` remains graph/policy-only, and solution packs
 deliberately omit deployment-specific defaults.
+
+#### Output artifacts, collected files, and handoff
+
+There are three different file/result concepts in a workflow, and they must not be collapsed into
+one UI field:
+
+- `outputs: ["key"]` on a `worker` node declares exactly one artifact key for the worker's reply.
+  Without `outputs`, the job may succeed but creates no reply artifact. With `outputs`, Atlas
+  stores the whole `assistant_text` under that key; the key is also what `{artifact.key}`,
+  `artifact_equals`, and `artifact_in` reference. It is not a filename.
+- `output_format: "json"` only changes how Atlas parses the worker's reply before storing the
+  artifact. Omit it for text; do not infer it from the presence of `outputs`.
+- To produce downloadable files, the prompt must make the worker write files under its workspace
+  and the node must set `collect_files` to workspace-relative glob patterns. Atlas forwards those
+  patterns to thClaws, snapshots matching files after the job succeeds, and stores them as
+  `file_ref` artifacts. Only `file_ref` artifacts have raw bytes behind
+  `GET /api/artifacts/{id}/content`.
+- To pass previously collected files to a downstream node, set edge `push_files` to artifact-key
+  glob patterns and set workflow policy `file_handoff: true`. This is only for inter-node handoff;
+  it is not required just to collect final run artifacts.
+
+`collect_files` patterns are validated at save time: non-empty strings, relative to the workspace,
+no `..`, no absolute paths, no control characters, at most 4,096 characters each, and bounded by
+Atlas's effective artifact file cap.
+
+#### Agent routing fields
+
+`company` and `model` on `worker`/`manager` nodes are Atlas runtime fields:
+
+- `company` is an advanced routing hint. When no explicit `workspace_id` is supplied, Atlas can
+  use it to choose a workspace whose `company` matches. It is not a display-only label.
+- `model` is a model override forwarded to the selected thClaws worker as the job's requested
+  model. Atlas records the requested/effective model for visibility and usage accounting; Atlas
+  does not store model provider keys.
 
 ## Workflow node compatibility matrix
 
