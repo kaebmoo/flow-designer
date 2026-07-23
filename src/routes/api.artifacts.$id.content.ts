@@ -14,7 +14,8 @@
  * bytes is a usable filename: Atlas's own `Content-Disposition` hardcodes the ASCII filename
  * `download` (`atlas/app.py:939`), so a browser that ignores the RFC 5987 `filename*` saves
  * every artifact under the same extensionless name. The name is rebuilt from the artifact's
- * own `metadata.filename`, read from Atlas — never from the request.
+ * own `metadata.filename` or collected-file `metadata.relpath`, read from Atlas — never from the
+ * request.
  */
 
 import { createFileRoute } from "@tanstack/react-router";
@@ -39,6 +40,13 @@ function asciiFilename(name: string): string {
   return cleaned.length > 0 ? cleaned.slice(0, 120) : "artifact";
 }
 
+function safeRelpathBasename(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const basename = value.replace(/\\/g, "/").split("/").filter(Boolean).pop()?.trim() ?? "";
+  if (basename === "" || basename === "." || basename === "..") return null;
+  return basename;
+}
+
 export const Route = createFileRoute("/api/artifacts/$id/content")({
   server: {
     handlers: {
@@ -52,9 +60,9 @@ export const Route = createFileRoute("/api/artifacts/$id/content")({
 
           const metadata = artifact.metadata ?? {};
           const filename =
-            typeof metadata.filename === "string" && metadata.filename.length > 0
+            typeof metadata.filename === "string" && metadata.filename.trim().length > 0
               ? metadata.filename
-              : `${artifact.key || artifact.id}.bin`;
+              : (safeRelpathBasename(metadata.relpath) ?? artifact.key);
 
           return new Response(bytes, {
             headers: {

@@ -10,7 +10,10 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_USAGE_WINDOW_DAYS, defaultUsageFrom, parseDateBoundary } from "@/lib/atlas-dates";
 import {
+  ARTIFACT_PREVIEW_MAX_CHARS,
   toApiTokenView,
+  toArtifactListingView,
+  toArtifactPreviewView,
   toAuditEntryView,
   toConversationView,
   toUsageView,
@@ -18,11 +21,130 @@ import {
 } from "@/lib/atlas-mappers";
 import type {
   AtlasApiToken,
+  AtlasArtifact,
+  AtlasArtifactListing,
+  AtlasArtifactListRow,
   AtlasAuditEntry,
   AtlasConversation,
   AtlasUsageResponse,
   AtlasUserListRow,
 } from "@/lib/atlas-types";
+
+const inlineArtifact: AtlasArtifact = {
+  id: "art_inline",
+  run_id: null,
+  job_id: "job_1",
+  key: "analysis",
+  kind: "text",
+  content: "inline content must not enter a list cache",
+  metadata: {},
+  created_at: "2026-07-21T08:00:00Z",
+  updated_at: "2026-07-21T08:00:00Z",
+};
+const inlineArtifactListRow: AtlasArtifactListRow = {
+  id: inlineArtifact.id,
+  run_id: inlineArtifact.run_id,
+  job_id: inlineArtifact.job_id,
+  key: inlineArtifact.key,
+  kind: inlineArtifact.kind,
+  metadata: inlineArtifact.metadata,
+  created_at: inlineArtifact.created_at,
+  updated_at: inlineArtifact.updated_at,
+};
+
+describe("artifact views", () => {
+  it("maps a global listing to metadata only, dropping every inline content value", () => {
+    const listing: AtlasArtifactListing = {
+      artifacts: [inlineArtifactListRow],
+      total: 1,
+      limit: 25,
+    };
+
+    const view = toArtifactListingView(listing);
+    expect(view.artifacts[0]).toEqual({
+      id: "art_inline",
+      key: "analysis",
+      kind: "text",
+      downloadable: false,
+      filename: null,
+      mediaType: null,
+      sizeBytes: null,
+      runId: null,
+      jobId: "job_1",
+      createdAt: "2026-07-21 08:00:00 UTC",
+    });
+    expect(JSON.stringify(view)).not.toContain("inline content must not enter a list cache");
+    expect(view.artifacts[0]).not.toHaveProperty("preview");
+  });
+
+  it("bounds the on-demand by-id preview before it can enter the browser cache", () => {
+    const content = "x".repeat(ARTIFACT_PREVIEW_MAX_CHARS + 17);
+    const view = toArtifactPreviewView({ ...inlineArtifact, content });
+
+    expect(view.preview).toHaveLength(ARTIFACT_PREVIEW_MAX_CHARS);
+    expect(view.truncated).toBe(true);
+    expect(view).not.toHaveProperty("originalCharacters");
+  });
+
+  it("does not split a surrogate pair at the preview boundary", () => {
+    const content = `${"a".repeat(ARTIFACT_PREVIEW_MAX_CHARS - 1)}😀`;
+    const view = toArtifactPreviewView({ ...inlineArtifact, content });
+
+    expect(view.preview).toBe("a".repeat(ARTIFACT_PREVIEW_MAX_CHARS - 1));
+    expect(view.truncated).toBe(true);
+  });
+
+  it("keeps a complete combining sequence when it fits within the preview boundary", () => {
+    const finalCluster = "e\u0301";
+    const content = `${"a".repeat(ARTIFACT_PREVIEW_MAX_CHARS - 2)}${finalCluster}b`;
+    const view = toArtifactPreviewView({ ...inlineArtifact, content });
+
+    expect(view.preview).toBe(`${"a".repeat(ARTIFACT_PREVIEW_MAX_CHARS - 2)}${finalCluster}`);
+    expect(view.preview).toHaveLength(ARTIFACT_PREVIEW_MAX_CHARS);
+    expect(view.truncated).toBe(true);
+  });
+
+  it("does not split a combining sequence that crosses the preview boundary", () => {
+    const finalCluster = "e\u0301";
+    const content = `${"a".repeat(ARTIFACT_PREVIEW_MAX_CHARS - 1)}${finalCluster}b`;
+    const view = toArtifactPreviewView({ ...inlineArtifact, content });
+
+    expect(view.preview).toBe("a".repeat(ARTIFACT_PREVIEW_MAX_CHARS - 1));
+    expect(view.truncated).toBe(true);
+  });
+
+  it("bounds a pathological single grapheme cluster by code units", () => {
+    const content = `x${"\u0301".repeat(100_000)}`;
+    const view = toArtifactPreviewView({ ...inlineArtifact, content });
+
+    expect(content).toHaveLength(100_001);
+    expect(view.preview).toHaveLength(ARTIFACT_PREVIEW_MAX_CHARS);
+    expect(view.truncated).toBe(true);
+  });
+
+  it("uses a collected file relpath basename before falling back to the artifact key", () => {
+    const fileArtifact: AtlasArtifactListRow = {
+      ...inlineArtifactListRow,
+      id: "art_file",
+      key: "files.output.reports.final.txt",
+      kind: "file_ref",
+      metadata: { relpath: "reports/final.txt", size: 12 },
+    };
+    const fallbackArtifact: AtlasArtifactListRow = {
+      ...fileArtifact,
+      id: "art_file_key",
+      key: "fallback-key",
+      metadata: {},
+    };
+
+    expect(
+      toArtifactListingView({ artifacts: [fileArtifact], total: 1, limit: 25 }).artifacts[0],
+    ).toMatchObject({ filename: "final.txt" });
+    expect(
+      toArtifactListingView({ artifacts: [fallbackArtifact], total: 1, limit: 25 }).artifacts[0],
+    ).toMatchObject({ filename: "fallback-key" });
+  });
+});
 
 const conversation: AtlasConversation = {
   id: "cnv_1",

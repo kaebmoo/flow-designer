@@ -22,6 +22,7 @@ import type {
   AtlasApproval,
   AtlasArtifact,
   AtlasArtifactListing,
+  AtlasArtifactListRow,
   AtlasAuditEntry,
   AtlasConversation,
   AtlasDelivery,
@@ -1088,31 +1089,43 @@ export interface ArtifactView {
   filename: string | null;
   mediaType: string | null;
   sizeBytes: number | null;
-  /** Inline content for the text-shaped kinds, already stringified. Null for `file_ref`. */
-  preview: string | null;
   /** Null on an artifact collected by a standalone job (no workflow context). */
   runId: string | null;
   jobId: string | null;
   createdAt: string;
 }
 
-export function toArtifactView(artifact: AtlasArtifact): ArtifactView {
+function safeRelpathBasename(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\\/g, "/");
+  const basename = normalized.split("/").filter(Boolean).pop()?.trim() ?? "";
+  if (basename === "" || basename === "." || basename === "..") return null;
+  return basename;
+}
+
+function artifactFilename(metadata: Record<string, unknown>, key: string): string | null {
+  if (typeof metadata.filename === "string" && metadata.filename.trim().length > 0) {
+    return metadata.filename;
+  }
+  return safeRelpathBasename(metadata.relpath) ?? (key.length > 0 ? key : null);
+}
+
+export function toArtifactView(artifact: AtlasArtifact | AtlasArtifactListRow): ArtifactView {
   const metadata =
     artifact.metadata !== null && typeof artifact.metadata === "object" ? artifact.metadata : {};
   const isFile = artifact.kind === "file_ref";
+  const explicitFilename =
+    typeof metadata.filename === "string" && metadata.filename.trim().length > 0
+      ? metadata.filename
+      : null;
   return {
     id: artifact.id,
     key: artifact.key,
     kind: artifact.kind,
     downloadable: isFile,
-    filename: typeof metadata.filename === "string" ? metadata.filename : null,
+    filename: isFile ? artifactFilename(metadata, artifact.key) : explicitFilename,
     mediaType: typeof metadata.media_type === "string" ? metadata.media_type : null,
     sizeBytes: typeof metadata.size === "number" ? metadata.size : null,
-    preview: isFile
-      ? null
-      : typeof artifact.content === "string"
-        ? artifact.content
-        : JSON.stringify(artifact.content, null, 2),
     runId: artifact.run_id,
     jobId: artifact.job_id,
     createdAt: formatAtlasTimestamp(artifact.created_at),
@@ -1120,9 +1133,106 @@ export function toArtifactView(artifact: AtlasArtifact): ArtifactView {
 }
 
 /**
+ * The largest inline preview, in JavaScript string code units, that the BFF will serialise
+ * into a browser query cache.
+ *
+ * Atlas currently has no inline-content size cap. The by-id read is deliberately on-demand,
+ * and this second bound prevents one unusually large artifact from turning that explicit user
+ * action into an equally large browser allocation.
+ */
+export const ARTIFACT_PREVIEW_MAX_CHARS = 32_000;
+
+export interface ArtifactPreviewView extends ArtifactView {
+  /** Null defensively for `file_ref`; those bytes use the authenticated download route. */
+  preview: string | null;
+  truncated: boolean;
+}
+
+type GraphemeSegmenter = {
+  segment(input: string): Iterable<{ segment: string }>;
+};
+
+function graphemeSegmenter(): GraphemeSegmenter | null {
+  const Segmenter =
+    (
+      Intl as typeof Intl & {
+        Segmenter?: new (locale: string, options: { granularity: "grapheme" }) => GraphemeSegmenter;
+      }
+    ).Segmenter ?? null;
+  return Segmenter ? new Segmenter("en", { granularity: "grapheme" }) : null;
+}
+
+function* fallbackGraphemeSegments(value: string): Iterable<{ segment: string }> {
+  let current = "";
+  for (const codePoint of value) {
+    if (
+      current === "" ||
+      codePoint === "\u200d" ||
+      current.endsWith("\u200d") ||
+      /\p{Mark}/u.test(codePoint)
+    ) {
+      current += codePoint;
+      continue;
+    }
+    yield { segment: current };
+    current = codePoint;
+  }
+  if (current) yield { segment: current };
+}
+
+function sliceCodeUnits(value: string, max: number): string {
+  let preview = value.slice(0, max);
+  const lastCodeUnit = preview.charCodeAt(preview.length - 1);
+  if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) {
+    preview = preview.slice(0, -1);
+  }
+  return preview;
+}
+
+function limitPreviewCodeUnits(
+  value: string,
+  max: number,
+): { preview: string; truncated: boolean } {
+  const segmenter = graphemeSegmenter();
+  const segments = segmenter ? segmenter.segment(value) : fallbackGraphemeSegments(value);
+
+  let preview = "";
+  for (const { segment } of segments) {
+    const remaining = max - preview.length;
+    if (remaining <= 0) return { preview, truncated: true };
+    if (segment.length > remaining) {
+      if (preview.length === 0) {
+        return { preview: sliceCodeUnits(segment, remaining), truncated: true };
+      }
+      return { preview, truncated: true };
+    }
+    preview += segment;
+  }
+  return { preview, truncated: false };
+}
+
+export function toArtifactPreviewView(artifact: AtlasArtifact): ArtifactPreviewView {
+  const metadata = toArtifactView(artifact);
+  if (artifact.kind === "file_ref") {
+    return { ...metadata, preview: null, truncated: false };
+  }
+
+  const serialized =
+    typeof artifact.content === "string"
+      ? artifact.content
+      : (JSON.stringify(artifact.content, null, 2) ?? String(artifact.content ?? ""));
+  const bounded = limitPreviewCodeUnits(serialized, ARTIFACT_PREVIEW_MAX_CHARS);
+  return {
+    ...metadata,
+    preview: bounded.preview,
+    truncated: bounded.truncated,
+  };
+}
+
+/**
  * `GET /api/artifacts` rendered for the global listing page: the windowed rows plus the
- * truthful totals Atlas reports, so the page can say "latest N of TOTAL" instead of
- * implying the window is everything.
+ * truthful totals Atlas reports. Rows are metadata-only from Atlas through the browser cache;
+ * content is fetched by id only when preview is opened.
  */
 export interface ArtifactListingView {
   artifacts: ArtifactView[];

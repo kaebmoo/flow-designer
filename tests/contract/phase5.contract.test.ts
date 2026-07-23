@@ -204,7 +204,7 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
   });
 
   describe("artifacts", () => {
-    it("global artifact listing (Atlas ec62be1): a windowed read with a truthful total", async () => {
+    it("global artifact listing (Atlas 5c08ee3): a metadata-only windowed read with a truthful total", async () => {
       // Seed one known member through Atlas's own API.
       const created = await rawRequest("POST", "/api/artifacts", adminToken, {
         run_id: seeded!.runId,
@@ -213,12 +213,31 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
         content: "phase 5 global listing probe",
       });
       expect(created.status).toBe(201);
-      const artifactId = ((await created.json()) as { artifact: { id: string } }).artifact.id;
+      const createdArtifact = (await created.json()) as {
+        artifact: { id: string; content: string };
+      };
+      const artifactId = createdArtifact.artifact.id;
+
+      // The raw default request pins backward compatibility: Atlas must keep returning
+      // inline content unless the metadata-only selector is explicitly opted into.
+      const defaultListing = await rawRequest(
+        "GET",
+        `/api/artifacts?run_id=${encodeURIComponent(seeded!.runId)}&key=contract_listing_probe&kind=text`,
+        adminToken,
+      );
+      expect(defaultListing.status).toBe(200);
+      const defaultPayload = (await defaultListing.json()) as {
+        artifacts: Array<{ id: string; content?: unknown }>;
+      };
+      const defaultRow = defaultPayload.artifacts.find((row) => row.id === artifactId);
+      expect(defaultRow).toBeDefined();
+      expect(defaultRow).toHaveProperty("content", createdArtifact.artifact.content);
 
       // A viewer reads the global window — GETs need only `read`. Filters are Atlas-applied.
       const listed = await atlasListArtifacts(viewerToken, {
         limit: 100,
         runId: seeded!.runId,
+        key: "contract_listing_probe",
         kind: "text",
       });
       expect(listed.limit).toBe(100);
@@ -226,7 +245,9 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
       expect(listed.artifacts.map((row) => row.id)).toContain(artifactId);
       for (const row of listed.artifacts) {
         expect(row.run_id).toBe(seeded!.runId);
+        expect(row.key).toBe("contract_listing_probe");
         expect(row.kind).toBe("text");
+        expect(row).not.toHaveProperty("content");
       }
 
       // An unknown kind is a 400 at the API, not a silently ignored filter.

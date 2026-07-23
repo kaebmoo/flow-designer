@@ -1,3 +1,8 @@
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { expect, test, type Page } from "@playwright/test";
 
 import { ADMIN_CREDENTIALS, VIEWER_CREDENTIALS } from "../contract/atlas-instance";
@@ -9,13 +14,22 @@ import { readSeed } from "./global-setup";
  * Everything asserted here is real Atlas state: `globalSetup` boots an isolated Atlas, the
  * dev server talks only to it, and where a spec needs a fixture the shared seed cannot
  * provide (a delivery row), it creates one through Atlas's own API with the seed's admin
- * bearer. No network response is stubbed anywhere.
+ * bearer. The retryable preview spec aborts the browser-to-app RPC to exercise transport
+ * handling; Atlas responses themselves are never stubbed.
  */
 
 let cachedSeed: ReturnType<typeof readSeed> | undefined;
 function seed() {
   cachedSeed ??= readSeed();
   return cachedSeed;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function actionName(action: "Download" | "Preview", key: string): RegExp {
+  return new RegExp(`^${action} ${escapeRegExp(key)} \\(`);
 }
 
 async function signIn(page: Page, creds: typeof ADMIN_CREDENTIALS) {
@@ -54,6 +68,33 @@ async function atlasPost(path: string, body: unknown): Promise<Record<string, un
   return JSON.parse(text) as Record<string, unknown>;
 }
 
+/** Upload one real `file_ref` artifact through Atlas's bounded raw-byte route. */
+async function atlasUpload(
+  runId: string,
+  key: string,
+  filename: string,
+  content: string,
+): Promise<Record<string, unknown>> {
+  const { atlasOrigin, adminToken } = seed();
+  const body = Buffer.from(content);
+  const response = await fetch(
+    `${atlasOrigin}/api/workflow-runs/${encodeURIComponent(runId)}/files?key=${encodeURIComponent(key)}`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${adminToken}`,
+        "content-type": "text/plain",
+        "content-length": String(body.length),
+        "x-filename": filename,
+      },
+      body,
+    },
+  );
+  const text = await response.text();
+  if (!response.ok) throw new Error(`artifact upload failed: ${response.status} ${text}`);
+  return JSON.parse(text) as Record<string, unknown>;
+}
+
 async function atlasGet(path: string): Promise<Record<string, unknown>> {
   const { atlasOrigin, adminToken } = seed();
   const response = await fetch(`${atlasOrigin}${path}`, {
@@ -62,6 +103,67 @@ async function atlasGet(path: string): Promise<Record<string, unknown>> {
   const text = await response.text();
   if (!response.ok) throw new Error(`${path} failed: ${response.status} ${text}`);
   return JSON.parse(text) as Record<string, unknown>;
+}
+
+function insertStandaloneFileArtifact({
+  key,
+  relpath,
+  content,
+}: {
+  key: string;
+  relpath: string;
+  content: string;
+}): { artifactId: string; filename: string } {
+  const { atlasRestart, jobId } = seed();
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const artifactId = `art_e2e_${suffix}`;
+  const uploadId = `file_e2e_${suffix}`;
+  const bytes = Buffer.from(content);
+  const metadata = JSON.stringify({
+    relpath,
+    media_type: "text/plain",
+    size: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    source_job_id: jobId,
+  });
+  const now = new Date().toISOString();
+  mkdirSync(atlasRestart.uploadDir, { recursive: true });
+  writeFileSync(join(atlasRestart.uploadDir, uploadId), bytes);
+
+  const result = spawnSync(
+    "python3",
+    [
+      "-c",
+      `
+import sqlite3
+import sys
+
+db_path, artifact_id, job_id, key, upload_id, metadata, now = sys.argv[1:]
+with sqlite3.connect(db_path) as conn:
+    conn.execute(
+        """
+        INSERT INTO artifacts(id, run_id, job_id, key, kind, content, metadata, created_at, updated_at)
+        VALUES (?, NULL, ?, ?, 'file_ref', ?, ?, ?, ?)
+        """,
+        (artifact_id, job_id, key, upload_id, metadata, now, now),
+    )
+`,
+      atlasRestart.dbPath,
+      artifactId,
+      jobId,
+      key,
+      uploadId,
+      metadata,
+      now,
+    ],
+    { encoding: "utf-8" },
+  );
+  if (result.status !== 0) {
+    throw new Error(`standalone artifact insert failed: ${result.stderr || result.stdout}`);
+  }
+
+  const filename = relpath.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? key;
+  return { artifactId, filename };
 }
 
 /**
@@ -158,20 +260,256 @@ test.describe("Phase 5: operational pages as admin", () => {
     await expect(page.getByRole("cell", { name: title })).toBeVisible();
   });
 
-  test("artifacts states the global-list limitation with the real lifetime count", async ({
+  test("artifacts renders real rows, filters, lazy preview, empty state, totals, and download", async ({
     page,
   }) => {
+    const suffix = Date.now();
+    const previewKey = `ledger_preview_${suffix}`;
+    const previewContent = `On-demand preview ${suffix}`;
+    const fileKey = `ledger_file_${suffix}`;
+    const fileContent = `Downloaded from the artifact ledger ${suffix}\n`;
+    const filename = `phase5-ledger-${suffix}.txt`;
+
+    await atlasPost("/api/artifacts", {
+      run_id: seed().runId,
+      key: previewKey,
+      kind: "text",
+      content: previewContent,
+    });
+    await atlasUpload(seed().runId, fileKey, filename, fileContent);
+
     await gotoHydrated(page, "/artifacts");
+
+    // Inline content is absent from the ledger DOM until the row's own preview action asks
+    // Atlas for that one artifact by id.
+    const previewRow = page.getByRole("row").filter({ hasText: previewKey });
+    await expect(previewRow).toBeVisible();
+    await expect(page.getByText(previewContent)).toHaveCount(0);
+    const previewButton = previewRow.getByRole("button", {
+      name: actionName("Preview", previewKey),
+    });
+    await previewButton.click();
+    await expect(page.getByRole("dialog", { name: `Preview ${previewKey}` })).toBeVisible();
+    await expect(page.getByTestId("artifact-preview")).toHaveText(previewContent);
+    await page.getByRole("button", { name: "Close" }).click();
+    await expect(previewButton).toBeFocused();
+
+    await previewButton.click();
+    await expect(page.getByRole("dialog", { name: `Preview ${previewKey}` })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: `Preview ${previewKey}` })).toHaveCount(0);
+    await expect(previewButton).toBeFocused();
+
+    await previewButton.click();
+    await expect(page.getByRole("dialog", { name: `Preview ${previewKey}` })).toBeVisible();
+    await page.mouse.click(10, 10);
+    await expect(page.getByRole("dialog", { name: `Preview ${previewKey}` })).toHaveCount(0);
+    await expect(previewButton).toBeFocused();
+
+    // The run filter is pushed into the URL and Atlas reports a truthful filtered total.
+    await page.getByLabel(/Filter by run id/).fill(seed().runId);
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await expect(page).toHaveURL(new RegExp(`[?&]run=${seed().runId}(?:&|$)`));
+    await expect(page.getByRole("row").filter({ hasText: previewKey })).toBeVisible();
+    await expect(page.getByRole("row").filter({ hasText: fileKey })).toBeVisible();
     await expect(
-      page.getByText("Atlas has no global artifact list", { exact: false }),
+      page.getByText(/Showing the 2 newest of the 2 artifacts Atlas holds/),
     ).toBeVisible();
+
+    await page.getByLabel(/Filter by artifact key/).fill(previewKey);
+    await page.getByRole("button", { name: "Apply filters" }).click();
+    await expect(page).toHaveURL(new RegExp(`[?&]key=${previewKey}(?:&|$)`));
+    await expect(page.getByRole("row").filter({ hasText: previewKey })).toBeVisible();
+    await expect(page.getByRole("row").filter({ hasText: fileKey })).toHaveCount(0);
     await expect(
-      page.getByText(/Atlas currently reports \d+ artifacts? across all runs/),
+      page.getByText(/Showing the 1 newest of the 1 artifact Atlas holds/),
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: /Browse runs/ })).toBeVisible();
-    // The scaffold's invented ledger is gone.
+
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`[?&]run=${seed().runId}(?:&|$)`));
+    await expect(page.getByRole("row").filter({ hasText: fileKey })).toBeVisible();
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp(`[?&]key=${previewKey}(?:&|$)`));
+
+    // Kind filtering changes both the URL and rows without lying about the total.
+    await page.getByRole("button", { name: "text", exact: true }).click();
+    await expect(page).toHaveURL(/(?:\?|&)kind=text(?:&|$)/);
+    await expect(page.getByRole("row").filter({ hasText: previewKey })).toBeVisible();
+    await expect(page.getByRole("row").filter({ hasText: fileKey })).toHaveCount(0);
+    await expect(
+      page.getByText(/Showing the 1 newest of the 1 artifact Atlas holds/),
+    ).toBeVisible();
+
+    // A real zero-row Atlas answer renders the filtered empty state.
+    await page.getByRole("button", { name: "decision", exact: true }).click();
+    await expect(page.getByText("Atlas has no artifacts matching these filters.")).toBeVisible();
+
+    // `file_ref` downloads travel through the authenticated same-origin proxy.
+    await gotoHydrated(
+      page,
+      `/artifacts?run=${encodeURIComponent(seed().runId)}&key=${encodeURIComponent(fileKey)}&kind=file_ref`,
+    );
+    const fileRow = page.getByRole("row").filter({ hasText: fileKey });
+    await expect(fileRow.getByRole("button", { name: actionName("Preview", fileKey) })).toHaveCount(
+      0,
+    );
+    const downloadPromise = page.waitForEvent("download");
+    await fileRow.getByRole("button", { name: actionName("Download", fileKey) }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(filename);
+    const stream = await download.createReadStream();
+    if (!stream) throw new Error("Playwright did not expose the artifact download stream");
+    let downloaded = "";
+    for await (const chunk of stream) downloaded += chunk.toString();
+    expect(downloaded).toBe(fileContent);
+
+    // The original mock ledger never reappears.
     await expect(page.getByText("art_9210")).toHaveCount(0);
     await expect(page.getByText("analysis_report.pdf")).toHaveCount(0);
+  });
+
+  test("artifact preview truncates on a Unicode-safe boundary", async ({ page }) => {
+    const suffix = Date.now();
+    const unicodeKey = `unicode_preview_${suffix}`;
+    const previewPrefix = `${"a".repeat(31_998)}😀`;
+    const hiddenTail = "TAIL_AFTER_BOUNDARY";
+
+    await atlasPost("/api/artifacts", {
+      run_id: seed().runId,
+      key: unicodeKey,
+      kind: "text",
+      content: `${previewPrefix}${hiddenTail}`,
+    });
+
+    await gotoHydrated(
+      page,
+      `/artifacts?run=${encodeURIComponent(seed().runId)}&key=${encodeURIComponent(unicodeKey)}`,
+    );
+    const row = page.getByRole("row").filter({ hasText: unicodeKey });
+    await expect(row).toBeVisible();
+    await row.getByRole("button", { name: actionName("Preview", unicodeKey) }).click();
+    await expect(page.getByText("Preview limited to the first 32,000 characters.")).toBeVisible();
+    const previewText = await page.getByTestId("artifact-preview").textContent();
+    expect(previewText).toBe(previewPrefix);
+    expect(previewText).toContain("😀");
+    expect(previewText).not.toContain(hiddenTail);
+  });
+
+  test("run detail previews an inline artifact older than the global window", async ({ page }) => {
+    const suffix = Date.now();
+    const oldKey = `run_detail_old_preview_${suffix}`;
+    const oldContent = `Run detail preview remains available ${suffix}`;
+
+    await atlasPost("/api/artifacts", {
+      run_id: seed().runId,
+      key: oldKey,
+      kind: "text",
+      content: oldContent,
+    });
+    for (let index = 0; index < 26; index += 1) {
+      await atlasPost("/api/artifacts", {
+        run_id: seed().runId,
+        key: `run_detail_newer_${suffix}_${index}`,
+        kind: "text",
+        content: `newer ${index}`,
+      });
+    }
+
+    await gotoHydrated(page, `/artifacts?limit=25&run=${encodeURIComponent(seed().runId)}`);
+    await expect(page.getByRole("row").filter({ hasText: oldKey })).toHaveCount(0);
+
+    await gotoHydrated(page, `/runs/${encodeURIComponent(seed().runId)}`);
+    const row = page.getByRole("row").filter({ hasText: oldKey });
+    await expect(row).toBeVisible();
+    await row.getByRole("button", { name: actionName("Preview", oldKey) }).click();
+    await expect(page.getByRole("dialog", { name: `Preview ${oldKey}` })).toBeVisible();
+    await expect(page.getByTestId("artifact-preview")).toHaveText(oldContent);
+  });
+
+  test("preview shows Retry only for a retryable transport error", async ({ page }) => {
+    const suffix = Date.now();
+    const retryKey = `retryable_preview_${suffix}`;
+    const retryContent = `Preview recovers after retry ${suffix}`;
+
+    await atlasPost("/api/artifacts", {
+      run_id: seed().runId,
+      key: retryKey,
+      kind: "text",
+      content: retryContent,
+    });
+
+    await gotoHydrated(
+      page,
+      `/artifacts?run=${encodeURIComponent(seed().runId)}&key=${encodeURIComponent(retryKey)}`,
+    );
+    const row = page.getByRole("row").filter({ hasText: retryKey });
+    await expect(row).toBeVisible();
+
+    await page.route("**/_serverFn/**", (route) => route.abort("failed"));
+    await row.getByRole("button", { name: actionName("Preview", retryKey) }).click();
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible({ timeout: 30_000 });
+    await page.unroute("**/_serverFn/**");
+
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByTestId("artifact-preview")).toHaveText(retryContent, {
+      timeout: 30_000,
+    });
+  });
+
+  test("preview redirects on an expired session without offering Retry", async ({
+    page,
+    context,
+  }) => {
+    const suffix = Date.now();
+    const unauthorizedKey = `unauthorized_preview_${suffix}`;
+
+    await atlasPost("/api/artifacts", {
+      run_id: seed().runId,
+      key: unauthorizedKey,
+      kind: "text",
+      content: `This should require a fresh session ${suffix}`,
+    });
+
+    await gotoHydrated(
+      page,
+      `/artifacts?run=${encodeURIComponent(seed().runId)}&key=${encodeURIComponent(unauthorizedKey)}`,
+    );
+    const row = page.getByRole("row").filter({ hasText: unauthorizedKey });
+    await expect(row).toBeVisible();
+    await context.clearCookies();
+    await row.getByRole("button", { name: actionName("Preview", unauthorizedKey) }).click();
+    await expect(page).toHaveURL(/\/auth$/);
+    await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  });
+
+  test("standalone job file_ref downloads use relpath basename when filename is absent", async ({
+    page,
+  }) => {
+    const suffix = Date.now();
+    const fileKey = `standalone_file_${suffix}`;
+    const fileContent = `Standalone job file ${suffix}\n`;
+    const { filename } = insertStandaloneFileArtifact({
+      key: fileKey,
+      relpath: `reports/${suffix}/standalone-final.txt`,
+      content: fileContent,
+    });
+
+    await gotoHydrated(
+      page,
+      `/artifacts?job=${encodeURIComponent(seed().jobId)}&key=${encodeURIComponent(fileKey)}&kind=file_ref`,
+    );
+    const row = page.getByRole("row").filter({ hasText: fileKey });
+    await expect(row).toBeVisible();
+    await expect(row.getByText(`job ${seed().jobId}`)).toBeVisible();
+    const downloadPromise = page.waitForEvent("download");
+    await row.getByRole("button", { name: actionName("Download", fileKey) }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(filename);
+    const stream = await download.createReadStream();
+    if (!stream) throw new Error("Playwright did not expose the artifact download stream");
+    let downloaded = "";
+    for await (const chunk of stream) downloaded += chunk.toString();
+    expect(downloaded).toBe(fileContent);
   });
 
   test("deliveries shows real rows, pushes filters to Atlas, and retries reflect Atlas state", async ({

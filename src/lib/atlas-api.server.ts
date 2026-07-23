@@ -19,6 +19,8 @@ import {
   isAtlasRowEnvelope,
   isAtlasRowListEnvelope,
   isAtlasApiToken,
+  isAtlasArtifact,
+  isAtlasArtifactListing,
   isAtlasSession,
   isAtlasUser,
   isAtlasWorkflowDefaultReply,
@@ -694,8 +696,13 @@ export async function atlasListRunArtifacts(
     ...options,
   });
 
-  return expectShape<{ artifacts: AtlasArtifact[] }>(payload, (value) =>
-    isAtlasRowListEnvelope(value, "artifacts"),
+  return expectShape<{ artifacts: AtlasArtifact[] }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      Array.isArray((value as Record<string, unknown>).artifacts) &&
+      ((value as Record<string, unknown>).artifacts as unknown[]).every(isAtlasArtifact),
   ).artifacts;
 }
 
@@ -721,17 +728,12 @@ export async function atlasListArtifacts(
       job_id: params.jobId || undefined,
       key: params.key || undefined,
       kind: params.kind || undefined,
+      include_content: "false",
     },
     ...options,
   });
 
-  return expectShape<AtlasArtifactListing>(
-    payload,
-    (value) =>
-      isAtlasRowListEnvelope(value, "artifacts") &&
-      typeof (value as { total?: unknown }).total === "number" &&
-      typeof (value as { limit?: unknown }).limit === "number",
-  );
+  return expectShape<AtlasArtifactListing>(payload, isAtlasArtifactListing);
 }
 
 /** `GET /api/artifacts/{id}` — metadata plus inline content for every kind but `file_ref`. */
@@ -747,8 +749,12 @@ export async function atlasGetArtifact(
     ...options,
   });
 
-  return expectShape<{ artifact: AtlasArtifact }>(payload, (value) =>
-    isAtlasRowEnvelope(value, "artifact"),
+  return expectShape<{ artifact: AtlasArtifact }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      isAtlasArtifact((value as Record<string, unknown>).artifact),
   ).artifact;
 }
 

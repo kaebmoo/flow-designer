@@ -11,6 +11,8 @@
  * OpenAPI document — where the two disagree, the code is what ships.
  */
 
+import { ATLAS_LIMIT_MAX, ATLAS_LIMIT_MIN } from "./atlas-limits";
+
 /** The four roles Atlas recognises. Atlas is the only authority that enforces them. */
 export const ATLAS_ROLES = ["admin", "operator", "viewer", "auditor"] as const;
 export type AtlasRole = (typeof ATLAS_ROLES)[number];
@@ -432,20 +434,23 @@ export interface AtlasDelivery {
  * `GET /api/artifacts/{id}`, `GET /api/workflow-runs/{id}/artifacts` (`atlas/db.py:399-411`).
  *
  * `content` is a decoded JSON value when `kind === "json"` and a plain string otherwise
- * (`_public_artifact`, `atlas/app.py:1239-1243`). For `kind === "file_ref"` it is the opaque
+ * (`_public_artifact`, `atlas/app.py:1425-1429`). For `kind === "file_ref"` it is the opaque
  * upload id — the bytes come from `GET /api/artifacts/{id}/content`, which is the only Atlas
  * route in this client that does not answer with JSON.
  */
-export interface AtlasArtifact {
+export interface AtlasArtifactListRow {
   id: string;
   run_id: string | null;
   job_id: string | null;
   key: string;
   kind: string;
-  content: unknown;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+}
+
+export interface AtlasArtifact extends AtlasArtifactListRow {
+  content: unknown;
 }
 
 /** The artifact kinds Atlas accepts (`atlas/db.py:22`). */
@@ -458,6 +463,54 @@ export const ARTIFACT_KINDS = [
   "decision",
 ] as const;
 
+function isArtifactKind(value: unknown): boolean {
+  return typeof value === "string" && (ARTIFACT_KINDS as readonly string[]).includes(value);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isNullableString(value: unknown): boolean {
+  return value === null || typeof value === "string";
+}
+
+function isArtifactMetadata(value: unknown): value is Record<string, unknown> {
+  return isPlainRecord(value);
+}
+
+function isAtlasArtifactBase(value: unknown): value is AtlasArtifactListRow {
+  if (!isPlainRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    isNullableString(value.run_id) &&
+    isNullableString(value.job_id) &&
+    typeof value.key === "string" &&
+    value.key.length > 0 &&
+    isArtifactKind(value.kind) &&
+    isArtifactMetadata(value.metadata) &&
+    typeof value.created_at === "string" &&
+    value.created_at.length > 0 &&
+    typeof value.updated_at === "string" &&
+    value.updated_at.length > 0
+  );
+}
+
+/** Global artifact list rows are metadata-only: `content` must not be present. */
+export function isAtlasArtifactListRow(value: unknown): value is AtlasArtifactListRow {
+  return isPlainRecord(value) && isAtlasArtifactBase(value) && !hasOwn(value, "content");
+}
+
+/** By-id and run/job-scoped artifact rows carry inline content. */
+export function isAtlasArtifact(value: unknown): value is AtlasArtifact {
+  return isPlainRecord(value) && isAtlasArtifactBase(value) && hasOwn(value, "content");
+}
+
 /**
  * `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=` — the global listing.
  *
@@ -466,9 +519,27 @@ export const ARTIFACT_KINDS = [
  * say "latest N of TOTAL" truthfully. The run/job-scoped routes remain the untruncated reads.
  */
 export interface AtlasArtifactListing {
-  artifacts: AtlasArtifact[];
+  artifacts: AtlasArtifactListRow[];
   total: number;
   limit: number;
+}
+
+export function isAtlasArtifactListing(value: unknown): value is AtlasArtifactListing {
+  if (!isPlainRecord(value)) return false;
+  if (!Array.isArray(value.artifacts)) return false;
+  if (!value.artifacts.every(isAtlasArtifactListRow)) return false;
+  if (typeof value.total !== "number" || !Number.isInteger(value.total) || value.total < 0) {
+    return false;
+  }
+  if (
+    typeof value.limit !== "number" ||
+    !Number.isInteger(value.limit) ||
+    value.limit < ATLAS_LIMIT_MIN ||
+    value.limit > ATLAS_LIMIT_MAX
+  ) {
+    return false;
+  }
+  return value.artifacts.length <= value.limit && value.artifacts.length <= value.total;
 }
 
 /** `POST /api/approvals/{id}/…` — the runner's return value *is* the whole body. */

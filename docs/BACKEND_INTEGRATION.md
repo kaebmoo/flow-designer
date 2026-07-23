@@ -58,11 +58,14 @@ Operational pages wired in Phase 5 (2026-07-21):
   typed-operation → RPC → view-model path as every earlier page. `settings.tsx` states what
   Atlas does **not** provide (no settings API) and shows only real values from
   `GET /api/metrics`.
-- `artifacts.tsx` (2026-07-23, requires Atlas `ec62be1`) renders the global listing from
-  `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=`: a newest-first display window whose
+- `artifacts.tsx` (2026-07-23, requires Atlas `5c08ee3`) renders the global listing from
+  `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=&include_content=false`: a newest-first display window whose
   response carries `total` and the clamped `limit`, shown as "latest N of TOTAL" with
-  Atlas-applied `kind`/`run_id` filters and the same authenticated `file_ref` download proxy
-  as run detail. The run/job-scoped routes remain the complete, untruncated reads.
+  Atlas-applied `kind`/`run_id`/`job_id`/`key` filters and the same authenticated `file_ref`
+  download proxy as run detail. Flow uses Atlas's metadata-only opt-in, so rows contain no
+  top-level `content` before they reach the BFF. Opening Preview fetches one inline artifact from
+  `GET /api/artifacts/{id}` on demand and bounds the browser payload. The run/job-scoped routes
+  remain the complete, untruncated reads.
 - `src/routes/api.exports.audit-csv.ts` and `src/routes/api.exports.usage-csv.ts` are thin
   same-origin transport glue for the two `format=csv` exports: session validated in the
   handler, bearer attached server-side, correct filename substituted for Atlas's shared
@@ -92,31 +95,31 @@ The thClaws worker contract used by Atlas includes `GET /healthz`, `GET /v1/agen
 
 ## UI-to-Atlas endpoint map
 
-| UI surface          | Atlas endpoint(s)                                                            | Notes                                                                                                                        |
-| ------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Auth                | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me`               | Login/`me` expose safe session id/expiry metadata; login can return 429 + `Retry-After`                                      |
-| Users               | `GET/POST /api/users`, `GET/PUT/DELETE /api/users/{id}`                      | Admin-only mutations                                                                                                         |
-| API tokens          | `GET/POST /api/tokens`, token update/revoke endpoints                        | Raw token returned once; metadata includes immutable purpose and optional expiry                                             |
-| Dashboard           | `/api/metrics`, `/api/workers`, `/api/workflows`, `/api/workflow-runs`       | Prefer aggregate metrics for headline cards                                                                                  |
-| Fleet               | `/api/workers`, `/api/workers/poll`, `/api/workers/{id}/poll`                | Worker tokens never reach the browser                                                                                        |
-| Workspaces          | `/api/workspaces`, `/api/workspaces/{id}`                                    | Workspace directory is on the worker machine                                                                                 |
-| Conversations       | `/api/conversations`                                                         | Session binding is Atlas-owned                                                                                               |
-| Jobs                | `/api/jobs`, `/api/jobs/{id}`, `/api/jobs/{id}/cancel`                       | Job response may include worker/workspace projections                                                                        |
-| Job stream          | `GET /api/jobs/{job_id}/events?after=<seq>`                                  | SSE with exclusive cursor, terminal `close`, `retry: 3000`, and unsequenced 15-second keepalive comments; no `Last-Event-ID` |
-| Workflows           | `/api/workflows`, `/api/workflow-templates`, `/api/workflows/{id}`           | Definitions may carry nullable `default_reply`; conditional PUT uses `expected_version`                                      |
-| Workflow validation | `/api/workflows/{id}/validate`                                               | Validate before enabling/running                                                                                             |
-| Workflow run        | `POST /api/workflow-runs`                                                    | Returns `202` for async start                                                                                                |
-| Run detail          | `GET /api/workflow-runs/{id}`                                                | Includes run, runtime nodes, edges, approvals                                                                                |
-| Run actions         | `/pause`, `/resume`, `/cancel`, `/deliver`                                   | Mutations must reconcile query state                                                                                         |
-| Run events          | `GET /api/workflow-runs/{run_id}/events?after=<seq>&limit=<n>`               | Persisted JSON cursor page `{events,after,next_after,has_more}`; not SSE; combine with per-job SSE for live progress         |
-| Approvals           | `/api/approvals`, `/api/approvals/{id}/approve`, `/reject`, `/choose`        | Required for human gates                                                                                                     |
-| Run artifacts       | `/api/workflow-runs/{id}/artifacts`, `/files`, `/api/artifacts/{id}/content` | Download through Atlas authorization                                                                                         |
-| Artifact listing    | `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=` (Atlas `ec62be1`)     | Windowed newest-first + `total`; the run/job-scoped routes stay the untruncated reads                                        |
-| Triggers            | `/api/workflow-triggers`, `/{id}`, `/{id}/fire`, `/{id}/events`              | Atlas owns schedule/webhook/internal trigger logic                                                                           |
-| Deliveries          | `/api/deliveries`, `/api/deliveries/{id}/retry`                              | Return-path delivery ledger                                                                                                  |
-| Audit               | `/api/audit`                                                                 | Filter and paginate; do not synthesize audit rows in UI                                                                      |
-| Usage               | `/api/usage`                                                                 | Use server-provided aggregates and export actions                                                                            |
-| Settings            | No complete generic settings endpoint confirmed                              | Keep deployment information read-only until Atlas exposes a safe contract                                                    |
+| UI surface          | Atlas endpoint(s)                                                                              | Notes                                                                                                                        |
+| ------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Auth                | `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/me`                                 | Login/`me` expose safe session id/expiry metadata; login can return 429 + `Retry-After`                                      |
+| Users               | `GET/POST /api/users`, `GET/PUT/DELETE /api/users/{id}`                                        | Admin-only mutations                                                                                                         |
+| API tokens          | `GET/POST /api/tokens`, token update/revoke endpoints                                          | Raw token returned once; metadata includes immutable purpose and optional expiry                                             |
+| Dashboard           | `/api/metrics`, `/api/workers`, `/api/workflows`, `/api/workflow-runs`                         | Prefer aggregate metrics for headline cards                                                                                  |
+| Fleet               | `/api/workers`, `/api/workers/poll`, `/api/workers/{id}/poll`                                  | Worker tokens never reach the browser                                                                                        |
+| Workspaces          | `/api/workspaces`, `/api/workspaces/{id}`                                                      | Workspace directory is on the worker machine                                                                                 |
+| Conversations       | `/api/conversations`                                                                           | Session binding is Atlas-owned                                                                                               |
+| Jobs                | `/api/jobs`, `/api/jobs/{id}`, `/api/jobs/{id}/cancel`                                         | Job response may include worker/workspace projections                                                                        |
+| Job stream          | `GET /api/jobs/{job_id}/events?after=<seq>`                                                    | SSE with exclusive cursor, terminal `close`, `retry: 3000`, and unsequenced 15-second keepalive comments; no `Last-Event-ID` |
+| Workflows           | `/api/workflows`, `/api/workflow-templates`, `/api/workflows/{id}`                             | Definitions may carry nullable `default_reply`; conditional PUT uses `expected_version`                                      |
+| Workflow validation | `/api/workflows/{id}/validate`                                                                 | Validate before enabling/running                                                                                             |
+| Workflow run        | `POST /api/workflow-runs`                                                                      | Returns `202` for async start                                                                                                |
+| Run detail          | `GET /api/workflow-runs/{id}`                                                                  | Includes run, runtime nodes, edges, approvals                                                                                |
+| Run actions         | `/pause`, `/resume`, `/cancel`, `/deliver`                                                     | Mutations must reconcile query state                                                                                         |
+| Run events          | `GET /api/workflow-runs/{run_id}/events?after=<seq>&limit=<n>`                                 | Persisted JSON cursor page `{events,after,next_after,has_more}`; not SSE; combine with per-job SSE for live progress         |
+| Approvals           | `/api/approvals`, `/api/approvals/{id}/approve`, `/reject`, `/choose`                          | Required for human gates                                                                                                     |
+| Run artifacts       | `/api/workflow-runs/{id}/artifacts`, `/files`, `/api/artifacts/{id}`, `/{id}/content`          | Inline preview by id; file download through Atlas authorization                                                              |
+| Artifact listing    | `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=&include_content=false` (Atlas `5c08ee3`) | Windowed newest-first + `total`; Flow uses the metadata-only opt-in so upstream and BFF list rows are metadata-only          |
+| Triggers            | `/api/workflow-triggers`, `/{id}`, `/{id}/fire`, `/{id}/events`                                | Atlas owns schedule/webhook/internal trigger logic                                                                           |
+| Deliveries          | `/api/deliveries`, `/api/deliveries/{id}/retry`                                                | Return-path delivery ledger                                                                                                  |
+| Audit               | `/api/audit`                                                                                   | Filter and paginate; do not synthesize audit rows in UI                                                                      |
+| Usage               | `/api/usage`                                                                                   | Use server-provided aggregates and export actions                                                                            |
+| Settings            | No complete generic settings endpoint confirmed                                                | Keep deployment information read-only until Atlas exposes a safe contract                                                    |
 
 ## Data model adapters
 

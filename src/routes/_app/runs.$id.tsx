@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { ArtifactContentActions, ArtifactDownloadError } from "@/components/atlas/artifact-actions";
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
 import { RunCanvas } from "@/components/atlas/run-canvas";
 import { RunLiveSection } from "@/components/atlas/run-live";
@@ -16,12 +17,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useArtifactDownloads } from "@/hooks/use-artifact-downloads";
 import {
   describeAtlasError,
   formatDurationMs,
   toClientAtlasError,
   type ApprovalView,
-  type ArtifactView,
   type ClientAtlasError,
   type RunView,
 } from "@/lib/atlas-mappers";
@@ -33,7 +34,6 @@ import {
 } from "@/lib/atlas-mutations";
 import { deliveriesQuery, runArtifactsQuery, runEventsQuery, runQuery } from "@/lib/atlas-queries";
 import { ATLAS_LIMIT_OPTIONS } from "@/lib/atlas-search";
-import type { AtlasErrorKind } from "@/lib/atlas-types";
 import {
   appendRunEventPage,
   EMPTY_RUN_EVENT_HISTORY,
@@ -660,71 +660,11 @@ function ApprovalActions({ approval, runState }: { approval: ApprovalView; runSt
   );
 }
 
-/**
- * The inverse of the download route's own kind-to-status table (`api.artifacts.$id.content.ts`),
- * so a refused download reads like every other Atlas failure on this page instead of like a
- * transport accident.
- */
-const DOWNLOAD_ERROR_KINDS: Record<number, AtlasErrorKind> = {
-  400: "validation",
-  401: "unauthorized",
-  403: "forbidden",
-  404: "not_found",
-  409: "conflict",
-  429: "rate_limited",
-  504: "timeout",
-};
-
-async function readDownloadError(response: Response): Promise<ClientAtlasError> {
-  const kind = DOWNLOAD_ERROR_KINDS[response.status] ?? "server";
-  const body = await response.text().catch(() => "");
-  return { kind, message: body.trim() || "The download could not be completed." };
-}
-
 /** Artifacts of the run. Only a `file_ref` has bytes behind a download. */
 function ArtifactsSection({ runId }: { runId: string }) {
   const artifacts = useQuery(runArtifactsQuery(runId));
   const [shown, setShown] = useState(PAGE_STEP);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [downloadError, setDownloadError] = useState<ClientAtlasError | null>(null);
-
-  /**
-   * The download is fetched rather than left to a plain `<a href download>`.
-   *
-   * That anchor cannot fail visibly: the route answers a refusal with Atlas's status and a
-   * text/plain body, and `download` makes the browser *save* that body — so a 403 from the role
-   * check, or the 400 Atlas raises when a `file_ref` resolves outside the upload root
-   * (`atlas/app.py:934-935`), lands on disk as a file containing the word "forbidden" with
-   * nothing on screen. Checking the response first puts the refusal in the page.
-   */
-  async function downloadArtifact(artifact: ArtifactView) {
-    setDownloadError(null);
-    setDownloadingId(artifact.id);
-    try {
-      // Same-origin: the route handler adds the Atlas bearer server-side, so the token is
-      // never in this URL and never in browser memory.
-      const response = await fetch(`/api/artifacts/${encodeURIComponent(artifact.id)}/content`);
-      if (!response.ok) {
-        setDownloadError(await readDownloadError(response));
-        return;
-      }
-      const objectUrl = URL.createObjectURL(await response.blob());
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = artifact.filename ?? artifact.key;
-      link.click();
-      // The click only *starts* the save, so revoking in this same task can cancel it; one
-      // macrotask later the browser holds its own reference and the blob can be released.
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-    } catch {
-      setDownloadError({
-        kind: "network",
-        message: "The browser could not reach this origin to fetch the artifact.",
-      });
-    } finally {
-      setDownloadingId(null);
-    }
-  }
+  const { pendingIds, downloadError, downloadArtifact } = useArtifactDownloads();
 
   if (artifacts.isPending) return <SectionLoading label="Loading artifacts" />;
   if (artifacts.isError) {
@@ -772,23 +712,17 @@ function ArtifactsSection({ runId }: { runId: string }) {
             key: "download",
             header: "Content",
             className: "text-right",
-            render: (artifact) =>
-              artifact.downloadable ? (
-                <ActionButton
-                  label="Download"
-                  pending={downloadingId === artifact.id}
-                  onClick={() => void downloadArtifact(artifact)}
-                />
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  Atlas serves bytes only for &quot;file_ref&quot;; a &quot;{artifact.kind}&quot;
-                  artifact carries its content inline.
-                </span>
-              ),
+            render: (artifact) => (
+              <ArtifactContentActions
+                artifact={artifact}
+                downloading={pendingIds.has(artifact.id)}
+                onDownload={(row) => void downloadArtifact(row)}
+              />
+            ),
           },
         ]}
       />
-      <InlineError error={downloadError} />
+      <ArtifactDownloadError error={downloadError} />
       <ShowMore
         shown={rows.length}
         total={artifacts.data.length}

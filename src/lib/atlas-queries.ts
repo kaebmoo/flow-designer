@@ -11,6 +11,7 @@ import { queryOptions } from "@tanstack/react-query";
 
 import { isClientAtlasError, type ClientAtlasError } from "./atlas-mappers";
 import {
+  getArtifactPreviewFn,
   getEditableWorkflowFn,
   listApprovalsFn,
   listArtifactsFn,
@@ -226,11 +227,22 @@ export function artifactsQuery(params: {
   limit: number;
   runId?: string;
   jobId?: string;
+  key?: string;
   kind?: string;
 }) {
   return queryOptions({
     queryKey: queryKeys.artifactList(params),
     queryFn: async ({ signal }) => unwrap(await listArtifactsFn({ data: params, signal })),
+    ...shared,
+  });
+}
+
+/** Inline content is fetched only after the preview surface mounts. */
+export function artifactPreviewQuery(artifactId: string) {
+  return queryOptions({
+    queryKey: queryKeys.artifactPreview(artifactId),
+    queryFn: async ({ signal }) =>
+      unwrap(await getArtifactPreviewFn({ data: { artifactId }, signal })),
     ...shared,
   });
 }

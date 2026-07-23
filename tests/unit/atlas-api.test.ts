@@ -4,8 +4,10 @@ import {
   AtlasError,
   atlasErrorKindForStatus,
   atlasCreateWorkflow,
+  atlasGetArtifact,
   atlasGetMe,
   atlasListApiTokens,
+  atlasListArtifacts,
   atlasListRunEvents,
   atlasLogin,
   atlasLogout,
@@ -24,6 +26,17 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 const ADMIN_USER = { id: "usr_1", username: "admin", role: "admin", status: "active" };
+const ARTIFACT_META = {
+  id: "art_1",
+  run_id: "wfr_1",
+  job_id: null,
+  key: "report",
+  kind: "text",
+  metadata: {},
+  created_at: "2026-07-21T08:00:00Z",
+  updated_at: "2026-07-21T08:00:00Z",
+};
+const ARTIFACT_WITH_CONTENT = { ...ARTIFACT_META, content: "artifact body" };
 
 beforeEach(() => {
   process.env.ATLAS_API_ORIGIN = ATLAS_ORIGIN;
@@ -471,6 +484,85 @@ describe("malformed additive fields fail closed", () => {
       next_after: 0,
       has_more: false,
     });
+  });
+
+  it("accepts a metadata-only global artifact listing", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ artifacts: [ARTIFACT_META], total: 1, limit: 25 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const listing = await atlasListArtifacts("tok", { limit: 25 });
+    expect(listing.artifacts).toEqual([ARTIFACT_META]);
+    expect(listing.artifacts[0]).not.toHaveProperty("content");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      `${ATLAS_ORIGIN}/api/artifacts?limit=25&include_content=false`,
+    );
+  });
+
+  it("rejects a global artifact row that still carries content", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ artifacts: [ARTIFACT_WITH_CONTENT], total: 1, limit: 25 }),
+        ),
+    );
+
+    const error = await atlasListArtifacts("tok", { limit: 25 }).catch((e) => e);
+    expect(error).toBeInstanceOf(AtlasError);
+    expect(error.kind).toBe("protocol");
+  });
+
+  it.each([
+    ["a negative total", { total: -1, limit: 25 }],
+    ["a decimal total", { total: 1.5, limit: 25 }],
+    ["a string total", { total: "1", limit: 25 }],
+    ["a zero limit", { total: 1, limit: 0 }],
+    ["a decimal limit", { total: 1, limit: 1.5 }],
+    ["a limit above Atlas bounds", { total: 1, limit: 10_001 }],
+    ["a string limit", { total: 1, limit: "25" }],
+  ])("rejects a global artifact listing with %s", async (_case, fields) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ artifacts: [ARTIFACT_META], ...fields })),
+    );
+
+    const error = await atlasListArtifacts("tok", { limit: 25 }).catch((e) => e);
+    expect(error).toBeInstanceOf(AtlasError);
+    expect(error.kind).toBe("protocol");
+  });
+
+  it.each([
+    ["more rows than total", { artifacts: [ARTIFACT_META], total: 0, limit: 25 }],
+    [
+      "more rows than limit",
+      { artifacts: [ARTIFACT_META, { ...ARTIFACT_META, id: "art_2" }], total: 2, limit: 1 },
+    ],
+  ])("rejects a global artifact listing with %s", async (_case, body) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+
+    const error = await atlasListArtifacts("tok", { limit: 25 }).catch((e) => e);
+    expect(error).toBeInstanceOf(AtlasError);
+    expect(error.kind).toBe("protocol");
+  });
+
+  it("rejects a by-id artifact response that has no content field", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ artifact: ARTIFACT_META })));
+
+    const error = await atlasGetArtifact("tok", "art_1").catch((e) => e);
+    expect(error).toBeInstanceOf(AtlasError);
+    expect(error.kind).toBe("protocol");
+  });
+
+  it("accepts a by-id artifact response with content", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ artifact: ARTIFACT_WITH_CONTENT })),
+    );
+
+    await expect(atlasGetArtifact("tok", "art_1")).resolves.toEqual(ARTIFACT_WITH_CONTENT);
   });
 
   const TOKEN_BASE = {

@@ -151,7 +151,7 @@ Use TanStack Query for caching, pagination, stale state, retry policy, and inval
 
 ### Exit criteria
 
-- Every listed page has a real API source or is explicitly marked as an unavailable Atlas capability. — **met** (2026-07-21): conversations/deliveries/audit/usage/users read Atlas; artifacts and settings explicitly state the missing capabilities (no global artifact list, no settings API) and show only real `/api/metrics` values.
+- Every listed page has a real API source or is explicitly marked as an unavailable Atlas capability. — **met** (2026-07-23): conversations/deliveries/audit/usage/users read Atlas; artifacts reads the global metadata-only listing opt-in finalized in Atlas `5c08ee3`; settings explicitly states the missing settings API and shows only real `/api/metrics` values.
 - No UI claims a setting/action exists when Atlas has no endpoint for it. — **met**: no conversation edit/delete, no invite flow, no billing/quota, no settings mutations; evidence in `CHECKLIST.md`.
 - **Gate:** user confirms Phase 6 start.
 
@@ -220,24 +220,28 @@ frontend task and remains the source of truth. All adoption slices and the full 
 pass against `82207f7`; production remains blocked by the exact deployment and operational inputs
 listed in `RELEASE_READINESS.md`.
 
-## Global artifacts page — adopts Atlas `ec62be1` (2026-07-23)
+## Global artifacts page — adopts Atlas `5c08ee3` (2026-07-23)
 
-Atlas `ec62be1` added the backend follow-up recorded in `ATLAS_LIMITATIONS.md`: a bounded,
-filterable `GET /api/artifacts` (windowed newest-first plus a truthful `total`). This slice
-replaces the `/artifacts` placeholder with the real ledger through the standard layers:
+Atlas `c096cb8` added the first bounded, filterable `GET /api/artifacts` route. Atlas
+`5c08ee3` finalizes the follow-up as a backward-compatible default plus metadata-only opt-in:
+`GET /api/artifacts` keeps legacy `content`, while Flow calls `include_content=false` so Atlas
+uses the upstream metadata SELECT. This slice replaces the `/artifacts` placeholder with the
+real ledger through the standard layers:
 
 - `atlasListArtifacts` (typed operation) → `listArtifactsFn` (RPC, `kind` validated at the
   trust boundary against `ARTIFACT_KINDS`) → `toArtifactListingView` → `artifactsQuery`
   (every Atlas filter in the query key).
-- `artifacts.tsx`: Atlas-applied `kind`/`run_id` filters and limit chips in the URL, explicit
-  loading/error/forbidden/empty states, run links for run-owned rows, and the same
+- `artifacts.tsx`: Atlas-applied `kind`/`run_id`/`job_id`/`key` filters and limit chips in the
+  URL, explicit loading/error/forbidden/empty states, run links for run-owned rows, and the same
   authenticated `file_ref` download fetch as run detail (refusals render in the page).
-- `ArtifactView` gains `runId` so the global rows can link to their run; the run detail page
-  is otherwise untouched and keeps its complete, untruncated per-run read.
+- `ArtifactView` is metadata-only, so global and run list caches cannot retain inline content.
+  Opening Preview mounts a separate by-id query whose server view model is bounded to 32,000
+  JavaScript string code units; this also gives standalone-job artifacts a real content action.
 - The phase 5 contract test that proved `GET /api/artifacts` was a 404 now proves the new
   contract instead: windowed envelope with `total`/`limit`, viewer-readable, Atlas-applied
   filters, 400 on an unknown `kind`, 401 anonymous.
 - Docs updated: `BACKEND_INTEGRATION.md` (endpoint + page), `ATLAS_LIMITATIONS.md` (listing
   limitation resolved; search/deletion still absent by design).
-- **Gate:** user verifies `/artifacts` against a running Atlas ≥ `ec62be1` (older Atlas
-  answers 404, which the page surfaces as its error state).
+- **Gate:** user verifies `/artifacts` against a running Atlas >= `5c08ee3`; pre-route Atlas
+  answers 404, while an Atlas that ignores the metadata opt-in and still carries `content` is a
+  protocol error.

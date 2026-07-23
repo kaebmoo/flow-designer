@@ -39,6 +39,7 @@ import {
   atlasDeleteWorkspace,
   atlasDeliverRun,
   atlasFireWorkflowTrigger,
+  atlasGetArtifact,
   atlasGetWorkflow,
   atlasListApprovals,
   atlasListArtifacts,
@@ -67,6 +68,7 @@ import {
   toApiTokenView,
   toApprovalView,
   toArtifactListingView,
+  toArtifactPreviewView,
   toArtifactView,
   toClientAtlasError,
   toConversationView,
@@ -82,6 +84,7 @@ import {
   type ApiTokenView,
   type ApprovalView,
   type ArtifactListingView,
+  type ArtifactPreviewView,
   type ClientAtlasError,
   type ArtifactView,
   type ConversationView,
@@ -440,6 +443,23 @@ export const listArtifactsFn = createServerFn({ method: "GET" })
       mutate(async (token) =>
         toArtifactListingView(
           await atlasListArtifacts(token, data, { signal: currentRequestSignal() }),
+        ),
+      ),
+  );
+
+/**
+ * `GET /api/artifacts/{id}` — an on-demand, bounded inline preview.
+ *
+ * Kept separate from both listing functions so neither the global ledger nor an untruncated
+ * run artifact table serialises every inline content value into the browser query cache.
+ */
+export const getArtifactPreviewFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => requiredId(data, "artifactId"))
+  .handler(
+    async ({ data: artifactId }): Promise<AtlasResult<ArtifactPreviewView>> =>
+      mutate(async (token) =>
+        toArtifactPreviewView(
+          await atlasGetArtifact(token, artifactId, { signal: currentRequestSignal() }),
         ),
       ),
   );

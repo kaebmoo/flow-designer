@@ -389,7 +389,7 @@ updated to the current labels; no application code was changed for this.
 
 ## Phase 5 — Operational pages
 
-- [x] Artifacts use Atlas metadata/content endpoints. — Run-scoped metadata/preview/download (from Phase 3) remain the artifact surface; the `/artifacts` page now states truthfully that **Atlas has no global artifact list** (`GET /api/artifacts` is not a route — confirmed 404 by contract test), shows the real lifetime count from `GET /api/metrics`, and routes the user to run detail. No fake ledger, no run-sweeping simulation.
+- [x] Artifacts use Atlas metadata/content endpoints. — `/artifacts` reads the bounded global ledger finalized in Atlas `5c08ee3`, pushes `kind`/`run_id`/`job_id`/`key` filters to Atlas, and renders its truthful filtered `total`. Flow calls Atlas's `include_content=false` opt-in so upstream and BFF list DTOs/cache entries keep metadata-only rows; inline content is fetched by id only when Preview opens and is bounded before entering the browser cache. `file_ref` rows download through the authenticated same-origin proxy. No fake ledger or run-sweeping simulation.
 - [x] Triggers use Atlas trigger endpoints. — **Completed in Phase 3**, not new Phase 5 work; Phase 5 verified no regression (the full trigger browser suite passes at this commit). Recorded here because the checklist row predates the plan's reassignment of trigger CRUD to Phase 3.
 - [x] Deliveries use Atlas delivery endpoints. — `GET /api/deliveries` with the real `run_id`/`status` filters pushed down to Atlas; one bounded manual retry on `failed`/`blocked` rows (admin/operator; auditor reads only, viewer gets the explicit 403 state); no automatic retry anywhere.
 - [x] Conversations are wired to Atlas's conversation API. — The fixed latest-100 window (proven with 103 rows in a contract test), create via `resources.manage`, client-side filtering labelled as filtering the loaded window only, and **no** Edit/Delete actions because Atlas has no such routes (404s asserted). This row's original phrasing ("use Atlas session bindings") overclaimed: `GET /api/conversations` reads the conversations table only — session bindings live in Atlas-internal tables, are written only when a worker later reports a session, and **no endpoint exposes binding status**. The UI copy is hedged accordingly ("Atlas _may_ reuse an internal worker session … the API does not expose binding status").
@@ -480,8 +480,9 @@ before display").
 
 ### What Phase 5 deliberately did not do
 
-- **No global artifact ledger.** Atlas has no such endpoint; the page says so instead of
-  simulating one by sweeping every run.
+- **No artifact substring/date search or per-row deletion.** Atlas `5c08ee3`
+  has a global metadata-only display-window opt-in, but not those capabilities; the UI does not simulate
+  them.
 - **No conversation edit/delete, no invitation flow, no billing/quota/pricing.** Atlas has no
   contract for any of them; the UI does not pretend otherwise.
 - **No `blocked`-delivery fixture in tests.** Atlas fail-closes non-allowlisted callback URLs

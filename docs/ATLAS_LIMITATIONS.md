@@ -447,18 +447,23 @@ Backend follow-up:
 
 - Either honour `workflow_definition_id` on update or reject it explicitly.
 
-### ~~P2 — No global artifact listing~~ — RESOLVED in Atlas `ec62be1` (2026-07-23)
+### ~~P2 — No global artifact listing~~ — RESOLVED in Atlas `5c08ee3` (2026-07-23)
 
 **Confirmed while wiring Phase 5 (2026-07-21); resolved by the backend follow-up below.**
-Atlas `ec62be1` adds `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=` — a bounded,
-filterable, newest-first display window whose response carries `total` (the count matching
-the filters) and the effective clamped `limit`. The `/artifacts` page now renders it as a real
-ledger with Atlas-applied `kind`/`run_id` filters, honest "latest N of TOTAL" framing, and
-authenticated downloads for `file_ref` rows through the existing content proxy.
+Atlas `c096cb8` introduced the bounded global route; Atlas `5c08ee3` finalizes the contract as a
+backward-compatible default plus a metadata-only opt-in:
+`GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=&include_content=false` returns a bounded,
+filterable, newest-first display window whose response carries `total` (the count matching the
+filters) and the effective clamped `limit`, and whose rows never contain top-level `content`.
+The `/artifacts` page now renders it as a real ledger with Atlas-applied
+`kind`/`run_id`/`job_id`/`key` filters, honest "latest N of TOTAL" framing, and authenticated
+downloads for `file_ref` rows through the existing content proxy. Preview loads one artifact
+through the by-id route on demand and limits the serialized preview to 32,000 JavaScript string
+code units.
 
 Still true and intentionally unchanged:
 
-- The listing is a *window*, not the complete set; the run/job-scoped routes remain the
+- The listing is a _window_, not the complete set; the run/job-scoped routes remain the
   untruncated reads and the run detail page keeps using them.
 - Artifact **search** (substring/date) and **deletion** still do not exist in Atlas. Retention
   stays the operator CLI purge (`atlas admin purge-artifacts`); a per-artifact delete would be

@@ -57,8 +57,15 @@ export const queryKeys = {
 
   /** `GET /api/artifacts` — the global windowed listing; every Atlas filter is in the key. */
   artifacts: () => ["atlas", "artifacts"] as const,
-  artifactList: (params: { limit: number; runId?: string; jobId?: string; kind?: string }) =>
-    ["atlas", "artifacts", "list", params] as const,
+  artifactList: (params: {
+    limit: number;
+    runId?: string;
+    jobId?: string;
+    key?: string;
+    kind?: string;
+  }) => ["atlas", "artifacts", "list", params] as const,
+  /** On-demand by-id content; never part of a list query or its cache entry. */
+  artifactPreview: (artifactId: string) => ["atlas", "artifacts", "preview", artifactId] as const,
 
   deliveries: () => ["atlas", "deliveries"] as const,
   deliveryList: (params: { limit: number; runId?: string; status?: string }) =>
