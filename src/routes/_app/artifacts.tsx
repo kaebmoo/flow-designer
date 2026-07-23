@@ -1,99 +1,344 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Package } from "lucide-react";
+import type { SearchSchemaInput } from "@tanstack/react-router";
+import { useState } from "react";
 
-import { PageHeader } from "@/components/atlas/page";
-import { metricsQuery } from "@/lib/atlas-queries";
+import { DataTable, PageHeader } from "@/components/atlas/page";
+import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toClientAtlasError, type ArtifactView, type ClientAtlasError } from "@/lib/atlas-mappers";
+import { artifactsQuery } from "@/lib/atlas-queries";
+import { ATLAS_LIMIT_OPTIONS, parseLimitSearch, parseStringSearch } from "@/lib/atlas-search";
+import { ARTIFACT_KINDS, type AtlasErrorKind } from "@/lib/atlas-types";
+
+function parseKindSearch(value: unknown): string | undefined {
+  return typeof value === "string" && (ARTIFACT_KINDS as readonly string[]).includes(value)
+    ? value
+    : undefined;
+}
 
 export const Route = createFileRoute("/_app/artifacts")({
+  validateSearch: (
+    search: { limit?: number; kind?: string; run?: string } & SearchSchemaInput,
+  ) => ({
+    limit: parseLimitSearch(search.limit),
+    /** Both pushed down to Atlas — `kind` and `run_id` are real filters on `GET /api/artifacts`. */
+    kind: parseKindSearch(search.kind),
+    run: parseStringSearch(search.run),
+  }),
   component: ArtifactsPage,
   head: () => ({ meta: [{ title: "Artifacts · Atlas Control" }] }),
 });
 
 /**
- * Atlas has **no global artifact listing** — this page says so instead of faking one.
+ * The global artifact ledger, read from `GET /api/artifacts` (Atlas ec62be1).
  *
- * What exists (Atlas `595ef62`): run-scoped `GET /api/workflow-runs/{id}/artifacts`,
- * job-scoped `GET /api/jobs/{id}/artifacts`, metadata at `GET /api/artifacts/{id}`, and bytes
- * for `file_ref` artifacts at `GET /api/artifacts/{id}/content`. `GET /api/artifacts` is not
- * routed at all (`POST` there *creates* an inline artifact). Synthesising a "global ledger" by
- * fetching every run's artifacts would misrepresent the API's shape and hammer Atlas — so
- * artifacts are reached through the run they belong to, which is where the existing metadata
- * and download UI lives.
+ * The route is a newest-first *display window*, and this page says so with Atlas's own
+ * numbers: the response carries `total` (all artifacts matching the filters) next to the
+ * windowed rows, so the footer can state "latest N of TOTAL" truthfully. The complete,
+ * untruncated sets stay where they always were — each run detail page reads
+ * `GET /api/workflow-runs/{id}/artifacts`, which Atlas iterates in full.
  */
 function ArtifactsPage() {
-  const metrics = useQuery(metricsQuery());
+  const { limit, kind, run } = Route.useSearch();
+  const navigate = Route.useNavigate();
+
+  const listing = useQuery(artifactsQuery({ limit, kind, runId: run }));
 
   return (
     <>
-      <PageHeader title="Artifacts" subtitle="Files and records produced by workflow runs." />
+      <PageHeader
+        title="Artifacts"
+        subtitle="Files and records produced by workflow runs and jobs, newest first."
+        meta={
+          <div className="flex flex-wrap items-center gap-1">
+            <FilterChip
+              active={kind === undefined}
+              onClick={() => void navigate({ search: (prev) => ({ ...prev, kind: undefined }) })}
+            >
+              all
+            </FilterChip>
+            {ARTIFACT_KINDS.map((option) => (
+              <FilterChip
+                key={option}
+                active={kind === option}
+                onClick={() => void navigate({ search: (prev) => ({ ...prev, kind: option }) })}
+              >
+                {option}
+              </FilterChip>
+            ))}
+            <span className="mx-2 h-4 w-px bg-border" aria-hidden="true" />
+            {ATLAS_LIMIT_OPTIONS.map((option) => (
+              <FilterChip
+                key={option}
+                active={limit === option}
+                onClick={() => void navigate({ search: (prev) => ({ ...prev, limit: option }) })}
+              >
+                {option}
+              </FilterChip>
+            ))}
+          </div>
+        }
+      />
       <div className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="max-w-2xl space-y-6">
-          <section className="rounded-lg border border-border bg-card p-6">
-            <div className="flex items-start gap-4">
-              <Package className="mt-1 size-6 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <div className="space-y-3 text-sm leading-relaxed">
-                <p className="font-semibold text-foreground">
-                  Atlas has no global artifact list, so this page cannot show one.
-                </p>
-                <p className="text-muted-foreground">
-                  Artifacts belong to the workflow run (or job) that produced them, and Atlas
-                  exposes them only through that scope: each run detail page lists its artifacts
-                  with metadata, inline previews, and authenticated downloads for file artifacts.
-                </p>
-                <p className="text-muted-foreground">
-                  {metrics.data
-                    ? `Atlas currently reports ${metrics.data.artifacts} artifact${
-                        metrics.data.artifacts === 1 ? "" : "s"
-                      } across all runs (lifetime total from GET /api/metrics).`
-                    : metrics.isError
-                      ? "The lifetime artifact count could not be loaded from Atlas metrics."
-                      : "Loading the lifetime artifact count from Atlas metrics…"}
-                </p>
-                <Link
-                  to="/runs"
-                  className="inline-flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-primary hover:opacity-80"
-                >
-                  Browse runs to reach their artifacts <ArrowRight className="size-3" />
-                </Link>
-              </div>
-            </div>
-          </section>
+        {/* Keyed by the applied filter so browser Back/Forward re-seeds the draft — the input
+            must always show the run id the table below is actually filtered by. */}
+        <RunFilterForm
+          key={run ?? ""}
+          run={run}
+          onApply={(next) => void navigate({ search: (prev) => ({ ...prev, run: next }) })}
+        />
 
-          <section className="rounded-lg border border-border bg-card">
-            <header className="border-b border-border px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              What the Atlas artifact API provides
-            </header>
-            <dl className="divide-y divide-border text-sm">
-              {[
-                [
-                  "GET /api/workflow-runs/{id}/artifacts",
-                  "All artifacts of one run (complete, not truncated).",
-                ],
-                ["GET /api/jobs/{id}/artifacts", "Files collected by one standalone job."],
-                ["GET /api/artifacts/{id}", "Metadata and inline content for one artifact."],
-                [
-                  "GET /api/artifacts/{id}/content",
-                  "File bytes for file_ref artifacts, downloaded through this origin with Atlas authorization.",
-                ],
-              ].map(([endpoint, description]) => (
-                <div
-                  key={endpoint}
-                  className="flex flex-col gap-1 px-5 py-3 sm:flex-row sm:items-baseline sm:gap-4"
-                >
-                  <dt className="shrink-0 font-mono text-xs text-primary">{endpoint}</dt>
-                  <dd className="text-muted-foreground">{description}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
-              A cross-run listing, artifact search, and deletion do not exist in Atlas. If they are
-              needed, that is a backend capability to add — not something this UI can simulate
-              truthfully.
-            </p>
-          </section>
-        </div>
+        {listing.isPending ? (
+          <LoadingState label="Loading artifacts" />
+        ) : listing.isError ? (
+          // A 403 lands here as the explicit forbidden state rather than an empty table.
+          <AtlasErrorState
+            error={toClientAtlasError(listing.error)}
+            onRetry={() => void listing.refetch()}
+          />
+        ) : (
+          <ArtifactsTable
+            rows={listing.data.artifacts}
+            total={listing.data.total}
+            limit={listing.data.limit}
+            filtered={Boolean(kind || run)}
+          />
+        )}
       </div>
     </>
+  );
+}
+
+function ArtifactsTable({
+  rows,
+  total,
+  limit,
+  filtered,
+}: {
+  rows: ArtifactView[];
+  total: number;
+  limit: number;
+  filtered: boolean;
+}) {
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<ClientAtlasError | null>(null);
+
+  /**
+   * Fetched rather than left to a plain `<a href download>`: that anchor cannot fail visibly —
+   * a 403 or 400 body would land on disk as a file containing the refusal with nothing on
+   * screen. Checking the response first puts the refusal in the page. Same-origin: the route
+   * handler adds the Atlas bearer server-side, so the token never reaches browser code.
+   */
+  async function downloadArtifact(artifact: ArtifactView) {
+    setDownloadError(null);
+    setDownloadingId(artifact.id);
+    try {
+      const response = await fetch(`/api/artifacts/${encodeURIComponent(artifact.id)}/content`);
+      if (!response.ok) {
+        setDownloadError(await readDownloadError(response));
+        return;
+      }
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = artifact.filename ?? artifact.key;
+      link.click();
+      // The click only *starts* the save; revoking in this task could cancel it.
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch {
+      setDownloadError({
+        kind: "network",
+        message: "The browser could not reach this origin to fetch the artifact.",
+      });
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  return (
+    <>
+      <DataTable
+        rows={rows}
+        rowKey={(artifact) => artifact.id}
+        empty={
+          filtered
+            ? "Atlas has no artifacts matching these filters."
+            : "Atlas has recorded no artifacts yet. They appear when workflow runs produce outputs, or when a node sets collect_files so the worker's files are snapshotted after its turn."
+        }
+        columns={[
+          {
+            key: "key",
+            header: "Key",
+            render: (artifact) => (
+              <span className="font-mono text-xs text-primary">{artifact.key}</span>
+            ),
+          },
+          {
+            key: "kind",
+            header: "Kind",
+            render: (artifact) => <span className="font-mono text-xs">{artifact.kind}</span>,
+          },
+          {
+            key: "origin",
+            header: "Produced by",
+            render: (artifact) =>
+              artifact.runId ? (
+                <Link
+                  to="/runs/$id"
+                  params={{ id: artifact.runId }}
+                  className="font-mono text-xs hover:text-primary hover:underline"
+                >
+                  {artifact.runId}
+                </Link>
+              ) : artifact.jobId ? (
+                <span className="font-mono text-xs text-muted-foreground">
+                  job {artifact.jobId}
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground">—</span>
+              ),
+          },
+          {
+            key: "sizeBytes",
+            header: "Size",
+            render: (artifact) => (
+              <span className="font-mono text-xs tabular-nums">
+                {formatBytes(artifact.sizeBytes)}
+              </span>
+            ),
+          },
+          {
+            key: "createdAt",
+            header: "Created",
+            render: (artifact) => (
+              <span className="font-mono text-xs text-muted-foreground">{artifact.createdAt}</span>
+            ),
+          },
+          {
+            key: "content",
+            header: "Content",
+            className: "text-right",
+            render: (artifact) =>
+              artifact.downloadable ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={downloadingId === artifact.id}
+                  onClick={() => void downloadArtifact(artifact)}
+                >
+                  {downloadingId === artifact.id ? "Downloading…" : "Download"}
+                </Button>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  Inline {artifact.kind} — open its run for the preview.
+                </span>
+              ),
+          },
+        ]}
+      />
+      {downloadError ? (
+        <p role="alert" className="mt-3 text-xs text-destructive">
+          {downloadError.message}
+        </p>
+      ) : null}
+      <p className="mt-4 text-xs text-muted-foreground">
+        Showing the {rows.length} newest of the {total} artifact{total === 1 ? "" : "s"} Atlas holds
+        {filtered ? " for these filters" : ""} (window of {limit}). The complete set of one run
+        stays on its run detail page, which Atlas serves untruncated.
+      </p>
+    </>
+  );
+}
+
+/**
+ * The run-id filter, holding its own draft so the caller can `key` it by the applied value.
+ */
+function RunFilterForm({
+  run,
+  onApply,
+}: {
+  run: string | undefined;
+  onApply: (next: string | undefined) => void;
+}) {
+  const [draft, setDraft] = useState(run ?? "");
+  return (
+    <form
+      className="mb-4 flex flex-wrap items-end gap-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onApply(draft.trim() || undefined);
+      }}
+    >
+      <div className="w-72">
+        <Label htmlFor="artifact-run-filter" className="text-xs text-muted-foreground">
+          Filter by run id (applied by Atlas)
+        </Label>
+        <Input
+          id="artifact-run-filter"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="wfr_…"
+          className="mt-1 font-mono text-xs"
+        />
+      </div>
+      <Button type="submit" variant="outline" size="sm">
+        Apply
+      </Button>
+      {run ? (
+        <Button type="button" variant="ghost" size="sm" onClick={() => onApply(undefined)}>
+          Clear
+        </Button>
+      ) : null}
+    </form>
+  );
+}
+
+const DOWNLOAD_ERROR_KINDS: Record<number, AtlasErrorKind> = {
+  400: "validation",
+  401: "unauthorized",
+  403: "forbidden",
+  404: "not_found",
+  409: "conflict",
+  429: "rate_limited",
+  504: "timeout",
+};
+
+async function readDownloadError(response: Response): Promise<ClientAtlasError> {
+  const kind = DOWNLOAD_ERROR_KINDS[response.status] ?? "server";
+  const body = await response.text().catch(() => "");
+  return { kind, message: body.trim() || "The download could not be completed." };
+}
+
+function formatBytes(bytes: number | null): string {
+  if (bytes === null) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
+        active
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

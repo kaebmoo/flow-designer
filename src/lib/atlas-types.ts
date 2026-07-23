@@ -458,6 +458,19 @@ export const ARTIFACT_KINDS = [
   "decision",
 ] as const;
 
+/**
+ * `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=` — the global listing.
+ *
+ * A newest-first *display window*, not the complete set: `total` counts every artifact
+ * matching the filters and `limit` is the effective (clamped) window size, so a client can
+ * say "latest N of TOTAL" truthfully. The run/job-scoped routes remain the untruncated reads.
+ */
+export interface AtlasArtifactListing {
+  artifacts: AtlasArtifact[];
+  total: number;
+  limit: number;
+}
+
 /** `POST /api/approvals/{id}/…` — the runner's return value *is* the whole body. */
 export interface AtlasApprovalDecision {
   approval: AtlasApproval;

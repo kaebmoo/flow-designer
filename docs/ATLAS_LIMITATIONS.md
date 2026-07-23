@@ -447,23 +447,22 @@ Backend follow-up:
 
 - Either honour `workflow_definition_id` on update or reject it explicitly.
 
-### P2 — No global artifact listing
+### ~~P2 — No global artifact listing~~ — RESOLVED in Atlas `ec62be1` (2026-07-23)
 
-**Confirmed while wiring Phase 5 (2026-07-21).** Artifacts are reachable only through their
-scope: `GET /api/workflow-runs/{id}/artifacts`, `GET /api/jobs/{id}/artifacts`, and by-id
-metadata/content. `GET /api/artifacts` is not a route at all (the dispatcher only handles
-`POST` there, which _creates_ an inline artifact) — confirmed 404 by contract test. There is
-no cross-run listing, search, or deletion.
+**Confirmed while wiring Phase 5 (2026-07-21); resolved by the backend follow-up below.**
+Atlas `ec62be1` adds `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=` — a bounded,
+filterable, newest-first display window whose response carries `total` (the count matching
+the filters) and the effective clamped `limit`. The `/artifacts` page now renders it as a real
+ledger with Atlas-applied `kind`/`run_id` filters, honest "latest N of TOTAL" framing, and
+authenticated downloads for `file_ref` rows through the existing content proxy.
 
-Frontend mitigation:
+Still true and intentionally unchanged:
 
-- The `/artifacts` page states the limitation, shows the lifetime count from `/api/metrics`,
-  and routes the user to run detail. It does not simulate a ledger by sweeping every run.
-
-Backend follow-up:
-
-- Add a bounded, filterable `GET /api/artifacts` (by run, kind, key, date) if a global view is
-  wanted.
+- The listing is a *window*, not the complete set; the run/job-scoped routes remain the
+  untruncated reads and the run detail page keeps using them.
+- Artifact **search** (substring/date) and **deletion** still do not exist in Atlas. Retention
+  stays the operator CLI purge (`atlas admin purge-artifacts`); a per-artifact delete would be
+  a separate audited backend capability, not a UI affordance to fake.
 
 ### P2 — Conversations are a fixed latest-100 window with no item routes, and session bindings are unreadable
 

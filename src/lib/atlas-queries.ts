@@ -13,6 +13,7 @@ import { isClientAtlasError, type ClientAtlasError } from "./atlas-mappers";
 import {
   getEditableWorkflowFn,
   listApprovalsFn,
+  listArtifactsFn,
   listDeliveriesFn,
   listRunArtifactsFn,
   listRunEventsFn,
@@ -216,6 +217,20 @@ export function deliveriesQuery(params: { limit: number; runId?: string; status?
   return queryOptions({
     queryKey: queryKeys.deliveryList(params),
     queryFn: async ({ signal }) => unwrap(await listDeliveriesFn({ data: params, signal })),
+    ...shared,
+  });
+}
+
+/** The global artifact listing — a windowed read, so every Atlas filter lives in the key. */
+export function artifactsQuery(params: {
+  limit: number;
+  runId?: string;
+  jobId?: string;
+  kind?: string;
+}) {
+  return queryOptions({
+    queryKey: queryKeys.artifactList(params),
+    queryFn: async ({ signal }) => unwrap(await listArtifactsFn({ data: params, signal })),
     ...shared,
   });
 }

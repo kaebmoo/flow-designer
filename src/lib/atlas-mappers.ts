@@ -21,6 +21,7 @@ import type {
   AtlasApiToken,
   AtlasApproval,
   AtlasArtifact,
+  AtlasArtifactListing,
   AtlasAuditEntry,
   AtlasConversation,
   AtlasDelivery,
@@ -1089,6 +1090,8 @@ export interface ArtifactView {
   sizeBytes: number | null;
   /** Inline content for the text-shaped kinds, already stringified. Null for `file_ref`. */
   preview: string | null;
+  /** Null on an artifact collected by a standalone job (no workflow context). */
+  runId: string | null;
   jobId: string | null;
   createdAt: string;
 }
@@ -1110,8 +1113,28 @@ export function toArtifactView(artifact: AtlasArtifact): ArtifactView {
       : typeof artifact.content === "string"
         ? artifact.content
         : JSON.stringify(artifact.content, null, 2),
+    runId: artifact.run_id,
     jobId: artifact.job_id,
     createdAt: formatAtlasTimestamp(artifact.created_at),
+  };
+}
+
+/**
+ * `GET /api/artifacts` rendered for the global listing page: the windowed rows plus the
+ * truthful totals Atlas reports, so the page can say "latest N of TOTAL" instead of
+ * implying the window is everything.
+ */
+export interface ArtifactListingView {
+  artifacts: ArtifactView[];
+  total: number;
+  limit: number;
+}
+
+export function toArtifactListingView(listing: AtlasArtifactListing): ArtifactListingView {
+  return {
+    artifacts: listing.artifacts.map(toArtifactView),
+    total: listing.total,
+    limit: listing.limit,
   };
 }
 

@@ -41,6 +41,7 @@ import {
   atlasFireWorkflowTrigger,
   atlasGetWorkflow,
   atlasListApprovals,
+  atlasListArtifacts,
   atlasListDeliveries,
   atlasListRunArtifacts,
   atlasListRunEvents,
@@ -65,6 +66,7 @@ import { clampAtlasLimit } from "./atlas-limits";
 import {
   toApiTokenView,
   toApprovalView,
+  toArtifactListingView,
   toArtifactView,
   toClientAtlasError,
   toConversationView,
@@ -79,6 +81,7 @@ import {
   TRIGGER_TYPES,
   type ApiTokenView,
   type ApprovalView,
+  type ArtifactListingView,
   type ClientAtlasError,
   type ArtifactView,
   type ConversationView,
@@ -91,7 +94,7 @@ import {
   type WorkflowView,
   type WorkspaceView,
 } from "./atlas-mappers";
-import { ATLAS_ROLES, ATLAS_USER_STATUSES } from "./atlas-types";
+import { ARTIFACT_KINDS, ATLAS_ROLES, ATLAS_USER_STATUSES } from "./atlas-types";
 import { clearSession, requireAtlasToken } from "./auth.server";
 import { currentRequestSignal } from "./request-signal.server";
 import type { AtlasResult } from "./atlas-reads.functions";
@@ -401,6 +404,42 @@ export const listDeliveriesFn = createServerFn({ method: "GET" })
       mutate(async (token) =>
         (await atlasListDeliveries(token, data, { signal: currentRequestSignal() })).map(
           toDeliveryView,
+        ),
+      ),
+  );
+
+/**
+ * `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=` — the global listing.
+ *
+ * A newest-first display window with Atlas's truthful `total`; unlike the run-scoped route
+ * below this one IS windowed, and the page renders that honestly. `kind` is checked here
+ * against the same vocabulary Atlas enforces so a typo fails at the trust boundary instead
+ * of round-tripping for a 400.
+ */
+export const listArtifactsFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => {
+    const kind = field(data, "kind");
+    if (
+      kind !== undefined &&
+      kind !== null &&
+      kind !== "" &&
+      !(ARTIFACT_KINDS as readonly string[]).includes(kind as string)
+    ) {
+      throw new Error(`kind must be one of: ${ARTIFACT_KINDS.join(", ")}.`);
+    }
+    return {
+      limit: requiredLimit(data),
+      runId: optionalId(data, "runId"),
+      jobId: optionalId(data, "jobId"),
+      key: optionalId(data, "key"),
+      kind: (kind as string | undefined) || undefined,
+    };
+  })
+  .handler(
+    async ({ data }): Promise<AtlasResult<ArtifactListingView>> =>
+      mutate(async (token) =>
+        toArtifactListingView(
+          await atlasListArtifacts(token, data, { signal: currentRequestSignal() }),
         ),
       ),
   );

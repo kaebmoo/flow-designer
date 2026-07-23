@@ -29,6 +29,7 @@ import {
   atlasGetUsage,
   atlasGetWorkflowRun,
   atlasListApiTokens,
+  atlasListArtifacts,
   atlasListAudit,
   atlasListConversations,
   atlasListDeliveries,
@@ -203,9 +204,38 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
   });
 
   describe("artifacts", () => {
-    it("has no global artifact list: GET /api/artifacts is not a route", async () => {
-      const response = await rawRequest("GET", "/api/artifacts", adminToken);
-      expect(response.status).toBe(404);
+    it("global artifact listing (Atlas ec62be1): a windowed read with a truthful total", async () => {
+      // Seed one known member through Atlas's own API.
+      const created = await rawRequest("POST", "/api/artifacts", adminToken, {
+        run_id: seeded!.runId,
+        key: "contract_listing_probe",
+        kind: "text",
+        content: "phase 5 global listing probe",
+      });
+      expect(created.status).toBe(201);
+      const artifactId = ((await created.json()) as { artifact: { id: string } }).artifact.id;
+
+      // A viewer reads the global window — GETs need only `read`. Filters are Atlas-applied.
+      const listed = await atlasListArtifacts(viewerToken, {
+        limit: 100,
+        runId: seeded!.runId,
+        kind: "text",
+      });
+      expect(listed.limit).toBe(100);
+      expect(listed.total).toBeGreaterThanOrEqual(1);
+      expect(listed.artifacts.map((row) => row.id)).toContain(artifactId);
+      for (const row of listed.artifacts) {
+        expect(row.run_id).toBe(seeded!.runId);
+        expect(row.kind).toBe("text");
+      }
+
+      // An unknown kind is a 400 at the API, not a silently ignored filter.
+      const badKind = await rawRequest("GET", "/api/artifacts?kind=binary", adminToken);
+      expect(badKind.status).toBe(400);
+
+      // And with no bearer the route is a 401, not a leak.
+      const anonymous = await rawRequest("GET", "/api/artifacts", null);
+      expect(anonymous.status).toBe(401);
     });
 
     it("run-scoped artifacts are readable by any role; content is file_ref-only", async () => {

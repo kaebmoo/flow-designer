@@ -219,3 +219,25 @@ The pass is deliberately not a new backend or workflow executor. Atlas remains r
 frontend task and remains the source of truth. All adoption slices and the full release matrix now
 pass against `82207f7`; production remains blocked by the exact deployment and operational inputs
 listed in `RELEASE_READINESS.md`.
+
+## Global artifacts page — adopts Atlas `ec62be1` (2026-07-23)
+
+Atlas `ec62be1` added the backend follow-up recorded in `ATLAS_LIMITATIONS.md`: a bounded,
+filterable `GET /api/artifacts` (windowed newest-first plus a truthful `total`). This slice
+replaces the `/artifacts` placeholder with the real ledger through the standard layers:
+
+- `atlasListArtifacts` (typed operation) → `listArtifactsFn` (RPC, `kind` validated at the
+  trust boundary against `ARTIFACT_KINDS`) → `toArtifactListingView` → `artifactsQuery`
+  (every Atlas filter in the query key).
+- `artifacts.tsx`: Atlas-applied `kind`/`run_id` filters and limit chips in the URL, explicit
+  loading/error/forbidden/empty states, run links for run-owned rows, and the same
+  authenticated `file_ref` download fetch as run detail (refusals render in the page).
+- `ArtifactView` gains `runId` so the global rows can link to their run; the run detail page
+  is otherwise untouched and keeps its complete, untruncated per-run read.
+- The phase 5 contract test that proved `GET /api/artifacts` was a 404 now proves the new
+  contract instead: windowed envelope with `total`/`limit`, viewer-readable, Atlas-applied
+  filters, 400 on an unknown `kind`, 401 anonymous.
+- Docs updated: `BACKEND_INTEGRATION.md` (endpoint + page), `ATLAS_LIMITATIONS.md` (listing
+  limitation resolved; search/deletion still absent by design).
+- **Gate:** user verifies `/artifacts` against a running Atlas ≥ `ec62be1` (older Atlas
+  answers 404, which the page surfaces as its error state).

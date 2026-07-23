@@ -28,6 +28,7 @@ import {
   type AtlasApproval,
   type AtlasApprovalDecision,
   type AtlasArtifact,
+  type AtlasArtifactListing,
   type AtlasAuditEntry,
   type AtlasConversation,
   type AtlasDelivery,
@@ -696,6 +697,41 @@ export async function atlasListRunArtifacts(
   return expectShape<{ artifacts: AtlasArtifact[] }>(payload, (value) =>
     isAtlasRowListEnvelope(value, "artifacts"),
   ).artifacts;
+}
+
+/**
+ * `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=` — the global artifact listing.
+ *
+ * A newest-first display window plus a truthful `total`; the run/job-scoped routes stay the
+ * complete, untruncated reads. `kind` is validated by Atlas against its artifact-kind set and
+ * an unknown value is a 400.
+ */
+export async function atlasListArtifacts(
+  token: string,
+  params: { limit?: number; runId?: string; jobId?: string; key?: string; kind?: string } = {},
+  options: AtlasCallOptions = {},
+): Promise<AtlasArtifactListing> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: "/api/artifacts",
+    token,
+    query: {
+      limit: clampAtlasLimit(params.limit),
+      run_id: params.runId || undefined,
+      job_id: params.jobId || undefined,
+      key: params.key || undefined,
+      kind: params.kind || undefined,
+    },
+    ...options,
+  });
+
+  return expectShape<AtlasArtifactListing>(
+    payload,
+    (value) =>
+      isAtlasRowListEnvelope(value, "artifacts") &&
+      typeof (value as { total?: unknown }).total === "number" &&
+      typeof (value as { limit?: unknown }).limit === "number",
+  );
 }
 
 /** `GET /api/artifacts/{id}` — metadata plus inline content for every kind but `file_ref`. */

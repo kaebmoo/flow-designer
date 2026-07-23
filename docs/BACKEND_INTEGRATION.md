@@ -55,9 +55,14 @@ Operational pages wired in Phase 5 (2026-07-21):
 - `conversations.tsx` (fixed latest-100 window + create), `deliveries.tsx` (real `run_id`/`status`
   filters + bounded retry), `audit.tsx` and `usage.tsx` (Atlas-applied `limit`/date ranges), and
   `users.tsx` (admin user CRUD and API-token mint/rename/revoke) read Atlas through the same
-  typed-operation → RPC → view-model path as every earlier page. `artifacts.tsx` and
-  `settings.tsx` state what Atlas does **not** provide (no global artifact list; no settings
-  API) and show only real values from `GET /api/metrics`.
+  typed-operation → RPC → view-model path as every earlier page. `settings.tsx` states what
+  Atlas does **not** provide (no settings API) and shows only real values from
+  `GET /api/metrics`.
+- `artifacts.tsx` (2026-07-23, requires Atlas `ec62be1`) renders the global listing from
+  `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=`: a newest-first display window whose
+  response carries `total` and the clamped `limit`, shown as "latest N of TOTAL" with
+  Atlas-applied `kind`/`run_id` filters and the same authenticated `file_ref` download proxy
+  as run detail. The run/job-scoped routes remain the complete, untruncated reads.
 - `src/routes/api.exports.audit-csv.ts` and `src/routes/api.exports.usage-csv.ts` are thin
   same-origin transport glue for the two `format=csv` exports: session validated in the
   handler, bearer attached server-side, correct filename substituted for Atlas's shared
@@ -106,6 +111,7 @@ The thClaws worker contract used by Atlas includes `GET /healthz`, `GET /v1/agen
 | Run events          | `GET /api/workflow-runs/{run_id}/events?after=<seq>&limit=<n>`               | Persisted JSON cursor page `{events,after,next_after,has_more}`; not SSE; combine with per-job SSE for live progress         |
 | Approvals           | `/api/approvals`, `/api/approvals/{id}/approve`, `/reject`, `/choose`        | Required for human gates                                                                                                     |
 | Run artifacts       | `/api/workflow-runs/{id}/artifacts`, `/files`, `/api/artifacts/{id}/content` | Download through Atlas authorization                                                                                         |
+| Artifact listing    | `GET /api/artifacts?limit=&run_id=&job_id=&key=&kind=` (Atlas `ec62be1`)     | Windowed newest-first + `total`; the run/job-scoped routes stay the untruncated reads                                        |
 | Triggers            | `/api/workflow-triggers`, `/{id}`, `/{id}/fire`, `/{id}/events`              | Atlas owns schedule/webhook/internal trigger logic                                                                           |
 | Deliveries          | `/api/deliveries`, `/api/deliveries/{id}/retry`                              | Return-path delivery ledger                                                                                                  |
 | Audit               | `/api/audit`                                                                 | Filter and paginate; do not synthesize audit rows in UI                                                                      |

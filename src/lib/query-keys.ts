@@ -55,6 +55,11 @@ export const queryKeys = {
   approvalList: (params: { limit: number; state?: string; runId?: string }) =>
     ["atlas", "approvals", "list", params] as const,
 
+  /** `GET /api/artifacts` — the global windowed listing; every Atlas filter is in the key. */
+  artifacts: () => ["atlas", "artifacts"] as const,
+  artifactList: (params: { limit: number; runId?: string; jobId?: string; kind?: string }) =>
+    ["atlas", "artifacts", "list", params] as const,
+
   deliveries: () => ["atlas", "deliveries"] as const,
   deliveryList: (params: { limit: number; runId?: string; status?: string }) =>
     ["atlas", "deliveries", "list", params] as const,
