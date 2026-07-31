@@ -96,9 +96,9 @@ It must:
 - support nested dictionary paths but not array indexes;
 - deduplicate each path while retaining every consuming node id;
 - distinguish the start worker from downstream/conditional nodes;
-- detect path collisions such as `{input.user}` and
-  `{input.user.name}` and generate a truthful diagnostic instead of a lossy
-  skeleton;
+- handle parent/child paths such as `{input.user}` and
+  `{input.user.name}` with one nested skeleton that satisfies both, and add a
+  truthful diagnostic note that the parent renders as JSON;
 - create a deterministic illustrative JSON object without claiming its
   values are typed defaults;
 - derive possible worker artifacts from `outputs[0]`, with kind `json` only
@@ -124,7 +124,7 @@ Add a focused component such as:
 
 The dialog/sheet must provide:
 - an Input JSON tab with a raw textarea, always available;
-- `{}` or a collision-safe observed skeleton as the initial example;
+- `{}` or an observed skeleton that safely represents every satisfiable path as the initial example;
 - clear invalid-JSON and top-level-object validation;
 - arrays, strings, numbers, booleans, and null rejected as the root;
 - a definite missing reference in the start WORKER prompt as a blocking
@@ -228,7 +228,7 @@ Pure/unit:
 - ignored artifact/run/node/job roots;
 - nested paths;
 - duplicates and multiple consumers;
-- parent/child path collision;
+- parent/child path nesting and diagnostic note;
 - malformed/unsupported placeholders;
 - no-placeholder graph;
 - start-worker error versus downstream warning;

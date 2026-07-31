@@ -302,7 +302,7 @@ Expected test placement:
 | ID    | Test                                                               | Expected result                                                                                                         |
 | ----- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | A-U01 | Extract exact Atlas `{input.*}` grammar                            | Dotted dictionary paths found; other roots, array indexes, malformed braces ignored/diagnosed                           |
-| A-U02 | Duplicate consumers and parent/child collision                     | All node IDs retained; collision blocks lossy skeleton generation                                                       |
+| A-U02 | Duplicate consumers and parent/child path nesting                  | All node IDs retained; parent and child paths share one nested skeleton, with an informational parent-renders-JSON note |
 | A-U03 | Infer worker outputs                                               | Only `outputs[0]`; text/json kind correct; branch-dependent; no invented `collect_files` output                         |
 | A-U04 | Parse input JSON                                                   | Only a plain object root accepted; error includes useful parse location                                                 |
 | A-U05 | Generate cURL/TypeScript/Python and downloadable advisory contract | Deterministic, bounded, placeholder-only; no actual origin, bearer, callback secret, or entered input                   |

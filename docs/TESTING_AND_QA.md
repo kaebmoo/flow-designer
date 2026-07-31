@@ -177,9 +177,8 @@ and `constructor.prototype`, each asserting `Object.prototype` is untouched afte
 **A false collision.** The module reported `{input.user}` and `{input.user.name}` as unsatisfiable
 and refused to generate an example. Atlas renders both from `{"user":{"name":"Alice"}}` —
 `_prompt_value` JSON-encodes the dict for the parent. Now one nested skeleton serves both, in
-either authoring order, with an informational note rather than an error. **This supersedes test
-plan item A-U02, which still asserts the blocking behaviour; that document needs a later
-correction and was deliberately not edited here.**
+either authoring order, with an informational note rather than an error. Test plan item A-U02 now
+records this runtime-backed expectation.
 
 **Wrong response envelopes in generated examples.** The TypeScript and Python examples read the
 run row off the top level, but Atlas wraps every relevant body. The TypeScript poll loop would
