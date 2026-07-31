@@ -317,47 +317,96 @@ Toolbar actions (exact button text): **Auto-arrange**, **Save**/"Saving…",
 no **Explain** and no **Repair** button, and no Draft-from-plain-language /
 Suggest-workers UI anywhere (see "Not here" above).
 
+### Application interface
+
+**Application interface** (a left-sidebar button next to **Run policy** — it
+swaps the inspector the same way) authors Atlas's optional, authoritative
+per-workflow `interface`: a stored input schema, a synthetic sample, and the
+public outputs an external caller can rely on. A workflow with no interface
+is unaffected — everything below is opt-in.
+
+- **input_schema** — a raw JSON editor for Atlas's bounded, JSON-Schema-like
+  profile: types `object`/`array`/`string`/`number`/`integer`/`boolean`/`null`,
+  `properties`/`required`/`additionalProperties`/`items`/`enum`/`const`, the
+  `min`/`max` keywords, and annotation-only `title`/`description`/`default`/
+  `examples`. No `$ref`, no `oneOf`/`anyOf`/`allOf`/`not`, no `pattern` or
+  `format`. The root must declare exactly `type: "object"` (or the
+  single-entry equivalent `type: ["object"]`) — a nullable or mixed union such
+  as `["object","null"]` is rejected, and the same rule applies to every
+  object segment on a path the graph's **start** node renders. Local
+  diagnostics appear as you type; Atlas's own save-time validation is always
+  the final word.
+- **sample_input** — a raw JSON editor for a documentation/test example. A
+  visible warning says it is persisted on the workflow (and can leave in a
+  pack export), so it must stay **synthetic** — never a real name, national
+  ID, contact detail, credential, or API key.
+- **Public outputs** — a table of the worker output keys the current graph
+  can produce, each with a checkbox, an optional title, and an optional
+  description. Only a key produced by exactly one worker node can be
+  declared; a key more than one node produces is shown disabled, because
+  Atlas requires that uniqueness. One declared output can be marked
+  **primary_output** — a hint for an external caller, not an execution
+  requirement.
+- **Clear** removes the interface entirely (Atlas's explicit `null`, not
+  merely leaving the fields blank); **Add interface** starts one.
+- If the declared schema and the graph's actual `{input.x}`/output usage
+  disagree — a start-node path the schema cannot represent, or a worker
+  output the interface never declared — a drift warning names the exact
+  path, node, or output. Neither source is changed automatically; Atlas's
+  own cross-check at save time remains the boundary.
+- An interface saved by a **newer** flow-designer, in a `schema_version` this
+  build does not recognise, is shown **read-only** with its raw JSON visible
+  — Save never re-encodes or silently drops it.
+
 ### Test run
 
 **Test run** opens a dialog. Opening it starts nothing — it only reads the
-saved graph. The dialog has two tabs:
+saved graph and, when present, the saved `interface`. The Integration tab's
+label names which mode is active:
 
-- **Input JSON** — a raw JSON textarea, pre-filled with an example built from
-  the `{input.x}` paths the saved graph references. Those example values are
-  placeholders showing the _shape_ (`"<input.topic>"`); they are not defaults
-  and carry no type information, so replace them. `{}` is always valid. The
-  root must be a JSON object: an array, string, number, boolean, or `null` is
-  refused, as is malformed JSON.
-- **Integration** — labelled **Observed · not enforced by Atlas**, and split
-  into Atlas's own API facts and what was merely _observed_ in this graph.
-  See the [application integration guide](application-integration-en.md).
+- **Declared · enforced by Atlas** — the workflow has a `schema_version: 1`
+  interface. The Input JSON tab is pre-filled from the stored `sample_input`
+  (or `{}` when none is set); typed input is checked locally against the
+  stored `input_schema` for fast feedback, and a near-1 MiB size estimate is
+  shown as an advisory note that never blocks by itself — Atlas measures the
+  actual effective input (after any `default_reply` merge) and is final.
+  **Start test run** submits `{ input, expected_workflow_version }`, pinned
+  to the workflow version this dialog was opened against. Atlas answers a bad
+  business input with **400** naming the field/path, and a stale version with
+  **409**; either way the dialog stays open with the typed payload intact —
+  neither is retried automatically. The Integration tab generates a
+  copy-safe cURL/TypeScript/Python guide from the exact declared contract,
+  including the workflow version and the minimum compatible Atlas commit.
+- **Observed · not enforced by Atlas** — no usable interface is stored (or
+  none was declared at all). Unchanged from before: a raw JSON textarea
+  pre-filled from the `{input.x}` paths the saved graph references, with
+  placeholder example values (`"<input.topic>"`) that show shape, never a
+  type or a default. A path the **start** node's prompt renders is a
+  **blocking** error when missing (Atlas would fail the run immediately); a
+  path only a later or conditional node uses is a **warning**, because that
+  node may never run. `{}` is always valid; a non-object root or malformed
+  JSON is refused.
 
-Two kinds of feedback appear as you type:
+Since Atlas's manager-prompt-parity fix, an **AI Decision** (manager) node's
+prompt is substituted exactly like an **AI Task**'s: `{input.x}` in a manager
+prompt is a real, executable reference, and the Observed mode's blocking/
+warning rule applies to it the same way — a manager **start** node missing a
+referenced path blocks; a downstream manager's reference only warns.
 
-- A path the **start** node's prompt renders is a **blocking** error when it
-  is missing. Atlas renders that prompt before choosing any branch, so the run
-  would fail the moment it started.
-- A path only a later or conditional node uses is a **warning**. That node may
-  never run, so its absence is a risk — not a requirement this UI can prove.
-
-Nothing typed here is saved anywhere: not in the browser, not in the URL, and
-not in any example you copy or download.
+Nothing typed in either mode is saved anywhere: not in the browser, not in
+the URL, and not in any example you copy or download.
 
 Clicking **Start test run** creates a **real** Atlas run: workers execute,
 budget units are consumed, and any configured reply webhook is sent. There is
 no dry run. The page then navigates to that run's real `wfr_…` detail page. A
 refusal from Atlas stays on screen with the payload intact.
 
-> An **AI Decision** (manager) prompt is a special case. Atlas builds a
-> manager prompt without substituting `{input.x}`, so such a reference reaches
-> the model literally and supplying a value changes nothing. The dialog says
-> so and does not list it as an input.
-
 Leaving the editor with unsaved changes prompts **Discard unsaved workflow
 changes?** (**Keep editing** / **Discard changes**). A crash-recovery banner
-("Restore draft" / "Discard") can restore an unsaved edit from the same
-browser tab after an accidental navigation or reload — this is local-only
-recovery, unrelated to any AI drafting feature.
+("Restore draft" / "Discard") can restore an unsaved edit — including an
+unsaved **Application interface** edit — from the same browser tab after an
+accidental navigation or reload; this is local-only recovery, unrelated to
+any AI drafting feature.
 
 ## 9. Runs
 
@@ -396,6 +445,15 @@ Opening a run shows, in order:
   here** — never on the Runs list. It includes the reserved `_meta` envelope,
   which is where a reply webhook is configured. The section is absent when the
   run was started with no input at all.
+- **Application interface**: the workflow version and interface
+  `schema_version` this run actually started against, frozen at creation —
+  never a re-read of the current live workflow definition, which may have
+  been edited or deleted since. A collapsed section shows the exact
+  `input_schema` and declared outputs (primary marked) this run was declared
+  against. A run with no interface snapshot — a legacy run, or one against a
+  workflow that never had an interface — says plainly that no authoritative
+  contract is available, rather than guessing from the workflow's current
+  state.
 - A **Runtime nodes** table (node, job, attempt, duration, error, state) and
   a **Runtime edges** table (from, to, whether the condition matched).
 - **Approvals**: one row per gate reached, with **Approve** (or one button
@@ -406,8 +464,13 @@ Opening a run shows, in order:
   Runtime nodes/the canvas, labeled **AI Decision**.
 - **Artifacts**: key, kind, size, created, and a **Download** or **Preview**
   action (never both — `file_ref` artifacts download, everything else
-  previews in a dialog capped at the first 32,000 characters). An artifact
-  written while the page is open appears on its own — the table refreshes when
+  previews in a dialog capped at the first 32,000 characters). A key this
+  run's own interface snapshot declares as a public output carries a
+  **declared** badge (**· primary** when it is the primary output); a key
+  only the graph snapshot's worker nodes produce, with no declared interface,
+  carries the older **observed** badge instead — both are possible, not
+  guaranteed. An artifact written while the page is open appears on its own —
+  the table refreshes when
   live events report a change and once more when the run reaches a terminal
   state, so a test run's output needs no reload. **There is no upload control
   here** — attaching a file to a run (e.g. a contract for a human gate) is

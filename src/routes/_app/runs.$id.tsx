@@ -22,12 +22,14 @@ import {
   ARTIFACT_PREVIEW_MAX_CHARS,
   describeAtlasError,
   formatDurationMs,
+  runDeclaredOutputs,
   toClientAtlasError,
   type ApprovalView,
   type ClientAtlasError,
   type RunDetailView,
   type RunView,
 } from "@/lib/atlas-mappers";
+import { WORKFLOW_INTERFACE_SCHEMA_VERSION } from "@/lib/atlas-types";
 import {
   useDecideApproval,
   useDeliverRun,
@@ -709,6 +711,89 @@ function RunInputSection({ detail }: { detail: RunDetailView }) {
 }
 
 /**
+ * The application interface (and workflow version) this run actually started with, frozen at
+ * creation — never a re-read of the current live workflow definition, which may have been edited
+ * or deleted since. A legacy run, a run against a workflow with no interface, and a run recorded
+ * before Atlas migration 015 all read the same way here: no authoritative contract available,
+ * stated plainly rather than guessed from the workflow this run happens to still point at.
+ */
+function RunInterfaceSection({ detail }: { detail: RunDetailView }) {
+  const snapshot = detail.interfaceSnapshot;
+
+  return (
+    <section className="mb-8">
+      <SectionHeading>Application interface</SectionHeading>
+      {snapshot.kind === "absent" ? (
+        <p
+          data-testid="run-interface-absent"
+          className="rounded-lg border border-border bg-card px-4 py-3 text-xs leading-relaxed text-muted-foreground"
+        >
+          No authoritative contract is available for this run — it started against a workflow with
+          no declared interface, or against an Atlas checkout old enough to have none. This is a
+          fact about the run as it started, not a guess from the current workflow definition.
+        </p>
+      ) : snapshot.value.schema_version !== WORKFLOW_INTERFACE_SCHEMA_VERSION ? (
+        <div
+          data-testid="run-interface-unsupported"
+          className="rounded-lg border border-warning/40 bg-card px-4 py-3 text-xs"
+        >
+          <p className="mb-2 text-foreground">
+            Started against workflow version{" "}
+            <span className="font-mono">{snapshot.workflowVersion ?? "unknown"}</span> with
+            interface schema_version{" "}
+            <span className="font-mono">{snapshot.value.schema_version}</span> — a format newer than
+            this build of Flow Designer understands (only{" "}
+            <span className="font-mono">schema_version {WORKFLOW_INTERFACE_SCHEMA_VERSION}</span> is
+            interpreted). The frozen snapshot is shown raw, uninterpreted, so nothing below is a
+            guess.
+          </p>
+          <pre className="max-h-64 overflow-auto rounded border border-border bg-secondary/20 px-3 py-2 text-[11px] leading-relaxed">
+            {JSON.stringify(snapshot.value, null, 2)}
+          </pre>
+        </div>
+      ) : (
+        <div
+          data-testid="run-interface-present"
+          className="rounded-lg border border-success/40 bg-card px-4 py-3 text-xs"
+        >
+          <p className="mb-2 text-foreground">
+            Started against workflow version{" "}
+            <span className="font-mono">{snapshot.workflowVersion ?? "unknown"}</span>, interface
+            schema_version <span className="font-mono">{snapshot.value.schema_version}</span>.
+          </p>
+          <details>
+            <summary className="cursor-pointer text-muted-foreground">
+              Show the input_schema and outputs this run was declared against
+            </summary>
+            <div className="mt-2 space-y-3">
+              <pre className="max-h-64 overflow-auto rounded border border-border bg-secondary/20 px-3 py-2 text-[11px] leading-relaxed">
+                {JSON.stringify(snapshot.value.input_schema, null, 2)}
+              </pre>
+              {snapshot.value.outputs && snapshot.value.outputs.length > 0 ? (
+                <ul className="space-y-1">
+                  {snapshot.value.outputs.map((output) => (
+                    <li key={output.key} className="text-xs">
+                      <span className="font-mono text-primary">{output.key}</span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        — kind {output.kind}
+                        {output.key === snapshot.value.primary_output ? " · primary" : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground">No public output was declared.</p>
+              )}
+            </div>
+          </details>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
  * Artifacts of the run. Only a `file_ref` has bytes behind a download.
  *
  * `observedKeys` are the artifact keys the run's **own graph snapshot** declares — not the live
@@ -716,7 +801,16 @@ function RunInputSection({ detail }: { detail: RunDetailView }) {
  * output is findable at a glance, and every other row is still listed: an artifact this UI did
  * not predict is exactly the one worth noticing, so nothing is filtered.
  */
-function ArtifactsSection({ runId, observedKeys }: { runId: string; observedKeys: Set<string> }) {
+function ArtifactsSection({
+  runId,
+  observedKeys,
+  declaredOutputs,
+}: {
+  runId: string;
+  observedKeys: Set<string>;
+  /** From the run's `interface_snapshot`; `null` when this run has no declared contract. */
+  declaredOutputs: { keys: Set<string>; primary: string | null } | null;
+}) {
   const artifacts = useQuery(runArtifactsQuery(runId));
   const [shown, setShown] = useState(PAGE_STEP);
   const { pendingIds, downloadError, downloadArtifact } = useArtifactDownloads();
@@ -741,7 +835,15 @@ function ArtifactsSection({ runId, observedKeys }: { runId: string; observedKeys
             render: (artifact) => (
               <span className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-xs text-primary">{artifact.key}</span>
-                {observedKeys.has(artifact.key) ? (
+                {declaredOutputs?.keys.has(artifact.key) ? (
+                  <span
+                    data-testid={`declared-output-${artifact.key}`}
+                    title="This run's interface_snapshot declares this key as a public output. Possible, not guaranteed on every run."
+                    className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-success"
+                  >
+                    declared{artifact.key === declaredOutputs.primary ? " · primary" : ""}
+                  </span>
+                ) : observedKeys.has(artifact.key) ? (
                   <span
                     data-testid={`observed-output-${artifact.key}`}
                     title="This graph declares this key on a worker node. Observed, not guaranteed."
@@ -1167,6 +1269,17 @@ function RunDetail() {
     [detail.graphSnapshot, run.workflowDefinitionId],
   );
 
+  /**
+   * Declared output keys from this run's own `interface_snapshot` — the authoritative counterpart
+   * of {@link observedOutputKeys} above, from the run's frozen interface rather than its frozen
+   * graph. `null` when this run has no interface snapshot, so the artifact table can tell "no
+   * declared contract" apart from "a declared contract with zero outputs".
+   */
+  const declaredOutputs = useMemo(
+    () => runDeclaredOutputs(detail.interfaceSnapshot),
+    [detail.interfaceSnapshot],
+  );
+
   return (
     <>
       <PageHeader
@@ -1243,6 +1356,7 @@ function RunDetail() {
         </div>
 
         <RunInputSection detail={detail} />
+        <RunInterfaceSection detail={detail} />
 
         <section className="mb-8">
           <SectionHeading>Runtime nodes ({nodes.length})</SectionHeading>
@@ -1364,7 +1478,11 @@ function RunDetail() {
 
         <section className="mb-8">
           <SectionHeading>Artifacts</SectionHeading>
-          <ArtifactsSection runId={run.id} observedKeys={observedOutputKeys} />
+          <ArtifactsSection
+            runId={run.id}
+            observedKeys={observedOutputKeys}
+            declaredOutputs={declaredOutputs}
+          />
         </section>
 
         <DeliveriesSection run={run} />

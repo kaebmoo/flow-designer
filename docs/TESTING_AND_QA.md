@@ -231,6 +231,102 @@ clean); unit `549 passed`; real-Atlas contract `147 passed, 3 skipped`; stream `
 browser `126 passed`; remote-like `1 passed` on Node `v24.14.0` supplied through
 `PHASE7_NODE_BINARY`.
 
+## Milestone C — authoritative workflow.interface adoption evidence (2026-07-31)
+
+Scope: `docs/WORKFLOW_TEST_INTEGRATION_CONTRACT_PLAN.md` §8. Flow Designer HEAD `ab61f5b`
+(accepted Milestone A baseline); Atlas inspected and run for contract tests, never edited, at
+`15c4876aa4f86e109a3cc52d6a299f46791053a2` (the commit that merges Milestone B's `workflow.interface`
+v1, migration 015, packs, and the manager-prompt-parity fix — verified clean, exact HEAD match,
+before any code was touched). thClaws was not touched.
+
+**A real-Atlas fixture surprise, which is exactly the kind of evidence a description of the code
+cannot give.** The first cut of `tests/contract/workflow-interface.contract.test.ts` used a
+single-node Permit graph whose one worker referenced both `applicant_name`/`detail` (required)
+and `review_context` (declared but optional). Every case failed identically: `workflow node
+'intake' is the graph start node; input.review_context must be declared and required at every
+object segment`. That is Atlas's `cross_check_against_graph` correctly refusing a start node that
+renders an optional path — proof the rule this client's `pathRequiredAndTyped` mirrors is real,
+not a misreading of the source. The fixture was split into the two-node shape the canonical
+`PERMIT_APPLICATION_CONTRACT_V1` already uses for exactly this reason (start node renders only
+required fields; the optional field is downstream-only), and every case passed.
+
+**Manager-prompt substitution, captured from the wire, for the _opposite_ claim Milestone A
+recorded.** `tests/e2e/zz-live.spec.ts`'s manager-placeholder probe previously proved
+`{input.routing_hint}` reached the stub worker literally. Requalified against `15c4876`, the same
+probe (same graph fixture, same stub) now proves the opposite: the rendered instruction line
+contains the substituted value and not the placeholder syntax, while the JSON context Atlas
+appends afterward still legitimately carries the node's stored, unrendered `prompt` field as
+_data_ — a first version of this assertion treated that data dump as a substitution failure and
+had to be narrowed to the rendered instruction segment. `tests/unit/workflow-run-contract.test.ts`
+was requalified the same way: the old "never lists a manager reference as a run input" and "never
+blocks on a manager-only reference" tests asserted the pre-parity behavior and are now replaced
+with tests asserting the opposite (manager and worker prompts identical; a start-manager missing
+path blocks preflight exactly like a start-worker's).
+
+**Interface CRUD, run validation, version pin, snapshots, and packs against the real server.**
+`tests/contract/workflow-interface.contract.test.ts` covers interface create/read/edit/explicit-clear,
+a stale `expected_version` 409 that leaves the stored interface unchanged, a rejected bounded-profile
+violation with no partial apply, valid/invalid Permit starts (400 naming the field), matching/stale
+`expected_workflow_version` (409, no run, re-fetch confirms no side effect), an interface-absent
+workflow's unaffected legacy behavior, trigger-fire semantics for both an object payload that fails
+validation (202, `run: null`, `event.state: "failed"`) and a non-object payload (400, no event), run
+snapshots surviving a live interface edit, the exact 1 MiB effective-input boundary (accepted at the
+byte, rejected one byte over, using a Python-canonical-JSON-exact test helper — not the client's own
+advisory estimator), a `default_reply` merge pushing an otherwise-tiny business input over that
+boundary, and a graph edit that would make a stored interface's declared output impossible (rejected,
+no partial apply). **Not run:** a real smoke test against the recorded pre-interface Atlas baseline —
+doing so would require checking the one permitted-to-inspect Atlas working tree out to a different
+commit, which is out of this suite's isolation boundary; the absent-field mapper case (an Atlas
+response that omits `interface`/`interface_snapshot` entirely, not merely `null`) is covered instead
+at the unit level. **Accepted as residual risk (2026-07-31): legacy pre-interface Atlas
+compatibility is explicitly _not_ an acceptance criterion of this milestone.** The supported target
+is the current Atlas (`15c4876`); interface-absent behavior is qualified against that Atlas with
+`interface: null` plus the unit-level absent-key mapper case. If a requirement to support a
+pre-interface Atlas checkout ever lands, this gap must be reopened and closed with a real smoke run
+against a second, older checkout in a separate directory.
+
+**Mutation-tested**, each producing the required test category's red before being reverted (verified
+by `grep -rn "MUTATION-TEST" src/` returning nothing at final gate):
+
+- Dropping `interface` from the save payload in `atlas-mutations.functions.ts` → the browser
+  reload-survival test (`authors a declared interface, saves it, and it survives a reload`) failed
+  on the reopened panel's schema field.
+- Making `toWorkflowEditableInterface` ignore `schema_version` and always treat a stored interface
+  as editable v1 → the unit boundary-guard test failed.
+- Letting the Test Run dialog's `canStart` ignore declared-schema diagnostics in authoritative mode
+  → the browser test asserting the Start button stays disabled on a schema violation failed.
+- Omitting `expected_workflow_version` from the route's `startRun.mutate` call → the browser 409
+  test failed (Atlas started the run instead of refusing it, since it had nothing to compare).
+- Reverting `executablePrompt` to worker-only → four targeted manager-prompt unit tests failed.
+- Making the run-detail mapper stop reading `run.interface_snapshot` (the same observable failure
+  as reading a live/current source instead: the frozen contract silently changes once the live one
+  does) → both the unit mapper test and the browser historical-snapshot test failed.
+- Writing entered Test Run text to `sessionStorage` on every keystroke → both the pre-existing
+  Milestone A no-persistence test and the new declared-mode equivalent failed.
+- Widening `isExactlyObjectType` to accept any type list containing `"object"` (so
+  `["object","null"]` would pass) → three unit diagnostics tests failed (root-union rejection,
+  structural-validator rejection, start-intermediate requiredness); the real-Atlas bounded-profile
+  rejection test correctly stayed green throughout, since it exercises Atlas's own validator, not
+  this client's mirror — proof Atlas remains authoritative regardless of a client-side regression.
+
+Results: `git diff --check` exit 0; `format:check`, `lint` (0 errors; pre-existing
+`react-hooks/exhaustive-deps` and `react-refresh/only-export-components` warnings unrelated to this
+milestone), `typecheck`, `build`, `scan:bundle` exit 0 (56 public files clean); unit `612 passed`;
+real-Atlas contract `163 passed, 3 skipped`; stream `27 passed`; browser `141 passed`; remote-like
+`1 passed` on Node `v24.14.0` supplied through `PHASE7_NODE_BINARY`.
+
+Correction (2026-07-31, verification round): an earlier revision of this section recorded the
+contract suite as `179 passed` — that number never reproduced; the correct count was `163`
+(Milestone A's 147 plus the 16 new interface cases; the new suite had been double-counted). The
+unit/browser counts above also reflect the post-review fix round (independent verification
+findings F1–F5): the Clear-after-add-and-save regression fix with its browser regression test,
+the unsavable ambiguous/orphaned-output escape hatches, the unknown-`schema_version` run-snapshot
+render, unchanged-interface omission on save (no re-encode), the closed local-mirror parity gaps
+(depth seed, non-root `$schema`, `examples`, `required` entries, empty property names,
+`pathRepresentable` polarity, whole-document byte cap), and a declared-mode browser test that now
+genuinely reaches Atlas's 400 through the advisory 1 MiB gap instead of stopping at the local
+mirror.
+
 ## Phase 7 evidence and strategy additions (2026-07-21)
 
 The Phase 7 matrix is recorded in `RELEASE_READINESS.md`. The new remote-like suite builds the

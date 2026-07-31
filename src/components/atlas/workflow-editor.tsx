@@ -87,6 +87,15 @@ import {
 import { type WorkflowDefaultReply } from "./workflow-inspector";
 import { NODE_PRESENTATION, PALETTE_ORDER } from "./workflow-node-presentation";
 import { WorkflowCanvasNode, type CanvasNodeData } from "./workflow-node";
+import {
+  buildInterfacePayload,
+  initialInterfaceDraftState,
+  WorkflowInterfacePanel,
+  type InterfaceDraftState,
+} from "./workflow-interface-panel";
+import type { WorkflowEditableInterface } from "@/lib/atlas-mappers";
+import type { AtlasWorkflowInterface } from "@/lib/atlas-types";
+import { observeWorkflowContract } from "@/lib/workflow-run-contract";
 
 const nodeTypes: NodeTypes = { atlas: WorkflowCanvasNode };
 
@@ -94,6 +103,7 @@ type Selection =
   | { kind: "node"; id: string }
   | { kind: "edge"; index: number }
   | { kind: "policy" }
+  | { kind: "interface" }
   | null;
 
 /** A readable id for a new node: `worker_1`, `worker_2`, … */
@@ -163,6 +173,8 @@ export interface WorkflowDraft {
   graph: Record<string, unknown>;
   policy: Record<string, unknown>;
   defaultReply: WorkflowDefaultReply;
+  /** `undefined` omits the key (preserve/never-touch); `null` is an explicit clear. */
+  interface: AtlasWorkflowInterface | null | undefined;
   expectedVersion: number;
 }
 
@@ -176,6 +188,8 @@ export interface WorkflowEditorProps {
   initialGraph: WorkflowGraph;
   initialPolicy: WorkflowPolicy;
   initialDefaultReply: WorkflowDefaultReply;
+  /** Atlas's stored application interface, or the reason it cannot be edited. */
+  initialInterface: WorkflowEditableInterface;
   /**
    * Atlas's current `updated_at`, refreshed by the query.
    *
@@ -200,6 +214,14 @@ export interface WorkflowEditorProps {
   /** The message from the last failed save. Shown verbatim, because Atlas wrote it for us. */
   saveError?: string | null;
   expectedVersionOverride?: number;
+  /**
+   * True while Atlas's stored version differs from the one this editor is showing — another
+   * tab or user saved underneath it. While that holds, a save must send the full local state
+   * including the interface: an "unchanged" interface draft is only unchanged relative to what
+   * *this* editor loaded, and omitting it would silently let the other writer's interface win
+   * while the panel keeps displaying this one.
+   */
+  serverMoved?: boolean;
   onSave: (draft: WorkflowDraft) => void;
   /** Validates against Atlas. Absent until the workflow has an id Atlas knows. */
   onValidateWithAtlas?: (draft: {
@@ -236,6 +258,7 @@ function EditorSurface({
   initialGraph,
   initialPolicy,
   initialDefaultReply,
+  initialInterface,
   savedAt,
   saveCount,
   runStates,
@@ -243,6 +266,7 @@ function EditorSurface({
   serverIssues,
   saveError,
   expectedVersionOverride,
+  serverMoved,
   onSave,
   onValidateWithAtlas,
   validating,
@@ -256,10 +280,22 @@ function EditorSurface({
   const [graph, setGraph] = useState<WorkflowGraph>(initialGraph);
   const [policy, setPolicy] = useState<WorkflowPolicy>(initialPolicy);
   const [defaultReply, setDefaultReply] = useState<WorkflowDefaultReply>(initialDefaultReply);
+  const [interfaceDraft, setInterfaceDraft] = useState<InterfaceDraftState>(() =>
+    initialInterfaceDraftState(initialInterface),
+  );
   const [selection, setSelection] = useState<Selection>(null);
   const [layout, setLayout] = useState<WorkflowLayout>({});
   const [pendingNodeDeletion, setPendingNodeDeletion] = useState<string | null>(null);
   const { fitView, setViewport } = useReactFlow();
+
+  const interfaceContract = useMemo(
+    () =>
+      observeWorkflowContract(graph, {
+        workflowId: workflowId ?? "draft",
+        observedVersion: graphVersion,
+      }),
+    [graph, workflowId, graphVersion],
+  );
 
   const current = useMemo(
     () => ({
@@ -268,8 +304,9 @@ function EditorSurface({
       graph: serializeWorkflowGraph(graph),
       policy: serializeWorkflowPolicy(policy),
       defaultReply,
+      interfaceDraft,
     }),
-    [name, description, graph, policy, defaultReply],
+    [name, description, graph, policy, defaultReply, interfaceDraft],
   );
 
   /**
@@ -278,7 +315,9 @@ function EditorSurface({
    * The scaffold derived its flag from React Flow's `NodeChange` stream, so a drag marked the
    * workflow dirty and a keyboard delete did not — exactly backwards, and the delete case meant
    * losing a node silently. Comparing the bytes that would actually be sent cannot get that
-   * wrong: identical payload, nothing to save.
+   * wrong: identical payload, nothing to save. `interfaceDraft` participates the same way: an
+   * interface-only edit (nothing else touched) still flips this to dirty and still triggers the
+   * optimistic `expected_version` save below.
    */
   const [baseline, setBaseline] = useState(() =>
     JSON.stringify({
@@ -287,9 +326,31 @@ function EditorSurface({
       graph: serializeWorkflowGraph(initialGraph),
       policy: serializeWorkflowPolicy(initialPolicy),
       defaultReply: initialDefaultReply,
+      interfaceDraft: initialInterfaceDraftState(initialInterface),
     }),
   );
   const dirty = JSON.stringify(current) !== baseline;
+
+  /**
+   * Whether the interface draft still matches what this editor loaded (or last successfully
+   * saved — the baseline re-bases there). Unchanged means the save *omits* the `interface` key
+   * entirely, so Atlas preserves its stored value verbatim: a graph-only save never re-encodes
+   * a stored interface, and a changed draft in `"none"` mode is always a deliberate clear this
+   * session — which is why this comparison, not a mount-time "had one before" flag, decides
+   * between `null` and omission. (A flag frozen at mount misses an add-save-clear sequence in
+   * one session, because a successful save deliberately does not remount the editor.)
+   */
+  const baselineInterfaceDraft = useMemo(
+    () => JSON.stringify((JSON.parse(baseline) as { interfaceDraft: unknown }).interfaceDraft),
+    [baseline],
+  );
+  const interfaceUnchanged =
+    !serverMoved && JSON.stringify(interfaceDraft) === baselineInterfaceDraft;
+
+  const interfaceBuild = useMemo(
+    () => buildInterfacePayload(interfaceDraft, interfaceUnchanged),
+    [interfaceDraft, interfaceUnchanged],
+  );
   const navigationBlocker = useBlocker({
     shouldBlockFn: () => dirty,
     enableBeforeUnload: dirty,
@@ -335,6 +396,7 @@ function EditorSurface({
       graph: current.graph,
       policy: current.policy,
       defaultReply,
+      interfaceDraft,
     });
   }, [
     workflowId,
@@ -345,6 +407,7 @@ function EditorSurface({
     current.graph,
     current.policy,
     defaultReply,
+    interfaceDraft,
   ]);
 
   const restoreDraft = () => {
@@ -356,6 +419,7 @@ function EditorSurface({
     setName(recovery.name);
     setDescription(recovery.description);
     setDefaultReply(recovery.defaultReply);
+    if (recovery.interfaceDraft) setInterfaceDraft(recovery.interfaceDraft);
     setRecovery(undefined);
   };
 
@@ -365,12 +429,14 @@ function EditorSurface({
   };
 
   const submit = () => {
+    if (!interfaceBuild.ok) return;
     const draft: WorkflowDraft = {
       name,
       description,
       graph: current.graph,
       policy: current.policy,
       defaultReply,
+      interface: interfaceBuild.interface,
       expectedVersion,
     };
     sentPayload.current = JSON.stringify(current);
@@ -648,7 +714,7 @@ function EditorSurface({
     selection?.kind === "node" ? graph.nodes.find((node) => node.id === selection.id) : undefined;
   const selectedEdge = selection?.kind === "edge" ? graph.edges[selection.index] : undefined;
 
-  const blocking = localIssues.length > 0;
+  const blocking = localIssues.length > 0 || !interfaceBuild.ok;
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -762,6 +828,35 @@ function EditorSurface({
           </button>
         </div>
 
+        <div className="border-b border-border px-4 py-4">
+          <button
+            type="button"
+            data-testid="open-interface-panel"
+            onClick={() => setSelection({ kind: "interface" })}
+            className={`w-full rounded-md border px-2 py-2 text-left text-xs font-semibold transition-colors ${
+              selection?.kind === "interface"
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-foreground hover:bg-secondary"
+            }`}
+          >
+            Application interface
+            {!interfaceBuild.ok ? (
+              <span className="ml-1.5 text-destructive">
+                <span aria-hidden="true">•</span>
+                <span className="sr-only">has a JSON error</span>
+              </span>
+            ) : interfaceDraft.mode === "editing" ? (
+              <span className="ml-1.5 font-mono text-[10px] font-normal text-muted-foreground">
+                declared
+              </span>
+            ) : interfaceDraft.mode === "unsupported" ? (
+              <span className="ml-1.5 font-mono text-[10px] font-normal text-warning">
+                unsupported
+              </span>
+            ) : null}
+          </button>
+        </div>
+
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           <h3 className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
             Checks
@@ -857,11 +952,13 @@ function EditorSurface({
               size="sm"
               disabled={saving || blocking || !dirty}
               title={
-                blocking
-                  ? "Fix the problems listed on the left first."
-                  : !dirty
-                    ? "Nothing has changed since the last save."
-                    : undefined
+                !interfaceBuild.ok
+                  ? `Fix the Application interface panel first: ${interfaceBuild.message}`
+                  : blocking
+                    ? "Fix the problems listed on the left first."
+                    : !dirty
+                      ? "Nothing has changed since the last save."
+                      : undefined
               }
               onClick={submit}
             >
@@ -1047,6 +1144,12 @@ function EditorSurface({
             onChange={setPolicy}
             defaultReply={defaultReply}
             onDefaultReplyChange={setDefaultReply}
+          />
+        ) : selection?.kind === "interface" ? (
+          <WorkflowInterfacePanel
+            draft={interfaceDraft}
+            onChange={setInterfaceDraft}
+            contract={interfaceContract}
           />
         ) : (
           <div className="space-y-4 px-4 py-6">

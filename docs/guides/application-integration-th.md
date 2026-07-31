@@ -67,9 +67,31 @@ Atlas ตอบ `202` พร้อมข้อมูล run ที่ **ห่�
 เมื่อ workflow มี `default_reply` และผู้เรียกไม่ได้ส่ง `_meta.reply` มา Atlas จะ
 merge ให้ ไม่มีการเพิ่ม ลบ หรือแก้ไขฟิลด์ทางธุรกิจใด ๆ
 
+ถ้า workflow มี interface แบบ **declared** (ดูด้านล่าง) request จะรับ
+`expected_workflow_version` เป็นทางเลือกเพิ่มเติมได้:
+
+```json
+{
+  "workflow_definition_id": "wfd_...",
+  "input": { "applicant_name": "...", "detail": { "floors": 2 } },
+  "expected_workflow_version": 7
+}
+```
+
+Atlas เทียบค่านี้กับ definition row เดียวกับที่มันโหลดมาเริ่ม run — ไม่มีการ
+อ่านแยกต่างหาก จึงไม่มีช่องว่างให้การแก้ไขที่เกิดพร้อมกันหลุดผ่านการตรวจนี้ไปได้
+ถ้าไม่ตรงกัน จะตอบ **409** และไม่มีการสร้าง run ขึ้นเลย ส่วน business input ที่
+ไม่ผ่าน `input_schema` ที่ประกาศไว้จะตอบ **400** พร้อมระบุชื่อ field หรือ path
+ที่ผิด และไม่มีการสร้าง run เช่นกัน ทั้งสองกรณีไม่ควร retry ให้อัตโนมัติ — ให้
+ตัดสินใจแล้วส่งใหม่อย่างตั้งใจ โดยอ่าน definition ใหม่ก่อนถ้าเวอร์ชันเปลี่ยนไป
+`expected_workflow_version` เป็นทางเลือกล้วน ๆ และไม่มีผลใด ๆ กับ workflow ที่
+ไม่มี interface แบบ declared ซึ่งจะทำงานเหมือนเดิมทุกประการ
+
 > **เส้นทางนี้ไม่มี dedupe key** ยิง POST สองครั้งได้ run สองอัน ถ้าผู้เรียกของคุณ
 > อาจ retry ให้จัดการ key ฝั่งคุณเอง หรือใช้ trigger ผ่าน
-> `POST /api/workflow-triggers/{id}/fire` ซึ่งรองรับ dedupe key
+> `POST /api/workflow-triggers/{id}/fire` ซึ่งรองรับ dedupe key — แต่เส้นทาง
+> trigger นี้ **ไม่** รองรับ `expected_workflow_version` (ดู "ข้อจำกัดของ
+> trigger" ด้านล่าง)
 
 ### 2. Poll สถานะ run
 
@@ -129,15 +151,77 @@ Atlas จะ sign callback ด้วย `X-Atlas-Signature: sha256=<hex>` ซึ
 endpoint ของคุณต้องอยู่ใน outbound allowlist ของ Atlas และห้ามฝัง credential ไว้ใน URL
 ส่วน workflow ตั้ง `default_reply` ไว้ได้ ผู้เรียกจะได้ไม่ต้องส่ง reply block ซ้ำทุกครั้ง
 
-## Observed contract คืออะไร
+## สองโหมดของ contract: declared และ observed
 
 แท็บ **Test run → Integration** ของ Flow Designer สร้างเอกสารต่อ workflow ให้ —
 ตัวอย่าง cURL/TypeScript/Python ที่ copy ได้ พร้อมดาวน์โหลดเป็น JSON และ Markdown
-เอกสารนั้นมีป้ายกำกับว่า **Observed · not enforced by Atlas** และป้ายนั้นตรงตามจริง
+— ในหนึ่งในสองโหมด และป้ายกำกับของมันจะบอกว่ากำลังทำงานในโหมดไหนอยู่ โหมดที่
+workflow แต่ละตัวได้รับเป็นสถานะของ Atlas เองล้วน ๆ ไม่ใช่ทางเลือกฝั่ง client
 
-ปัจจุบัน Atlas **ไม่ได้เก็บ input schema** ของ workflow เลย มันตรวจเพียงว่า `input`
-เป็น object และ `_meta` ถูกรูปแบบเท่านั้น แท็บ Integration จึงอนุมานเท่าที่ทำได้จาก
-ข้อความ prompt ใน graph ที่ save ไว้ และผลลัพธ์เป็นเพียง **ข้อมูลประกอบ**:
+### Declared · enforced by Atlas
+
+workflow สามารถมี `interface` แบบ **authoritative** ได้ เป็นทางเลือก: มี
+`input_schema` ที่เก็บไว้จริง `sample_input` สังเคราะห์ที่เป็นทางเลือก และ
+public output key ("อาจเกิดขึ้น" ไม่ใช่การรับประกัน) ที่ผู้เรียกจากภายนอกอ้างอิง
+ได้ เมื่อมี interface นี้อยู่ (`schema_version: 1`) Atlas เองจะตรวจสอบทุกการเริ่ม
+run โดยตรงกับมัน — ไม่ใช่การอนุมานฝั่ง client แต่อย่างใด Atlas checkout ขั้นต่ำที่
+รองรับฟีเจอร์นี้คือ commit `15c4876aa4f86e109a3cc52d6a299f46791053a2`; Atlas
+เวอร์ชันเก่ากว่านั้นไม่มีฟิลด์ `interface` เลย และ workflow บน Atlas เวอร์ชันนั้น
+จะอยู่ในโหมด Observed เสมอ
+
+```json
+{
+  "schema_version": 1,
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["applicant_name", "detail"],
+    "properties": {
+      "applicant_name": { "type": "string", "minLength": 1 },
+      "detail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["floors"],
+        "properties": { "floors": { "type": "integer", "minimum": 1 } }
+      }
+    }
+  },
+  "sample_input": { "applicant_name": "Test Applicant", "detail": { "floors": 2 } },
+  "outputs": [{ "key": "assessment_result", "kind": "text" }],
+  "primary_output": "assessment_result"
+}
+```
+
+`input_schema` เป็น profile แบบ **มีขอบเขต** ไม่ใช่ JSON Schema เต็มรูปแบบ — ไม่มี
+`$ref` ไม่มี `oneOf`/`anyOf`/`allOf`/`not` ไม่มี `pattern` หรือ `format`
+`sample_input` เป็นข้อมูลเชิงเอกสารและข้อมูลทดสอบ Atlas ไม่เคย merge มันเข้า run
+จริงเลย ทุก output เป็นเพียง **สิ่งที่อาจเกิดขึ้น** ไม่ใช่การรับประกัน — graph
+แตก branch ได้ ดังนั้น output ที่หายไปจึงไม่ทำให้ run ที่สำเร็จอยู่แล้วล้มเหลว และ
+ทุก artifact (ไม่ว่าจะประกาศไว้หรือไม่) ยังคงไหลผ่านรูปแบบการ poll และ webhook
+เดิมโดยไม่เปลี่ยนแปลง — ไม่มีอะไรเกี่ยวกับ approval, การดึง artifact หรือ reply
+webhook ที่เปลี่ยนไปเมื่อ workflow มี interface แบบ declared
+
+สร้าง request ของคุณตรงจาก contract ที่เก็บไว้:
+
+```json
+{
+  "workflow_definition_id": "wfd_...",
+  "input": { "applicant_name": "...", "detail": { "floors": 2 } },
+  "expected_workflow_version": 7
+}
+```
+
+business input ที่ไม่ผ่าน `input_schema` จะตอบ **400** พร้อมระบุ field/path ที่
+ผิด ส่วน `expected_workflow_version` ที่เก่าไปแล้วจะตอบ **409** ทั้งสองกรณีไม่มี
+การสร้าง run และไม่ควร retry ให้อัตโนมัติทั้งคู่
+
+### Observed · not enforced by Atlas
+
+โหมด fallback สำหรับ workflow ที่ไม่มี interface ใช้งานได้ (ไม่มีเลย หรือมีแต่
+เป็น `schema_version` ที่ flow-designer build นี้ไม่รู้จัก) ในกรณีนี้ Atlas
+**ไม่ได้เก็บ input schema** เลย มันตรวจเพียงว่า `input` เป็น object และ `_meta`
+ถูกรูปแบบเท่านั้น แท็บ Integration จึงอนุมานเท่าที่ทำได้จากข้อความ prompt ใน
+graph ที่ save ไว้แทน และผลลัพธ์เป็นเพียง **ข้อมูลประกอบ**:
 
 | บอกได้                                          | บอกไม่ได้                                        |
 | ----------------------------------------------- | ------------------------------------------------ |
@@ -150,18 +234,43 @@ endpoint ของคุณต้องอยู่ใน outbound allowlist ข
 ให้ถือเป็นจุดตั้งต้นที่ต้องตรวจสอบกับ run จริง ไม่ใช่ schema และมีสองเรื่องที่ควร
 วางแผนรับมือ:
 
-- **ปักเวอร์ชันไม่ได้** `POST /api/workflow-runs` ไม่มี `expected_workflow_version`
-  ถ้ามีการแก้ workflow ระหว่างที่คุณอ่าน contract กับตอนเรียก API จะตรวจจับไม่ได้
-  ต้องประสานงานการแก้ workflow กับทีมที่เรียกใช้
+- **ปักเวอร์ชันไม่ได้** `POST /api/workflow-runs` รับ `expected_workflow_version`
+  เฉพาะในโหมด Declared เท่านั้น workflow แบบ Observed ไม่มีทางตรวจจับการแก้ไขที่
+  เกิดขึ้นระหว่างที่คุณอ่าน contract กับตอนเรียก API ได้เลย ต้องประสานงานการแก้
+  workflow กับทีมที่เรียกใช้ หรือขอให้ผู้ออกแบบ workflow เพิ่ม interface แบบ
+  declared เข้าไป
 - **input ที่ขาดจะล้มทีหลัง** Atlas สร้าง run และตอบ `202` ก่อน แล้ว node จึงล้ม
   ตอน render prompt ดังนั้นต้องตรวจสถานะ run ด้วย `202` ไม่ได้แปลว่าสำเร็จ
 
+Flow Designer จะไม่มีการเลื่อน field ที่สังเกตได้ขึ้นเป็น interface แบบ declared
+ให้อัตโนมัติ และจะไม่แก้ interface แบบ declared ให้ตรงกับสิ่งที่สังเกตได้จาก
+graph เองด้วย — ถ้าทั้งสองฝั่งไม่ตรงกัน panel Application interface ใน editor
+จะแสดงคำเตือน drift ระบุ path, node หรือ output ที่ไม่ตรงกันตรง ๆ และการตรวจสอบ
+แบบ declared ของ Atlas เองยังเป็นเส้นแบ่งสุดท้ายไม่ว่ากรณีใด
+
 ### node แบบ manager (AI Decision)
 
-Atlas สร้าง prompt ของ manager node โดยไม่แทนค่า `{input.x}` ข้อความ placeholder
-จึงถูกส่งถึงโมเดลตรง ๆ Flow Designer จะรายงานกรณีนี้เป็นคำเตือน และตั้งใจ **ไม่**
-แสดงมันเป็น run input เพราะการใส่ค่าไปก็ไม่มีผลอะไร ดู
-[ATLAS_LIMITATIONS.md](../ATLAS_LIMITATIONS.md)
+ตั้งแต่ Atlas แก้ manager-prompt-parity แล้ว (มีผลตั้งแต่ commit
+`15c4876aa4f86e109a3cc52d6a299f46791053a2` เป็นต้นไป) prompt ของ manager node
+จะถูกแทนค่าเหมือนกับของ worker ทุกประการ — `{input.x}` เป็น reference ที่ใช้งาน
+จริง และ fail-closed เมื่อ path ที่อ้างถึงไม่มีอยู่จริงแบบเดียวกัน ในโหมด
+**Observed** Flow Designer จึงแสดง `{input.x}` ของ manager เป็น observed input
+path ธรรมดา ๆ: บล็อกถ้า manager นั้นเป็น start node ของ graph มิฉะนั้นจะเป็นแค่
+คำเตือน ในโหมด **Declared** ไม่มีกฎเฉพาะของ manager เลย — `input_schema` ควบคุม
+ทุก path ไม่ว่า node ชนิดไหนจะเป็นผู้ render มันก็ตาม บน Atlas checkout ที่
+**เก่ากว่า** การแก้นี้ placeholder เดิมจะถูกส่งถึงโมเดลตรง ๆ และการใส่ค่าไปก็ไม่มี
+ผลอะไร ดู [ATLAS_LIMITATIONS.md](../ATLAS_LIMITATIONS.md) สำหรับพฤติกรรมเดิมนั้น
+
+### ข้อจำกัดของ trigger
+
+`POST /api/workflow-triggers/{id}/fire` ไม่รองรับ `expected_workflow_version`
+ใน Atlas เวอร์ชันนี้ ไม่ว่าจะเป็น contract mode ไหนก็ตาม trigger ที่มี payload
+ตายตัว (เช่น schedule หรือ internal event) ที่ไม่สามารถผ่าน interface แบบ
+declared ได้ จะบันทึก trigger event เป็น **failed** และไม่เริ่ม run ใด ๆ — แต่
+`next_fire_at`/`last_fired_at` ยังคงเดินหน้าตามปกติ ไม่ทำให้ schedule slot ค้าง
+payload ที่เป็น **object** แต่ไม่ผ่านการตรวจสอบยังคงตอบ **202** พร้อม
+`run: null` และ `error` ของ event จะระบุเหตุผลไว้ ส่วน payload ที่ **ไม่ใช่
+object** จะตอบ 400 ก่อนที่จะมีการบันทึกบัญชี trigger ใด ๆ เกิดขึ้นเลย
 
 ### ไฟล์ไม่ใช่ JSON
 

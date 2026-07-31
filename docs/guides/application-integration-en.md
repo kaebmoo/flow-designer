@@ -70,9 +70,32 @@ inside the reserved `_meta` envelope: when the workflow has a `default_reply`
 and the caller did not supply `_meta.reply`, Atlas merges it in. No business
 field is added, removed, or rewritten.
 
+If the workflow has a **declared** interface (see below), the request also
+takes an optional `expected_workflow_version`:
+
+```json
+{
+  "workflow_definition_id": "wfd_...",
+  "input": { "applicant_name": "...", "detail": { "floors": 2 } },
+  "expected_workflow_version": 7
+}
+```
+
+Atlas compares it against the same definition row it loads to start the run
+— no separate read, so there is no window for a concurrent edit to slip past
+the check. A mismatch answers **409** and creates no run; a business input
+that fails the declared `input_schema` answers **400** naming the field or
+path, also with no run created. Neither is retried automatically — decide,
+then resubmit deliberately, after re-reading the definition if the version
+moved. `expected_workflow_version` is entirely optional and has no effect on
+a workflow with no declared interface, which behaves exactly as it always
+has.
+
 > **This route has no dedupe key.** Two POSTs are two runs. If your caller can
 > retry, key the work on your side, or use a trigger's
-> `POST /api/workflow-triggers/{id}/fire`, which does accept one.
+> `POST /api/workflow-triggers/{id}/fire`, which does accept one — but note
+> the trigger route does **not** accept `expected_workflow_version` (see
+> "Trigger limitation" below).
 
 ### 2. Poll the run
 
@@ -142,16 +165,77 @@ Your endpoint must be on Atlas's outbound allowlist and must not embed credentia
 in the URL. A workflow can also carry a `default_reply` so callers need not repeat
 the reply block on every run.
 
-## The observed contract
+## Two contract modes: declared and observed
 
 Flow Designer's **Test run → Integration** tab generates a per-workflow
-document — copyable cURL/TypeScript/Python, plus JSON and Markdown downloads.
-It is labelled **Observed · not enforced by Atlas**, and that label is exact.
+document — copyable cURL/TypeScript/Python, plus JSON and Markdown downloads
+— in one of two modes, and its label names which one is active. Which mode a
+workflow gets is entirely Atlas's own state, not a client choice.
 
-Atlas stores **no input schema** for a workflow today. It validates that
-`input` is an object and that `_meta` is well-formed; nothing else. So the
-Integration tab derives what it can by reading the saved graph's prompt text,
-and the result is **advisory**:
+### Declared · enforced by Atlas
+
+A workflow can carry an optional, **authoritative** `interface`: a stored
+`input_schema`, an optional synthetic `sample_input`, and the public output
+keys ("possible", not guaranteed) an external caller can rely on. When one is
+present (`schema_version: 1`), Atlas itself validates every direct start
+against it — this is not client-side inference. The minimum compatible Atlas
+checkout for this feature is commit `15c4876aa4f86e109a3cc52d6a299f46791053a2`;
+an older Atlas has no `interface` field at all, and a workflow on it is
+always in Observed mode instead.
+
+```json
+{
+  "schema_version": 1,
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["applicant_name", "detail"],
+    "properties": {
+      "applicant_name": { "type": "string", "minLength": 1 },
+      "detail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["floors"],
+        "properties": { "floors": { "type": "integer", "minimum": 1 } }
+      }
+    }
+  },
+  "sample_input": { "applicant_name": "Test Applicant", "detail": { "floors": 2 } },
+  "outputs": [{ "key": "assessment_result", "kind": "text" }],
+  "primary_output": "assessment_result"
+}
+```
+
+`input_schema` is a **bounded** profile, not full JSON Schema — no `$ref`, no
+`oneOf`/`anyOf`/`allOf`/`not`, no `pattern` or `format`. `sample_input` is
+documentation and test data; Atlas never merges it into a real run. Every
+output is **possible**, never guaranteed — a graph can branch, so an omitted
+output does not fail an otherwise successful run, and every artifact
+(declared or not) still flows through the existing polling and webhook
+shapes unchanged — nothing about approvals, artifact retrieval, or the reply
+webhook changes when a workflow has a declared interface.
+
+Build your request straight from the stored contract:
+
+```json
+{
+  "workflow_definition_id": "wfd_...",
+  "input": { "applicant_name": "...", "detail": { "floors": 2 } },
+  "expected_workflow_version": 7
+}
+```
+
+A business input that fails `input_schema` answers **400** with the failing
+field/path named; a stale `expected_workflow_version` answers **409**. Both
+create no run, and neither should be retried automatically.
+
+### Observed · not enforced by Atlas
+
+The fallback for a workflow with no usable interface (absent, or in a
+`schema_version` this Flow Designer build does not recognise). Atlas stores
+no input schema in this case — it validates only that `input` is an object
+and that `_meta` is well-formed. The Integration tab instead derives what it
+can by reading the saved graph's prompt text, and the result is **advisory**:
 
 | It can tell you                                      | It cannot tell you                                    |
 | ---------------------------------------------------- | ----------------------------------------------------- |
@@ -164,21 +248,47 @@ and the result is **advisory**:
 Treat it as a starting point you verify against real runs, not as a schema.
 Two consequences worth planning for:
 
-- **No version pin.** `POST /api/workflow-runs` has no
-  `expected_workflow_version`, so an edit between reading the contract and
-  calling the API is not detected. Coordinate workflow changes with the teams
-  that call them.
+- **No version pin.** `POST /api/workflow-runs` accepts
+  `expected_workflow_version` only in Declared mode; an Observed workflow has
+  no way to detect an edit between reading the contract and calling the API.
+  Coordinate workflow changes with the teams that call them, or ask the
+  workflow's author to add a declared interface.
 - **A missing input fails late.** Atlas creates the run and returns `202`, then
   the node fails while rendering its prompt. Check the run state; a `202` is
   not a success.
 
+Flow Designer never promotes an observed field into a declared interface
+automatically, and never mutates a declared interface to match what it
+observes in the graph — if the two disagree, the editor's Application
+interface panel shows a drift warning naming the exact path, node, or
+output, and Atlas's own declared validation remains the boundary either way.
+
 ### Manager (AI Decision) nodes
 
-Atlas builds a manager node's prompt without `{input.x}` substitution — the
-placeholder text reaches the model literally. Flow Designer reports such a
-reference as a warning and deliberately does **not** list it as a run input,
-because supplying a value would change nothing. See
-[ATLAS_LIMITATIONS.md](../ATLAS_LIMITATIONS.md).
+Since Atlas's manager-prompt-parity fix (in effect at and after commit
+`15c4876aa4f86e109a3cc52d6a299f46791053a2`), a manager node's prompt is
+substituted exactly like a worker's — `{input.x}` is a real, executable
+reference, fail-closed on an unresolved path the same way. In **Observed**
+mode Flow Designer therefore lists a manager's `{input.x}` reference as an
+ordinary observed input path: blocking if the manager is the graph's start
+node, a warning otherwise. In **Declared** mode nothing manager-specific
+applies at all — `input_schema` governs every path regardless of which node
+type renders it. On an Atlas checkout **older** than this fix, the same
+placeholder reached the model literally and supplying a value changed
+nothing; see [ATLAS_LIMITATIONS.md](../ATLAS_LIMITATIONS.md) for that
+historical behaviour.
+
+### Trigger limitation
+
+`POST /api/workflow-triggers/{id}/fire` does not accept
+`expected_workflow_version` in this Atlas version, in either contract mode.
+A fixed-payload trigger (a schedule, or an internal event) that cannot
+satisfy a declared interface records a **failed** trigger event and starts
+no run — but it still advances `next_fire_at`/`last_fired_at` normally,
+rather than wedging the schedule slot. An **object** payload that fails
+validation still answers **202** with `run: null` and the event's `error`
+naming why; a **non-object** payload answers 400 before any trigger
+bookkeeping runs at all.
 
 ### Files are not JSON
 

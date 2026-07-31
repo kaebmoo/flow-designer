@@ -292,15 +292,19 @@ test.describe("live run detail", () => {
   });
 
   /**
-   * What Atlas *renders* for a manager node, captured from the wire.
+   * What Atlas *renders* for a manager node, captured from the wire — requalified for the
+   * manager-prompt-parity fix.
    *
-   * `_prepare_worker_node_payload` (`atlas/workflows.py:1614-1618`) sends a manager node to
-   * `_manager_prompt`, which never calls `render_prompt`. So an authored `{input.routing_hint}`
-   * is not substituted — and this asserts it against the actual `/agent/run` body the stub
-   * received, not against a reading of the source. If a future Atlas starts substituting there,
-   * this test fails and `docs/ATLAS_LIMITATIONS.md` needs revisiting.
+   * `_manager_prompt` (`atlas/workflows.py:2249`, this harness's pinned Atlas checkout
+   * `15c4876aa4f86e109a3cc52d6a299f46791053a2`) now renders through `render_prompt` first, exactly
+   * like a worker's prompt, before appending the fixed `manager_decision_v1` instruction. So an
+   * authored `{input.routing_hint}` on this graph's *manager start node* is substituted — asserted
+   * against the actual `/agent/run` body the stub received, not against a reading of the source.
+   * Before this fix (any Atlas checkout older than `57be15f`) the same placeholder reached the
+   * model literally; that historical behaviour is exercised at the unit level instead
+   * (`tests/unit/workflow-run-contract.test.ts`, "manager prompts (requalified...)").
    */
-  test("a manager prompt reaches the worker with {input.*} still literal", async ({
+  test("a manager prompt substitutes {input.*}, proven from the wire", async ({
     page,
     request,
   }) => {
@@ -313,25 +317,42 @@ test.describe("live run detail", () => {
 
     await page.getByRole("button", { name: "Test run", exact: true }).click();
 
-    // The dialog does not ask for it, because Atlas would ignore it...
-    await expect(page.getByTestId("test-run-input")).toHaveValue(/^\{\s*\}\s*$/);
+    // The dialog now asks for it: the manager node is the graph's start node, and its reference
+    // is executable, so the generated example includes it like any worker's would.
+    await expect(page.getByTestId("test-run-input")).toHaveValue(/<input\.routing_hint>/);
     await page.getByRole("tab", { name: "Integration" }).click();
-    await expect(page.getByTestId("observed-diagnostics")).toContainText("literally");
-    await expect(page.getByTestId("observed-input-paths")).toHaveCount(0);
+    await expect(page.getByTestId("observed-input-paths")).toContainText("input.routing_hint");
+    await expect(page.getByTestId("observed-input-paths")).toContainText(
+      "the start node renders it before any branch is chosen",
+    );
 
-    // ...so a value is supplied anyway, to prove supplying it changes nothing.
+    // Blocking, too: an empty object omits a path the start node genuinely renders.
     await page.getByRole("tab", { name: "Input JSON" }).click();
-    await page.getByTestId("test-run-input").fill('{"routing_hint":"SHOULD-NOT-BE-SUBSTITUTED"}');
+    await page.getByTestId("test-run-input").fill("{}");
+    await expect(page.getByTestId("test-run-problem")).toContainText("input.routing_hint");
+    await expect(page.getByTestId("start-test-run")).toBeDisabled();
+
+    // Supplying it now genuinely changes what the model sees.
+    await page.getByTestId("test-run-input").fill('{"routing_hint":"NOW-SHOULD-BE-SUBSTITUTED"}');
     await page.getByTestId("start-test-run").click();
     await page.waitForURL(/\/runs\/wfr_[a-z0-9]+$/);
 
     await expect.poll(() => stub.promptsSeen().length, { timeout: 60_000 }).toBeGreaterThan(0);
 
     const managerPrompt = stub.promptsSeen()[0]!;
-    // The authored placeholder arrived verbatim...
-    expect(managerPrompt).toContain("{input.routing_hint}");
-    // ...and the value the operator supplied never reached the model.
-    expect(managerPrompt).not.toContain("SHOULD-NOT-BE-SUBSTITUTED");
+    // The rendered instruction line — before Atlas appends its manager_decision_v1 instruction
+    // and JSON context — is what proves substitution actually happened.
+    const renderedInstruction = managerPrompt.split(
+      "Return JSON only using manager_decision_v1",
+    )[0]!;
+    expect(renderedInstruction).toContain("Route using NOW-SHOULD-BE-SUBSTITUTED please.");
+    expect(renderedInstruction).not.toContain("{input.routing_hint}");
+    // The JSON context Atlas appends afterward is a dump of the graph/node *definition* — it
+    // legitimately still carries the stored, unrendered prompt template as data, the same way it
+    // would carry any other field's literal value. That is not a substitution failure.
+    expect(managerPrompt).toContain(
+      '"prompt":"stub:count=1;interval=0\\nRoute using {input.routing_hint} please."',
+    );
     // It is genuinely the manager payload, not some other node's.
     expect(managerPrompt).toContain("manager_decision_v1");
   });

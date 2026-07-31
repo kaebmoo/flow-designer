@@ -48,6 +48,7 @@ import {
 } from "./atlas-mutations.functions";
 import type { AtlasResult } from "./atlas-reads.functions";
 import type { ApiTokenView, ClientAtlasError } from "./atlas-mappers";
+import type { AtlasWorkflowInterface } from "./atlas-types";
 import type { JsonObject } from "./workflow-graph";
 import { queryKeys } from "./query-keys";
 
@@ -147,6 +148,7 @@ export function useCreateWorkflow() {
       graph: unknown;
       policy: unknown;
       defaultReply?: JsonObject | null;
+      interface?: AtlasWorkflowInterface | null;
     }) => createWorkflowFn({ data }),
     ["workflows", "metrics"],
   );
@@ -168,6 +170,7 @@ export function useSaveWorkflow() {
       graph: unknown;
       policy: unknown;
       defaultReply?: JsonObject | null;
+      interface?: AtlasWorkflowInterface | null;
     }) => saveWorkflowFn({ data }),
     ["workflows", "runs"],
   );
@@ -193,11 +196,19 @@ export function useValidateWorkflow() {
 // Runs
 // ---------------------------------------------------------------------------
 
-/** Starting a run also creates jobs, and moves the dashboard's run counters. */
+/**
+ * Starting a run also creates jobs, and moves the dashboard's run counters.
+ *
+ * `expectedWorkflowVersion` is sent only by the authoritative Test Run path; the legacy Observed
+ * path never sets it, and Atlas behaves exactly as it always has when it is absent.
+ */
 export function useStartRun() {
   return useAtlasMutation(
-    (data: { workflowDefinitionId: string; input?: Record<string, unknown> }) =>
-      startRunFn({ data }),
+    (data: {
+      workflowDefinitionId: string;
+      input?: Record<string, unknown>;
+      expectedWorkflowVersion?: number;
+    }) => startRunFn({ data }),
     ["runs", "jobs", "metrics"],
   );
 }

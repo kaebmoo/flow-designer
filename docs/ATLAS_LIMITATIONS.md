@@ -368,63 +368,88 @@ Backend follow-up:
 - Return a list of `{code, message, path}` from `/validate` (and from create/update rejections)
   instead of the first exception.
 
-### P1 — A manager prompt does not substitute `{input.*}`, but the docs say it does
+### ~~P1 — A manager prompt does not substitute `{input.*}`, but the docs say it does~~ — RESOLVED in Atlas `57be15f` (requalified for Milestone C at `15c4876`)
 
-Confirmed at Atlas `4b837cc` by reading the executable path, not the specs.
-`_prepare_worker_node_payload` (`atlas/workflows.py:1614-1618`) branches on node type: a
-**worker** node's prompt goes through `render_prompt`, which applies `_FIELD_RE` and resolves
-`input`, `artifact`, `run`, `node`, and `job`. A **manager** node's does not — it goes to
-`_manager_prompt` (`atlas/workflows.py:2199`), which takes `node["prompt"]` verbatim, appends the
-`manager_decision_v1` instruction and a JSON context of
-`{graph, current_node, artifacts, counters, policy}`, and never touches `_FIELD_RE`. There is no
-`input` in that context at all.
+**Confirmed at Atlas `4b837cc` by reading the executable path, not the specs; resolved by the
+backend follow-up below.** `_prepare_worker_node_payload` (`atlas/workflows.py:1614-1618`)
+branched on node type: a **worker** node's prompt went through `render_prompt`, which applies
+`_FIELD_RE` and resolves `input`, `artifact`, `run`, `node`, and `job`. A **manager** node's did
+not — it went to `_manager_prompt` (`atlas/workflows.py:2199`), which took `node["prompt"]`
+verbatim, appended the `manager_decision_v1` instruction and a JSON context of
+`{graph, current_node, artifacts, counters, policy}`, and never touched `_FIELD_RE`. There was no
+`input` in that context at all, so `{input.x}` in a manager prompt was neither substituted nor an
+error: the eight literal characters were sent to the model, and supplying a value for that path
+changed nothing — while Atlas's own `docs/concepts-*.md` and
+`docs/specs/workflow-visual-builder-spec-*.md` described manager substitution, so the published
+contract and the implementation disagreed.
 
-So `{input.x}` in a manager prompt is neither substituted nor an error: the eight literal
-characters are sent to the model, and supplying a value for that path changes nothing. Atlas's
-own `docs/concepts-*.md` and `docs/specs/workflow-visual-builder-spec-*.md` describe manager
-substitution, so the published contract and the implementation disagree.
+**Resolution (Atlas `57be15f`, part of the Milestone B `workflow.interface` work):**
+`_manager_prompt` (now `atlas/workflows.py:2249`) renders through `render_prompt` first, exactly
+like a worker's prompt, before appending the fixed `manager_decision_v1` instruction and JSON
+context. A manager's `{input.x}` is now substituted and fail-closed on an unresolved path exactly
+like a worker's — proven at the wire level (the actual `/agent/run` body a stub worker received)
+in `tests/e2e/zz-live.spec.ts`, "a manager prompt substitutes {input.*}, proven from the wire".
+The JSON context Atlas appends afterward legitimately still carries the node's stored, unrendered
+`prompt` field verbatim as *data\* — that is a dump of the graph/node definition, not a second
+rendering pass, and is not itself evidence against substitution.
 
-Frontend mitigation:
+Frontend adoption (Milestone C, requalified against Atlas `15c4876`):
 
-- `observeWorkflowContract` extracts run inputs from worker prompts only, and lists manager
-  references separately as `managerReferences` with a warning-level diagnostic. Presenting one as
-  a required input would invent a requirement Atlas does not have.
-- The Test Run preflight never blocks on a manager-only reference.
+- `observeWorkflowContract` (`src/lib/workflow-run-contract.ts`) now treats a worker's and a
+  manager's `{input.*}` reference identically: both contribute to `inputPaths`
+  (`referencedByStartNode` blocks preflight when that node is the graph's start, warns otherwise).
+  The old always-advisory `managerReferences` bucket and its
+  `manager_placeholder_not_substituted` diagnostic are gone — there is no longer a manager-only
+  case to carry separately.
+- Test Run's Observed-mode preflight blocks on a start-node manager reference the same way it
+  blocks on a start-node worker reference (previously it never blocked on a manager-only
+  reference, which is now the wrong behaviour and would be a false negative).
+- A declared `interface` (also Milestone C) makes none of this manager-specific: `input_schema`
+  governs every path regardless of which node type renders it.
 
-Backend follow-up:
+An Atlas checkout **older** than `57be15f` still exhibits the original literal-placeholder
+behaviour; that historical case is exercised at the unit level
+(`tests/unit/workflow-run-contract.test.ts`, "manager prompts (requalified after Atlas's
+manager-prompt-parity fix)") rather than against a live older Atlas, since this repository is not
+permitted to check the pinned Atlas working tree out to an older commit for a test run.
 
-- Decide which side is authoritative. Either render manager prompts through `render_prompt` so
-  the published specs become true, or correct the specs and the visual builder to state that a
-  manager prompt is passed through literally.
-- Add a hermetic regression test pinning whichever behaviour is chosen, before any workflow
-  interface treats prompt inspection as authoritative (Milestone B, §B0 of
-  `WORKFLOW_TEST_INTEGRATION_CONTRACT_PLAN.md`).
+### ~~P1 — Workflow run input has no schema, and a missing value fails after `202`~~ — RESOLVED in Atlas `15c4876` for a workflow that opts in
 
-### P1 — Workflow run input has no schema, and a missing value fails after `202`
+**Confirmed: `POST /api/workflow-runs` checked only that `input` is an object and that the
+reserved `_meta` envelope is well-formed; `workflow_definitions` had no interface/schema column.
+Resolved, conditionally, by the backend follow-up below.** A run whose start node referenced an
+absent `{input.x}` was created, audited, and answered `202` regardless; it failed later, on the
+background thread rendering that node's prompt. The route also had no dedupe key (two POSTs are
+two runs — trigger `/fire` does have one) and no `expected_workflow_version`, so a caller could
+not pin the workflow it read against.
 
-Confirmed: `POST /api/workflow-runs` checks only that `input` is an object and that the reserved
-`_meta` envelope is well-formed. `workflow_definitions` has no interface/schema column, and the
-canonical definition schema is `additionalProperties: false` over
-`name`/`description`/`graph`/`policy`/`default_reply`. A run whose start node references an
-absent `{input.x}` is therefore created, audited, and answered `202`; it fails later, on the
-background thread rendering that node's prompt.
+**Resolution (Milestone B, Atlas commit `15c4876aa4f86e109a3cc52d6a299f46791053a2`):** a workflow
+may now carry an optional, persisted `interface` (`schema_version: 1`: `input_schema`, optional
+`sample_input`, possible `outputs`, optional `primary_output`). When present, Atlas validates
+`POST /api/workflow-runs`'s business input against it before creating a run — 400 with a
+field/path-aware message and no run created on failure — and accepts an optional
+`expected_workflow_version`, compared against the same definition row loaded to start the run —
+409 and no run created on a mismatch, checked before business-schema validation. Every
+definition-backed run also snapshots the `interface` and workflow `version` it started with,
+immune to a later edit or delete of the definition. **This resolution is opt-in per workflow**: a
+workflow with no interface (or one in a `schema_version` a given client does not recognise)
+behaves exactly as described above — the dedupe and version-pin gaps still apply to it, and the
+trigger `/fire` route still accepts no version pin in either case (see the mutation endpoint map's
+"Run input" section in `BACKEND_INTEGRATION.md`).
 
-The route also has no dedupe key (two POSTs are two runs — trigger `/fire` does have one) and no
-`expected_workflow_version`, so a caller cannot pin the workflow it read against.
+Frontend adoption (Milestone C):
 
-Frontend mitigation:
-
-- The Test Run dialog derives an **Observed** contract from prompt text and says, in the badge
-  and in every generated document, that it is not enforced by Atlas. It never claims types,
-  defaults, branch-independent requiredness, or guaranteed outputs.
-- A path the start worker renders blocks before the mutation, because that one is provable. Every
-  other path is a warning.
-
-Backend follow-up:
-
-- Milestone B of `WORKFLOW_TEST_INTEGRATION_CONTRACT_PLAN.md`: an optional persisted
-  `workflow.interface`, validated at both ingress paths, snapshotted onto the run, with an
-  optional `expected_workflow_version` on direct start.
+- The Test Run dialog and generated integration guide switch on whether the workflow has a
+  usable interface: **Declared · enforced by Atlas** (sample-prefilled, locally validated against
+  the stored schema, submits `expected_workflow_version`, presents Atlas's 400/409 without
+  automatic retry) or **Observed · not enforced by Atlas** (the original mitigation, unchanged in
+  substance, for a workflow with none).
+- A workflow-level **Application interface** panel authors the stored `interface`, with local
+  diagnostics mirroring Atlas's bounded profile and a drift warning when the declared schema and
+  the graph's actual prompt/output usage disagree — Atlas's own save-time check remains the
+  boundary either way.
+- Run detail displays the workflow-version and interface-`schema_version` a run actually started
+  against, read from the run's own snapshot, never the live definition.
 
 ### P1 — Worker and workspace writes are upserts keyed on a natural key
 

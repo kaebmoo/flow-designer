@@ -414,7 +414,8 @@ report source evidence. Do not silently redesign a public contract.
 Add one focused module, for example `atlas/workflow_interface.py`.
 
 V1 input_schema:
-- root must declare exactly `type: "object"`;
+- root must declare object-only input: `type: "object"` or the single-entry
+  equivalent `type: ["object"]`;
 - support `type` (one primitive string or unique primitive string array),
   `properties`, `required`, boolean `additionalProperties`, `items`, `enum`,
   `const`, `minLength`, `maxLength`, `minimum`, `maximum`, `minItems`,
@@ -456,8 +457,9 @@ At definition validation:
 - after manager interpolation parity is resolved, every executable
   `{input.path}` is representable by the schema, and every path used by the
   graph start node is declared and required at every object segment; every
-  intermediate start-path segment must declare exactly `type: "object"` and
-  cannot be a nullable or mixed scalar/object union;
+  intermediate start-path segment must declare object-only type (`type: "object"`
+  or the single-entry equivalent `type: ["object"]`) and cannot be a nullable or
+  mixed scalar/object union;
 - downstream/conditional prompt paths may be optional but may not be
   impossible under a closed schema;
 - no real secret/PII detector is invented; docs and API make sample ownership

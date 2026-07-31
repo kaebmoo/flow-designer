@@ -168,6 +168,22 @@ blocked by a stale stored default. Trigger-started and synchronous definition-ba
 that path. `POST /api/workflows/{id}/validate` remains graph/policy-only, and solution packs
 deliberately omit deployment-specific defaults.
 
+**`interface` (Milestone C, Atlas commit `15c4876aa4f86e109a3cc52d6a299f46791053a2`).** An
+optional root field, following the exact same three-state PUT rule as `default_reply`: an
+absent key preserves whatever is stored, an explicit `null` clears it, and an object replaces it
+after Atlas re-validates it against the current graph. `schema_version` is the interface-_format_
+version (distinct from both `version` and the pack schema version); this client edits only
+`schema_version: 1` and leaves any other value completely untouched — never silently dropped or
+reinterpreted (`src/lib/atlas-mappers.ts`'s `WorkflowEditableInterface`). See
+`atlas/workflow_interface.py` for the full bounded profile (keyword allowlist, byte/count/depth
+bounds, the exact-object rule for root and start-path-intermediate segments) and
+`docs/WORKFLOW_TEST_INTEGRATION_CONTRACT_PLAN.md` §5 for its product-level restatement, which
+`src/lib/workflow-interface-contract.ts` mirrors client-side for fast authoring feedback — Atlas's
+own save-time response remains authoritative. `PUT /api/workflows/{id}` and
+`POST /api/workflows/{id}/validate` both re-check a **stored** interface against a graph-only
+edit even when the request omits `interface`, so a graph change that makes a declared path
+impossible is rejected at save time, not discovered later.
+
 #### Output artifacts, collected files, and handoff
 
 There are three different file/result concepts in a workflow, and they must not be collapsed into
@@ -238,26 +254,26 @@ Where the parser is strict and where it is not, and why the distinction matters:
 
 Every row was read out of `atlas/app.py`'s dispatcher and its handler, then re-checked by an independent pass. `PUT` and `DELETE` are genuinely routed (`atlas/app.py:164-174`); the complete `PUT` set is users, tokens, workflows, and workflow-triggers, and everything else updates by `POST` to the collection.
 
-| Action               | Method and path                                   | Success | Response envelope        | Notes                                                                                                           |
-| -------------------- | ------------------------------------------------- | ------- | ------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| Create workflow      | `POST /api/workflows`                             | 201     | `{workflow}`             | `graph` required; `name` optional server-side; a client-supplied `id` would be honoured, so we never send one   |
-| Update workflow      | `PUT /api/workflows/{id}`                         | 200     | `{workflow}`             | `expected_version` atomically matches then increments version; stale save is 409; do not combine with `version` |
-| Delete workflow      | `DELETE /api/workflows/{id}`                      | 200     | `{deleted: true}`        | Cascades triggers and runs                                                                                      |
-| Validate workflow    | `POST /api/workflows/{id}/validate`               | 200     | `{ok: true}`             | Needs a **stored** workflow; the only path that resolves worker/workspace references                            |
-| Start run            | `POST /api/workflow-runs`                         | 202     | `{run}`                  | `workflow_definition_id` required; `input` must be an object                                                    |
-| Pause / cancel run   | `POST /api/workflow-runs/{id}/{pause\|cancel}`    | 200     | `{run}`                  | Pause only from `running`; cancel from any non-terminal state                                                   |
-| Resume run           | `POST /api/workflow-runs/{id}/resume`             | 202     | `{run}`                  | `{retry_interrupted: true}` is **required** to resume `recovery_required`                                       |
-| Deliver run          | `POST /api/workflow-runs/{id}/deliver`            | 202     | `{delivery}`             | Only a succeeded or failed run, and only with a `_meta.reply.callback_url`                                      |
-| Approve / reject     | `POST /api/approvals/{id}/{approve\|reject}`      | 202/200 | `{approval, run}`        | Not nested further; `approve` is refused on a gate that declares choices                                        |
-| Choose               | `POST /api/approvals/{id}/choose`                 | 202     | `{approval, run}`        | Body key is `choice`                                                                                            |
-| Retry delivery       | `POST /api/deliveries/{id}/retry`                 | 202     | `{delivery}`             | Resets the row to pending and makes one attempt                                                                 |
-| Trigger CRUD         | `POST` / `PUT` / `DELETE /api/workflow-triggers…` | 201/200 | `{trigger}`              | `enabled` comes back as SQLite `1`/`0`; enable/disable is `PUT {enabled}`; `config` is replaced wholesale       |
-| Fire trigger         | `POST /api/workflow-triggers/{id}/fire`           | 202     | `{trigger, event, run}`  | Manual, schedule, and webhook only                                                                              |
-| Worker upsert        | `POST /api/workers`                               | 201     | `{worker}`               | **Upsert** matched on `id` **or** `base_url`; a blank `token` preserves the stored one                          |
-| Worker delete / poll | `DELETE /api/workers/{id}`, `POST …/poll`         | 200     | `{deleted}` / `{worker}` | Delete cascades the worker's workspaces                                                                         |
-| Workspace upsert     | `POST /api/workspaces`                            | 201     | `{workspace}`            | Upsert matched on `id` or `(worker_id, workspace_key)`                                                          |
-| Cancel job           | `POST /api/jobs/{id}/cancel`                      | 200     | `{job}`                  | Resulting state is `cancel_requested`, not `cancelled`                                                          |
-| Artifact bytes       | `GET /api/artifacts/{id}/content`                 | 200     | **raw bytes**            | `file_ref` only; the ASCII `filename` is the literal string `download`                                          |
+| Action               | Method and path                                   | Success | Response envelope        | Notes                                                                                                                                                                                                                                                                                                                        |
+| -------------------- | ------------------------------------------------- | ------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create workflow      | `POST /api/workflows`                             | 201     | `{workflow}`             | `graph` required; `name` optional server-side; a client-supplied `id` would be honoured, so we never send one; optional `interface` validated against `graph` at write time                                                                                                                                                  |
+| Update workflow      | `PUT /api/workflows/{id}`                         | 200     | `{workflow}`             | `expected_version` atomically matches then increments version; stale save is 409; do not combine with `version`; `interface` follows the same absent/null/object three-state rule as `default_reply`, one version bump either way                                                                                            |
+| Delete workflow      | `DELETE /api/workflows/{id}`                      | 200     | `{deleted: true}`        | Cascades triggers and runs                                                                                                                                                                                                                                                                                                   |
+| Validate workflow    | `POST /api/workflows/{id}/validate`               | 200     | `{ok: true}`             | Needs a **stored** workflow; the only path that resolves worker/workspace references                                                                                                                                                                                                                                         |
+| Start run            | `POST /api/workflow-runs`                         | 202     | `{run}`                  | `workflow_definition_id` required; `input` must be an object; optional `expected_workflow_version` (Milestone C) compared against the same definition row loaded to start the run — 409/no run on mismatch; when the workflow has an interface, `input` is also validated against its `input_schema` — 400/no run on failure |
+| Pause / cancel run   | `POST /api/workflow-runs/{id}/{pause\|cancel}`    | 200     | `{run}`                  | Pause only from `running`; cancel from any non-terminal state                                                                                                                                                                                                                                                                |
+| Resume run           | `POST /api/workflow-runs/{id}/resume`             | 202     | `{run}`                  | `{retry_interrupted: true}` is **required** to resume `recovery_required`                                                                                                                                                                                                                                                    |
+| Deliver run          | `POST /api/workflow-runs/{id}/deliver`            | 202     | `{delivery}`             | Only a succeeded or failed run, and only with a `_meta.reply.callback_url`                                                                                                                                                                                                                                                   |
+| Approve / reject     | `POST /api/approvals/{id}/{approve\|reject}`      | 202/200 | `{approval, run}`        | Not nested further; `approve` is refused on a gate that declares choices                                                                                                                                                                                                                                                     |
+| Choose               | `POST /api/approvals/{id}/choose`                 | 202     | `{approval, run}`        | Body key is `choice`                                                                                                                                                                                                                                                                                                         |
+| Retry delivery       | `POST /api/deliveries/{id}/retry`                 | 202     | `{delivery}`             | Resets the row to pending and makes one attempt                                                                                                                                                                                                                                                                              |
+| Trigger CRUD         | `POST` / `PUT` / `DELETE /api/workflow-triggers…` | 201/200 | `{trigger}`              | `enabled` comes back as SQLite `1`/`0`; enable/disable is `PUT {enabled}`; `config` is replaced wholesale                                                                                                                                                                                                                    |
+| Fire trigger         | `POST /api/workflow-triggers/{id}/fire`           | 202     | `{trigger, event, run}`  | Manual, schedule, and webhook only                                                                                                                                                                                                                                                                                           |
+| Worker upsert        | `POST /api/workers`                               | 201     | `{worker}`               | **Upsert** matched on `id` **or** `base_url`; a blank `token` preserves the stored one                                                                                                                                                                                                                                       |
+| Worker delete / poll | `DELETE /api/workers/{id}`, `POST …/poll`         | 200     | `{deleted}` / `{worker}` | Delete cascades the worker's workspaces                                                                                                                                                                                                                                                                                      |
+| Workspace upsert     | `POST /api/workspaces`                            | 201     | `{workspace}`            | Upsert matched on `id` or `(worker_id, workspace_key)`                                                                                                                                                                                                                                                                       |
+| Cancel job           | `POST /api/jobs/{id}/cancel`                      | 200     | `{job}`                  | Resulting state is `cancel_requested`, not `cancelled`                                                                                                                                                                                                                                                                       |
+| Artifact bytes       | `GET /api/artifacts/{id}/content`                 | 200     | **raw bytes**            | `file_ref` only; the ASCII `filename` is the literal string `download`                                                                                                                                                                                                                                                       |
 
 Rejections are always a single `{"error": "<one sentence>"}` with status 400 — there is no error list and no field path. `mapAtlasValidationMessage` reads the subject back out of the sentence so a server rejection lands on the same node the local checks would have highlighted.
 
@@ -285,14 +301,35 @@ Do not recreate the UI `run.log` field. Read run metadata, runtime nodes, approv
 
 ### Run input: what Atlas does and does not check
 
-`POST /api/workflow-runs` validates that `input` is a JSON object and that the reserved `_meta` envelope is well-formed. **There is no business schema.** A run whose start node references a `{input.x}` that was not supplied is still created and still answered `202`; the failure happens later, on the background thread that renders that node's prompt. Any UI that claims otherwise is guessing.
+`POST /api/workflow-runs` validates that `input` is a JSON object and that the reserved `_meta` envelope is well-formed. **Whether there is a business schema depends on the workflow.** A workflow with no `interface` (or an unrecognised one) behaves exactly as before this section originally described: a run whose start node references a `{input.x}` that was not supplied is still created and still answered `202`; the failure happens later, on the background thread that renders that node's prompt.
 
-Business values round-trip unchanged — nested objects, arrays, and every JSON scalar. The single documented mutation is additive and confined to the reserved envelope: `WorkflowRunner._with_default_reply` merges the workflow's `default_reply` into `_meta.reply` when the caller omitted one. `tests/contract/mutations.contract.test.ts` asserts both halves against a real Atlas.
+**Since Milestone C (Atlas commit `15c4876aa4f86e109a3cc52d6a299f46791053a2`), a workflow _with_ a
+`schema_version: 1` interface is different.** `validate_run_input` runs before the run is created:
+it checks the complete input's canonical byte size against a 1 MiB effective-input cap (before the
+`_meta`/`_trigger_chain` projection below, so neither field can be padded to dodge it), then
+validates the business projection against the stored `input_schema`. Either failure is a **400**
+with a field/path-aware message and **no run created** — this is the one case where "any UI that
+claims Atlas rejects bad input before creating a run" is no longer guessing. An interface-enabled
+run also accepts an optional `expected_workflow_version`; a mismatch is a **409** with no run
+created, checked _before_ business-schema validation (so a stale version wins over an
+also-invalid body). Neither response should be retried automatically — see the badge/mode split
+in the [application integration guide](guides/application-integration-en.md).
+
+Business values round-trip unchanged either way — nested objects, arrays, and every JSON scalar. The single documented mutation is additive and confined to the reserved envelope: `WorkflowRunner._with_default_reply` merges the workflow's `default_reply` into `_meta.reply` when the caller omitted one, and it runs _before_ the interface-enabled size check — a large `default_reply.correlation_id` can push an otherwise-tiny business input over the 1 MiB cap. `tests/contract/mutations.contract.test.ts` and `tests/contract/workflow-interface.contract.test.ts` assert this against a real Atlas.
+
+Reserved-field projection removes exactly `_meta` and `_trigger_chain` before business-schema
+validation — never every underscore-prefixed key, which would be a validation bypass
+(`atlas/workflow_interface.py`'s `business_projection`; mirrored client-side as
+`businessProjection` in `src/lib/workflow-interface-contract.ts`).
 
 Two gaps a caller has to design around, because Atlas offers no mechanism for either:
 
 - **No dedupe on the direct route.** Two POSTs are two runs. A trigger's `POST /api/workflow-triggers/{id}/fire` does support a dedupe key; this route does not.
-- **No version pin.** There is no `expected_workflow_version`, so an edit between reading a workflow's shape and starting a run against it is undetectable.
+- **No trigger-level version pin.** `expected_workflow_version` exists only on the direct
+  `POST /api/workflow-runs` route (Milestone C); `POST /api/workflow-triggers/{id}/fire` does not
+  accept it in this Atlas version, in either contract mode — a fixed-payload trigger that cannot
+  satisfy a declared interface records a **failed** trigger event and starts no run, without
+  wedging the schedule slot.
 
 ### Prompt placeholders — worker versus manager
 
@@ -304,7 +341,26 @@ re.compile(r"{([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)}")
 
 At least one dot is mandatory, so `{input}` and `{files_dir}` are not placeholders — the latter is substituted separately by a plain string replace (`atlas/workflows.py:1623`). There is no array-index syntax. `render_prompt` resolves exactly five roots: `input`, `artifact`, `run`, `node`, `job`; anything else raises `unknown prompt variable` and fails the node. A path resolves only when every intermediate segment is a dict holding that key (`_resolve_path`), so an intermediate scalar or array is a miss.
 
-**Only a worker node's prompt is interpolated.** `_prepare_worker_node_payload` (`atlas/workflows.py:1614-1618`) routes a manager node to `_manager_prompt`, which takes `node["prompt"]` verbatim, appends the `manager_decision_v1` instruction and a JSON context of `{graph, current_node, artifacts, counters, policy}`, and never calls `render_prompt`. That context contains no `input` at all. A `{input.x}` in a manager prompt is therefore **not substituted and not an error** — the literal characters reach the model. Atlas's own concepts and visual-builder docs describe manager substitution, so docs and executable path disagree; tracked in [ATLAS_LIMITATIONS.md](ATLAS_LIMITATIONS.md).
+**Both worker and manager prompts are interpolated, as of the manager-prompt-parity fix (Atlas
+commit `15c4876aa4f86e109a3cc52d6a299f46791053a2`, requalified for Milestone C).** A worker's
+prompt reaches `render_prompt` at `atlas/workflows.py:1668`; `_manager_prompt`
+(`atlas/workflows.py:2249`) now does the same for a manager's prompt as its first step, before
+appending the fixed `manager_decision_v1` instruction and a JSON context of `{graph, current_node,
+artifacts, counters, policy}` — that JSON context legitimately still carries the node's stored,
+unrendered `prompt` field verbatim as _data_ (it is a dump of the graph/node definition, not
+another rendering pass), which is not the same thing as the rendered instruction line failing to
+substitute. A `{input.x}` in a manager prompt is therefore substituted and fail-closed on an
+unresolved path exactly like a worker's.
+
+Before this fix (any Atlas checkout older than `57be15f`), `_prepare_worker_node_payload` routed a
+manager node to `_manager_prompt` with no `render_prompt` call at all, and its context contained
+no `input`. A `{input.x}` in a manager prompt reached the model as eight literal characters,
+**not substituted and not an error**. `src/lib/workflow-run-contract.ts`'s observed-contract
+extractor was requalified to match the parity fix: it now treats a worker's and a manager's
+`{input.*}` identically (contributing to `inputPaths`, blocking when the referencing node is the
+graph's start node, warning otherwise), where it previously carried a separate always-advisory
+`managerReferences` bucket. See [ATLAS_LIMITATIONS.md](ATLAS_LIMITATIONS.md) for the historical
+note on the pre-fix docs/executable-path disagreement.
 
 A parent reference and a child reference are **not** in conflict. `_prompt_value`
 (`atlas/workflows.py:2193`) JSON-encodes a dict, so given `{"user":{"name":"Alice"}}` the prompt
@@ -330,7 +386,19 @@ Every one of these is wrapped, and `src/lib/atlas-api.server.ts` asserts the exa
 generated integration examples, and `tests/contract/mutations.contract.test.ts` walks those paths
 against a live Atlas so a snippet cannot claim an access path the wire does not satisfy.
 
-`src/lib/workflow-run-contract.ts` mirrors this grammar (using `\p{L}\p{N}_` because JavaScript's `\w` is ASCII-only while Python's is Unicode-aware) and reports manager references separately from run inputs for exactly this reason.
+`src/lib/workflow-run-contract.ts` mirrors the placeholder grammar above (using `\p{L}\p{N}_`
+because JavaScript's `\w` is ASCII-only while Python's is Unicode-aware); since the
+manager-prompt-parity requalification it treats a worker's and a manager's `{input.*}` reference
+identically, and no longer carries a separate manager-only bucket (see the requalification note
+above).
+
+`GET /api/workflow-runs/{id}` and the `POST /api/workflow-runs` create response also carry
+`interface_snapshot` and `workflow_version_snapshot` (Milestone C) alongside the pre-existing
+`graph_snapshot`/`policy_snapshot` — all four are returned by Atlas's plain `SELECT *` but are
+**absent from the formal `openapi.yaml` `WorkflowRun` schema** (it only declares
+`additionalProperties: true`); Atlas's own prose API reference documents them, and this repo's
+`AtlasWorkflowRun` type (`src/lib/atlas-types.ts`) names all four explicitly rather than trusting
+a codegen pass from the OpenAPI document.
 
 ## Role and permission matrix (UI gating only)
 

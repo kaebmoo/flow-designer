@@ -19,8 +19,11 @@ for the minimal embedded ops console that ships with Atlas itself).
 
 For developers building an application **on top of** a workflow rather than
 operating one. Covers the boundary between your application's backend, Atlas,
-and thClaws, the five Atlas calls involved, and what the generated **Observed**
-contract can and cannot promise.
+and thClaws, the five Atlas calls involved, and the two contract modes a
+generated integration guide can be in: **Declared · enforced by Atlas** (a
+workflow with a stored, Atlas-validated `interface`) and **Observed · not
+enforced by Atlas** (the advisory fallback, inferred from prompt text, for a
+workflow with none).
 
 - [Calling a workflow from your own application — English](guides/application-integration-en.md)
 - [เรียกใช้ workflow จากแอปพลิเคชันของคุณเอง — ภาษาไทย](guides/application-integration-th.md)

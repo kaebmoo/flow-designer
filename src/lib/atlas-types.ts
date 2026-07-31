@@ -12,6 +12,7 @@
  */
 
 import { ATLAS_LIMIT_MAX, ATLAS_LIMIT_MIN } from "./atlas-limits";
+import type { JsonObject } from "./workflow-graph";
 
 /** The four roles Atlas recognises. Atlas is the only authority that enforces them. */
 export const ATLAS_ROLES = ["admin", "operator", "viewer", "auditor"] as const;
@@ -189,10 +190,68 @@ export interface AtlasWorkflowGraph {
 }
 
 /**
+ * Atlas's authoritative, optional per-workflow application interface
+ * (`atlas/workflow_interface.py`, Atlas checkout `15c4876aa4f86e109a3cc52d6a299f46791053a2`).
+ *
+ * `schema_version` is the interface-*format* version, distinct from both the workflow's own
+ * `version` and the pack schema version. This client understands exactly
+ * {@link WORKFLOW_INTERFACE_SCHEMA_VERSION}; any other value must be treated as unknown and left
+ * completely alone — see `toWorkflowEditableView` in `atlas-mappers.ts`, which is the one place
+ * that decides editable-vs-read-only, never a silent drop or reinterpretation.
+ */
+export interface AtlasWorkflowInterfaceOutput {
+  key: string;
+  /** Atlas's v1 vocabulary is exactly `"text"` and `"json"`, typed open for forward safety. */
+  kind: string;
+  title?: string;
+  description?: string;
+}
+
+export interface AtlasWorkflowInterface {
+  schema_version: number;
+  /**
+   * Typed as {@link JsonObject}, not `Record<string, unknown>`, on purpose: this type crosses
+   * the `createServerFn` boundary (as part of {@link WorkflowEditableView.interface} and
+   * {@link AtlasWorkflowRun.interface_snapshot}), and TanStack Start's serializability check
+   * rejects an `unknown` index signature. `JsonObject` is a closed recursive JSON union, so it
+   * passes that check the same way `default_reply` already does.
+   */
+  input_schema: JsonObject;
+  sample_input?: JsonObject;
+  outputs?: AtlasWorkflowInterfaceOutput[];
+  primary_output?: string;
+}
+
+/** The only interface schema version this client can edit. */
+export const WORKFLOW_INTERFACE_SCHEMA_VERSION = 1;
+
+/**
+ * Structural guard only — enough to route a value to the versioned mapper. Does not validate
+ * Atlas's bounded profile; that check is `workflow-interface-contract.ts`'s job, and the
+ * authoritative check is Atlas's own `PUT`/`POST /api/workflows` response.
+ */
+export function isAtlasWorkflowInterfaceShape(value: unknown): value is AtlasWorkflowInterface {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.schema_version === "number" &&
+    candidate.input_schema !== null &&
+    typeof candidate.input_schema === "object" &&
+    !Array.isArray(candidate.input_schema)
+  );
+}
+
+/**
  * `GET /api/workflows` / `GET /api/workflows/{id}` (`atlas/app.py:541,590`).
  *
  * There is no `enabled` column on a definition (`atlas/db.py:312-322`) — `enabled` belongs to
  * triggers. `graph`/`policy` decode to `{}` rather than null when the column is SQL NULL.
+ *
+ * `interface` is optional as well as nullable: an Atlas checkout before migration 015 omits the
+ * key entirely, while a migrated Atlas with no stored interface answers `"interface": null`. Both
+ * mean exactly the same thing — a legacy workflow with no authoritative contract — so every
+ * consumer must treat `undefined` and `null` identically here; only the write side (`interface`
+ * on {@link AtlasWorkflowWrite} in `atlas-api.server.ts`) gives the two states different meaning.
  */
 export interface AtlasWorkflowDefinition {
   id: string;
@@ -203,6 +262,7 @@ export interface AtlasWorkflowDefinition {
   graph: AtlasWorkflowGraph;
   policy: Record<string, unknown>;
   default_reply?: AtlasWorkflowDefaultReply | null;
+  interface?: AtlasWorkflowInterface | null;
   created_at: string;
   updated_at: string;
 }
@@ -240,9 +300,12 @@ export function isAtlasWorkflowDefaultReply(
  * `GET /api/workflow-runs` (envelope key `runs`) and the `run` of `GET /api/workflow-runs/{id}`
  * (`atlas/app.py:643,668`).
  *
- * `graph_snapshot`/`policy_snapshot` are returned by `SELECT *` on both routes even though the
- * Atlas OpenAPI schema omits them. They are typed here so the mapper can drop them explicitly
- * rather than forwarding an unbounded blob to the browser on every list row.
+ * `graph_snapshot`/`policy_snapshot`/`interface_snapshot`/`workflow_version_snapshot` are
+ * returned by `SELECT *` on both routes even though the Atlas OpenAPI schema omits all four
+ * (confirmed by `openapi.yaml`'s `WorkflowRun` component: `additionalProperties: true`, no named
+ * property for any of them — Atlas's own API reference documents them in prose instead). They are
+ * typed here so the mapper can drop the unbounded ones explicitly rather than forwarding a blob
+ * to the browser on every list row.
  */
 export interface AtlasWorkflowRun {
   id: string;
@@ -260,6 +323,16 @@ export interface AtlasWorkflowRun {
   /** Nullable defensively: rows written before Atlas migration 004 have no snapshot. */
   graph_snapshot: AtlasWorkflowGraph | null;
   policy_snapshot: Record<string, unknown> | null;
+  /**
+   * The `interface` the workflow definition had at the moment this run was created, frozen —
+   * never the live definition's. `undefined` on an Atlas older than migration 015; `null` on a
+   * migrated Atlas whose run started against a workflow with no interface (or a pre-migration
+   * run, backfilled to `null`). Both again mean "no authoritative contract for this run" and must
+   * be treated identically; see `toRunDetailView` in `atlas-mappers.ts`.
+   */
+  interface_snapshot?: AtlasWorkflowInterface | null;
+  /** The workflow `version` this run started against, frozen the same way. */
+  workflow_version_snapshot?: number | null;
 }
 
 /** A runtime node of a run (`atlas/app.py:669`, `atlas/db.py:340-356`). Ordered oldest-first. */

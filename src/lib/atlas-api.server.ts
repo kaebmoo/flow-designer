@@ -49,6 +49,7 @@ import {
   type AtlasWorker,
   type AtlasWorkflowDefinition,
   type AtlasWorkflowEventPage,
+  type AtlasWorkflowInterface,
   type AtlasWorkflowRun,
   type AtlasWorkflowRunDetail,
   type AtlasWorkflowTrigger,
@@ -814,13 +815,20 @@ export async function atlasListWorkflowTriggers(
 // workflow gets started twice. Retry is the user's explicit choice, made in the UI.
 // ---------------------------------------------------------------------------
 
-/** What Atlas persists for a workflow definition. Layout state is structurally absent. */
+/**
+ * What Atlas persists for a workflow definition. Layout state is structurally absent.
+ *
+ * `interface` follows the same three-state rule as `default_reply`: `undefined` omits the key
+ * from the request body so Atlas preserves whatever it has stored, `null` sends an explicit
+ * clear, and an object replaces it after Atlas re-validates it against the graph.
+ */
 export interface AtlasWorkflowWrite {
   name: string;
   description?: string;
   graph: Record<string, unknown>;
   policy: Record<string, unknown>;
   default_reply?: Record<string, unknown> | null;
+  interface?: AtlasWorkflowInterface | null;
   expected_version?: number;
 }
 
@@ -847,6 +855,7 @@ export async function atlasCreateWorkflow(
       graph: workflow.graph,
       policy: workflow.policy,
       ...(workflow.default_reply === undefined ? {} : { default_reply: workflow.default_reply }),
+      ...(workflow.interface === undefined ? {} : { interface: workflow.interface }),
     },
     ...options,
   });
@@ -862,6 +871,12 @@ export async function atlasCreateWorkflow(
  *
  * `expected_version` is the only concurrency precondition. Atlas increments its server version
  * exactly once on a matching save and rejects a stale write with 409; `version` is never sent.
+ *
+ * `interface` follows the exact three-state rule `default_reply` already uses: omitted from the
+ * body when `undefined` (Atlas preserves whatever it has stored), sent as `null` for an explicit
+ * clear, sent as an object to replace it — Atlas re-validates the replacement against the graph
+ * and rejects the whole write with 400 if it does not pass, exactly like a bad `default_reply` or
+ * a bad graph does today.
  */
 export async function atlasUpdateWorkflow(
   token: string,
@@ -879,6 +894,7 @@ export async function atlasUpdateWorkflow(
       graph: workflow.graph,
       policy: workflow.policy,
       ...(workflow.default_reply === undefined ? {} : { default_reply: workflow.default_reply }),
+      ...(workflow.interface === undefined ? {} : { interface: workflow.interface }),
       ...(workflow.expected_version === undefined
         ? {}
         : { expected_version: workflow.expected_version }),
@@ -942,10 +958,23 @@ export async function atlasValidateWorkflow(
   );
 }
 
-/** `POST /api/workflow-runs` — 202 with the persisted run, including its real Atlas id. */
+/**
+ * `POST /api/workflow-runs` — 202 with the persisted run, including its real Atlas id.
+ *
+ * `expectedWorkflowVersion` is the same optimistic-concurrency shape the workflow save already
+ * uses, compared by Atlas against the *same* definition row it loads to start the run — no second
+ * read, no window for a version bump between the check and the compare. Atlas answers 409 and
+ * creates no run on a mismatch; there is no dedupe key on this route, so a caller must not retry
+ * a 409 automatically. Present only when the caller has a declared interface to pin against —
+ * absent (never sent) for the legacy Observed path, matching every other Atlas checkout.
+ */
 export async function atlasStartWorkflowRun(
   token: string,
-  params: { workflowDefinitionId: string; input?: Record<string, unknown> },
+  params: {
+    workflowDefinitionId: string;
+    input?: Record<string, unknown>;
+    expectedWorkflowVersion?: number;
+  },
   options: AtlasCallOptions = {},
 ): Promise<AtlasWorkflowRun> {
   const payload = await atlasRequest({
@@ -955,6 +984,9 @@ export async function atlasStartWorkflowRun(
     body: {
       workflow_definition_id: params.workflowDefinitionId,
       input: params.input ?? {},
+      ...(params.expectedWorkflowVersion === undefined
+        ? {}
+        : { expected_workflow_version: params.expectedWorkflowVersion }),
     },
     ...options,
   });

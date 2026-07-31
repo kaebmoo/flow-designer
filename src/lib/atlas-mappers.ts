@@ -44,11 +44,13 @@ import type {
   AtlasWorkflowEvent,
   AtlasWorkflowEventPage,
   AtlasWorkflowGraph,
+  AtlasWorkflowInterface,
   AtlasWorkflowRun,
   AtlasWorkflowRunDetail,
   AtlasWorkflowTrigger,
   AtlasWorkspaceListRow,
 } from "./atlas-types";
+import { isAtlasWorkflowInterfaceShape, WORKFLOW_INTERFACE_SCHEMA_VERSION } from "./atlas-types";
 
 /**
  * An Atlas failure after it has crossed the server-function boundary.
@@ -704,6 +706,53 @@ export type RunGraphSnapshot =
   | { ok: false; reason: string }
   | null;
 
+/**
+ * The interface a run started with, frozen at creation — result-shaped like
+ * {@link WorkflowEditableInterface}, but with no `"unsupported"` state: a run detail page only
+ * ever *reads* the snapshot, it never edits or re-saves it, so an interface-format version this
+ * client does not recognise is still shown (whatever of it renders), never hidden.
+ *
+ * `"absent"` covers a legacy run (no interface existed when it started), an Atlas older than
+ * migration 015 (the key is entirely missing from the run row), and an explicit `null` — all
+ * three mean "no authoritative contract is available for this historical run," and the run
+ * detail page says exactly that rather than guessing from the *current* workflow definition.
+ */
+export type RunInterfaceSnapshot =
+  | { kind: "absent" }
+  | { kind: "present"; value: AtlasWorkflowInterface; workflowVersion: number | null };
+
+function toRunInterfaceSnapshot(run: AtlasWorkflowRun): RunInterfaceSnapshot {
+  const raw = run.interface_snapshot;
+  if (raw === null || raw === undefined || !isAtlasWorkflowInterfaceShape(raw)) {
+    return { kind: "absent" };
+  }
+  const version = run.workflow_version_snapshot;
+  return {
+    kind: "present",
+    value: raw,
+    workflowVersion: typeof version === "number" ? version : null,
+  };
+}
+
+/**
+ * The declared public outputs of a run's frozen interface snapshot, for badging artifacts —
+ * `null` both when there is no snapshot and when its `schema_version` is one this build does not
+ * understand. Reading `outputs`/`primary_output` out of an unknown-version document would apply
+ * v1 semantics to fields a future format may no longer own, so an unrecognised version yields
+ * "no declared contract to interpret", never a guess.
+ */
+export function runDeclaredOutputs(
+  snapshot: RunInterfaceSnapshot,
+): { keys: Set<string>; primary: string | null } | null {
+  if (snapshot.kind !== "present") return null;
+  if (snapshot.value.schema_version !== WORKFLOW_INTERFACE_SCHEMA_VERSION) return null;
+  const outputs = snapshot.value.outputs ?? [];
+  return {
+    keys: new Set(outputs.map((output) => output.key)),
+    primary: snapshot.value.primary_output ?? null,
+  };
+}
+
 export interface RunDetailView {
   run: RunView;
   nodes: RuntimeNodeView[];
@@ -727,6 +776,8 @@ export interface RunDetailView {
   inputPreview: string | null;
   /** True when {@link inputPreview} was cut at the bound, so the UI can say so. */
   inputTruncated: boolean;
+  /** The application interface this run started with, frozen — never the live definition's. */
+  interfaceSnapshot: RunInterfaceSnapshot;
 }
 
 /** Atlas's hard cap on the approvals embedded in a run detail response (`atlas/app.py:671`). */
@@ -768,6 +819,7 @@ export function toRunDetailView(detail: AtlasWorkflowRunDetail): RunDetailView {
     approvalsMayBeTruncated: detail.approvals.length >= RUN_DETAIL_APPROVALS_CAP,
     inputPreview: input.preview,
     inputTruncated: input.truncated,
+    interfaceSnapshot: toRunInterfaceSnapshot(detail.run),
   };
 }
 
@@ -929,6 +981,34 @@ export type WorkflowEditableGraph =
   | { ok: true; graph: WorkflowGraph; policy: WorkflowPolicy }
   | { ok: false; reason: string };
 
+/**
+ * The workflow's `interface`, as a result rather than a bare value — mirrors
+ * {@link WorkflowEditableGraph}'s fail-closed shape.
+ *
+ * `"absent"` covers both an Atlas `null` and an Atlas that omits the key entirely (an older
+ * checkout, pre migration 015) — see {@link AtlasWorkflowDefinition.interface}'s doc comment for
+ * why those two wire states mean the same thing on read. `"unsupported"` is a future
+ * `schema_version` this client does not understand: it carries the raw value so a save can leave
+ * it completely untouched (the editor never re-sends it), never so a save can re-encode or drop
+ * it.
+ */
+export type WorkflowEditableInterface =
+  | { kind: "absent" }
+  | { kind: "unsupported"; schemaVersion: number; raw: AtlasWorkflowInterface }
+  | { kind: "v1"; value: AtlasWorkflowInterface };
+
+export function toWorkflowEditableInterface(
+  raw: AtlasWorkflowInterface | null | undefined,
+): WorkflowEditableInterface {
+  if (raw === null || raw === undefined || !isAtlasWorkflowInterfaceShape(raw)) {
+    return { kind: "absent" };
+  }
+  if (raw.schema_version !== WORKFLOW_INTERFACE_SCHEMA_VERSION) {
+    return { kind: "unsupported", schemaVersion: raw.schema_version, raw };
+  }
+  return { kind: "v1", value: raw };
+}
+
 export interface WorkflowEditableView {
   id: string;
   name: string;
@@ -948,6 +1028,8 @@ export interface WorkflowEditableView {
   /** Nullable workflow-root reply configuration; unknown extension keys remain intact. */
   defaultReply?: JsonObject | null;
   graph: WorkflowEditableGraph;
+  /** Atlas's authoritative application interface, or the reason it cannot be edited here. */
+  interface: WorkflowEditableInterface;
 }
 
 export function toWorkflowEditableView(workflow: AtlasWorkflowDefinition): WorkflowEditableView {
@@ -972,6 +1054,7 @@ export function toWorkflowEditableView(workflow: AtlasWorkflowDefinition): Workf
       ? {}
       : { defaultReply: workflow.default_reply as JsonObject | null }),
     graph: editable,
+    interface: toWorkflowEditableInterface(workflow.interface),
   };
 }
 

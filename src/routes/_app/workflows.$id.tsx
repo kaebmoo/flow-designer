@@ -173,6 +173,15 @@ function WorkflowEditorRoute() {
     [workflow.graph, workflow.id, workflow.version],
   );
 
+  /**
+   * The workflow's authoritative interface, when it is one this client understands.
+   *
+   * `"unsupported"` is deliberately treated the same as `"absent"` here: this client cannot
+   * render that version's shape to prefill or validate against, so Test Run falls back to the
+   * Observed path rather than claiming a declared contract it cannot actually show.
+   */
+  const declaredInterface = workflow.interface.kind === "v1" ? workflow.interface.value : null;
+
   const onSave = (draft: WorkflowDraft) => {
     setValidation(null);
     setAtlasValidationIssues([]);
@@ -184,6 +193,7 @@ function WorkflowEditorRoute() {
         graph: draft.graph,
         policy: draft.policy,
         defaultReply: draft.defaultReply,
+        interface: draft.interface,
         expectedVersion: draft.expectedVersion,
       },
       {
@@ -410,11 +420,13 @@ function WorkflowEditorRoute() {
         key={`${workflow.id}:${reloadKey}`}
         workflowId={workflow.id}
         graphVersion={workflow.version}
+        serverMoved={serverMoved}
         initialName={workflow.name}
         initialDescription={workflow.description}
         initialGraph={graph}
         initialPolicy={policy}
         initialDefaultReply={workflow.defaultReply}
+        initialInterface={workflow.interface}
         savedAt={workflow.updatedAt}
         saveCount={saveCount}
         saving={save.isPending}
@@ -472,12 +484,22 @@ function WorkflowEditorRoute() {
             if (!next) startRun.reset();
           }}
           contract={contract}
+          declaredInterface={declaredInterface}
+          workflowVersion={workflow.version}
           workflowName={workflow.name}
           pending={startRun.isPending}
-          error={startRun.error?.message ?? null}
+          error={
+            startRun.error ? { kind: startRun.error.kind, message: startRun.error.message } : null
+          }
           onStart={(input) =>
             startRun.mutate(
-              { workflowDefinitionId: id, input },
+              {
+                workflowDefinitionId: id,
+                input,
+                // Sent only in declared mode: Atlas compares it against the same definition row
+                // it loads to start the run and answers 409 with no run created on a mismatch.
+                expectedWorkflowVersion: declaredInterface ? workflow.version : undefined,
+              },
               {
                 // Atlas answers with the real run row, so the id in this URL is Atlas's — not a
                 // number minted in the browser the way the scaffold did it.

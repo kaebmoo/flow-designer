@@ -273,9 +273,10 @@ Supported validation keywords:
   `https://atlas.local/schemas/workflow-interface-input-v1.schema.json`; it is an identifier and
   never causes a network fetch.
 
-The root `input_schema` must declare exactly `type: "object"`. Nested schemas may use the other
-supported types. Schema annotations never supply runtime defaults: Atlas validates the caller's
-input exactly as received after removing the two reserved top-level fields described below.
+The root `input_schema` must declare object-only input: either `type: "object"` or the
+single-entry equivalent `type: ["object"]`. Nested schemas may use the other supported types.
+Schema annotations never supply runtime defaults: Atlas validates the caller's input exactly as
+received after removing the two reserved top-level fields described below.
 
 Rejected in v1:
 
@@ -355,8 +356,8 @@ After worker/manager interpolation parity is settled, Atlas cross-checks executa
   a closed schema may not make a referenced path impossible to supply;
 - every path used by the graph's start worker or start manager must be provably present after
   schema validation: each segment is declared through object `properties` and required at its
-  level, and every intermediate segment declares exactly `type: "object"` rather than a nullable
-  or mixed scalar/object union;
+  level, and every intermediate segment declares object-only type (`type: "object"` or the
+  single-entry equivalent `type: ["object"]`) rather than a nullable or mixed scalar/object union;
 - paths used only by downstream or conditional nodes may remain optional because not every branch
   executes, but the interface documentation must not describe them as globally required.
 
@@ -661,7 +662,8 @@ Add `scripts/check_workflow_interface.py` (or an equivalently focused name), fol
 - output key/kind/primary cross-check;
 - impossible prompt path and optional downstream path handling;
 - start-node prompt paths must be schema-required at every segment;
-- nullable or mixed-type intermediate start-path segments are rejected;
+- nullable or mixed-type intermediate start-path segments are rejected; object-only
+  intermediates may use either `type: "object"` or `type: ["object"]`;
 - direct valid start;
 - direct invalid input returns 400 with no persisted run;
 - 1 MiB effective-input boundary, a `default_reply` merge that crosses it, and oversized

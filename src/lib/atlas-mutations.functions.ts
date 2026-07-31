@@ -97,7 +97,12 @@ import {
   type WorkflowView,
   type WorkspaceView,
 } from "./atlas-mappers";
-import { ARTIFACT_KINDS, ATLAS_ROLES, ATLAS_USER_STATUSES } from "./atlas-types";
+import {
+  ARTIFACT_KINDS,
+  ATLAS_ROLES,
+  ATLAS_USER_STATUSES,
+  type AtlasWorkflowInterface,
+} from "./atlas-types";
 import { clearSession, requireAtlasToken } from "./auth.server";
 import { currentRequestSignal } from "./request-signal.server";
 import type { AtlasResult } from "./atlas-reads.functions";
@@ -197,14 +202,40 @@ function optionalPositiveInteger(data: unknown, key: string): number | undefined
   return parsed;
 }
 
-function optionalWorkflowVersion(data: unknown): number | undefined {
-  const value = field(data, "expectedVersion");
+function optionalWorkflowVersion(data: unknown, key = "expectedVersion"): number | undefined {
+  const value = field(data, key);
   if (value === undefined || value === null || value === "") return undefined;
   const parsed = typeof value === "number" ? value : Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error("expectedVersion must be a positive integer.");
+    throw new Error(`${key} must be a positive integer.`);
   }
   return parsed;
+}
+
+/**
+ * Keeps `undefined` (leave unchanged), `null` (explicit clear), and an object (replace) distinct
+ * for a partial workflow `PUT` — the same three-state rule `optionalDefaultReply` already uses.
+ *
+ * This is a *shape* guard only, bounded so a malicious client cannot post a novel through it —
+ * it does not re-implement Atlas's bounded JSON-Schema-compatible profile. That full check is
+ * Atlas's `PUT`/`POST /api/workflows`, which is the actual trust boundary and authority for this
+ * value; a 400 from it is mapped back to the caller as `{kind: "validation"}`, same as a rejected
+ * graph. `workflow-interface-contract.ts` mirrors the same profile client-side, but only for fast
+ * editor feedback — never as a substitute for this server round trip.
+ */
+const MAX_INTERFACE_JSON_LENGTH = 200_000;
+
+function optionalWorkflowInterface(data: unknown): AtlasWorkflowInterface | null | undefined {
+  const value = field(data, "interface");
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("interface must be an object or null.");
+  }
+  if (JSON.stringify(value).length > MAX_INTERFACE_JSON_LENGTH) {
+    throw new Error("interface is too large.");
+  }
+  return value as AtlasWorkflowInterface;
 }
 
 function optionalFutureUtc(data: unknown, key: string): string | undefined {
@@ -508,6 +539,7 @@ export const createWorkflowFn = createServerFn({ method: "POST" })
     graph: field(data, "graph"),
     policy: field(data, "policy"),
     defaultReply: optionalDefaultReply(data),
+    interface: optionalWorkflowInterface(data),
   }))
   .handler(
     async ({ data }): Promise<SaveResult<WorkflowView>> =>
@@ -520,6 +552,7 @@ export const createWorkflowFn = createServerFn({ method: "POST" })
             graph: accepted.graph,
             policy: accepted.policy,
             default_reply: data.defaultReply,
+            interface: data.interface,
           }),
         );
       }),
@@ -540,6 +573,7 @@ export const saveWorkflowFn = createServerFn({ method: "POST" })
     graph: field(data, "graph"),
     policy: field(data, "policy"),
     defaultReply: optionalDefaultReply(data),
+    interface: optionalWorkflowInterface(data),
   }))
   .handler(
     async ({ data }): Promise<SaveResult<WorkflowEditableView>> =>
@@ -552,6 +586,7 @@ export const saveWorkflowFn = createServerFn({ method: "POST" })
             graph: accepted.graph,
             policy: accepted.policy,
             default_reply: data.defaultReply,
+            interface: data.interface,
             expected_version: data.expectedVersion,
           }),
         );
@@ -598,15 +633,30 @@ export const validateWorkflowFn = createServerFn({ method: "POST" })
 // Run lifecycle.
 // ---------------------------------------------------------------------------
 
-/** `POST /api/workflow-runs` — 202 with a real Atlas run id. No timers, no simulation. */
+/**
+ * `POST /api/workflow-runs` — 202 with a real Atlas run id. No timers, no simulation.
+ *
+ * `expectedWorkflowVersion` is present only for the authoritative Test Run path — the dialog
+ * sends it when the workflow has a declared `interface`, and Atlas answers 409 with no run
+ * created on a mismatch. Absent for a legacy Observed run, exactly as it always was.
+ */
 export const startRunFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => ({
     workflowDefinitionId: requiredId(data, "workflowDefinitionId"),
     input: plainObject(data, "input"),
+    expectedWorkflowVersion: optionalWorkflowVersion(data, "expectedWorkflowVersion"),
   }))
   .handler(
     async ({ data }): Promise<AtlasResult<RunView>> =>
-      mutate(async (token) => toRunView(await atlasStartWorkflowRun(token, data))),
+      mutate(async (token) =>
+        toRunView(
+          await atlasStartWorkflowRun(token, {
+            workflowDefinitionId: data.workflowDefinitionId,
+            input: data.input,
+            expectedWorkflowVersion: data.expectedWorkflowVersion,
+          }),
+        ),
+      ),
   );
 
 const RUN_ACTIONS: readonly AtlasRunAction[] = ["pause", "resume", "cancel"];

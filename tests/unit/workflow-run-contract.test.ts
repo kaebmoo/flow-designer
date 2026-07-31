@@ -162,8 +162,8 @@ describe("paths, duplicates, and consumers", () => {
     });
 
     expect(contract.inputPaths).toEqual([
-      expect.objectContaining({ path: "input.needed_now", referencedByStartWorker: true }),
-      expect.objectContaining({ path: "input.maybe_later", referencedByStartWorker: false }),
+      expect.objectContaining({ path: "input.needed_now", referencedByStartNode: true }),
+      expect.objectContaining({ path: "input.maybe_later", referencedByStartNode: false }),
     ]);
   });
 });
@@ -276,9 +276,10 @@ describe("malformed and unsupported placeholder text", () => {
   });
 });
 
-describe("manager prompts", () => {
-  // `_prepare_worker_node_payload` (`atlas/workflows.py:1614-1618`) routes a manager node to
-  // `_manager_prompt`, which never calls `render_prompt`. The text reaches the model literally.
+describe("manager prompts (requalified after Atlas's manager-prompt-parity fix)", () => {
+  // `_manager_prompt` (`atlas/workflows.py:2249`, Atlas checkout
+  // `15c4876aa4f86e109a3cc52d6a299f46791053a2`) now renders through `render_prompt` first, exactly
+  // like a worker's prompt — so a manager's `{input.*}` is executable and fail-closed the same way.
   const managerGraph = {
     start: "a",
     nodes: [
@@ -292,33 +293,57 @@ describe("manager prompts", () => {
     ],
   };
 
-  it("never lists a manager reference as a run input", () => {
+  it("lists a downstream manager's {input.*} as an observed input path, not a special bucket", () => {
     const contract = observe(managerGraph);
 
-    expect(contract.inputPaths.map((path) => path.path)).toEqual(["input.topic"]);
-    expect(contract.managerReferences).toEqual([{ path: "input.mode", nodeIds: ["m"] }]);
+    expect(contract.inputPaths.map((path) => path.path)).toEqual(["input.topic", "input.mode"]);
+    expect(contract.diagnostics.find((entry) => entry.severity === "warning")).toBeUndefined();
   });
 
-  it("warns that Atlas does not substitute it, rather than claiming a required input", () => {
+  it("marks a downstream manager's reference as a warning, not blocking — it may never run", () => {
     const contract = observe(managerGraph);
-    const diagnostic = contract.diagnostics.find(
-      (entry) => entry.code === "manager_placeholder_not_substituted",
-    );
+    const modePath = contract.inputPaths.find((path) => path.path === "input.mode");
 
-    expect(diagnostic).toMatchObject({ severity: "warning", nodeIds: ["m"] });
-    expect(diagnostic!.message).toContain("literally");
-    // A manager path must never reach the skeleton — that would ask for a value Atlas ignores.
-    expect(contract.skeleton).toEqual({ topic: "<input.topic>" });
+    expect(modePath).toMatchObject({ nodeIds: ["m"], referencedByStartNode: false });
+    // Now genuinely executable, so it belongs in the illustrative example.
+    expect(contract.skeleton).toEqual({ topic: "<input.topic>", mode: "<input.mode>" });
   });
 
-  it("does not call an unresolvable root an error inside a manager prompt", () => {
-    // Nothing is interpolated there, so nothing can raise. Reporting an error would be false.
+  it("blocks preflight when the graph's start node is a manager missing a referenced path", () => {
+    const contract = observe({
+      start: "m",
+      nodes: [
+        {
+          id: "m",
+          type: "manager",
+          schema: "manager_decision_v1",
+          prompt: "Decide on {input.mode}",
+        },
+        { id: "b", type: "worker", prompt: "done" },
+      ],
+      edges: [{ from: "m", to: "b", condition: { type: "manager_selected", target: "b" } }],
+    });
+
+    const startPath = contract.inputPaths.find((path) => path.path === "input.mode");
+    expect(startPath).toMatchObject({ referencedByStartNode: true });
+
+    const preflight = preflightRunInput(contract, {});
+    expect(preflight.blocking).toHaveLength(1);
+    expect(preflight.blocking[0]!.path).toBe("input.mode");
+    expect(preflight.warnings).toEqual([]);
+  });
+
+  it("treats an unresolvable root inside a manager prompt as an error, same as a worker's", () => {
+    // `render_prompt` now raises "unknown prompt variable" for this exactly like it would for a
+    // worker — reporting it as a note (or nothing) would be false after the parity fix.
     const contract = observe({
       start: "m",
       nodes: [{ id: "m", type: "manager", schema: "manager_decision_v1", prompt: "{payload.x}" }],
       edges: [],
     });
-    expect(contract.diagnostics.filter((entry) => entry.severity === "error")).toEqual([]);
+    expect(contract.diagnostics).toEqual([
+      expect.objectContaining({ code: "unknown_placeholder_root", severity: "error" }),
+    ]);
   });
 });
 
@@ -504,9 +529,11 @@ describe("no browser-side Atlas transport", () => {
   it("starts runs through the existing typed mutation, not a new path", () => {
     const route = readFileSync("src/routes/_app/workflows.$id.tsx", "utf8");
     expect(route).toContain("useStartRun");
-    // Whitespace-tolerant: the shape that matters is `{ workflowDefinitionId, input }` reaching
-    // `startRun.mutate`, not how Prettier chose to wrap it.
-    expect(route).toMatch(/startRun\.mutate\(\s*\{\s*workflowDefinitionId:\s*id,\s*input\s*\}/);
+    // Whitespace-tolerant: the shape that matters is `workflowDefinitionId` and `input` reaching
+    // `startRun.mutate` (plus, in declared mode, `expectedWorkflowVersion`), not how Prettier
+    // chose to wrap it.
+    expect(route).toMatch(/startRun\.mutate\(\s*\{\s*workflowDefinitionId:\s*id,\s*input,/);
+    expect(route).toContain("expectedWorkflowVersion");
   });
 });
 
@@ -722,8 +749,11 @@ describe("preflight", () => {
     });
   });
 
-  it("never blocks on a manager-only reference", () => {
-    const managerOnly = observe({
+  it("blocks on a start-manager reference too, after the manager-prompt-parity fix", () => {
+    // Requalified: a manager's `{input.*}` is executable exactly like a worker's since Atlas
+    // checkout 15c4876, so a start *manager* missing a referenced path fails the run just as
+    // immediately as a start *worker* would — see the "manager prompts" describe block below.
+    const managerStart = observe({
       start: "a",
       nodes: [
         { id: "a", type: "manager", schema: "manager_decision_v1", prompt: "{input.mode}" },
@@ -732,6 +762,9 @@ describe("preflight", () => {
       edges: [{ from: "a", to: "b", condition: { type: "manager_selected", target: "b" } }],
     });
 
-    expect(preflightRunInput(managerOnly, {})).toEqual({ blocking: [], warnings: [] });
+    expect(preflightRunInput(managerStart, {})).toEqual({
+      blocking: [expect.objectContaining({ path: "input.mode", nodeIds: ["a"] })],
+      warnings: [],
+    });
   });
 });

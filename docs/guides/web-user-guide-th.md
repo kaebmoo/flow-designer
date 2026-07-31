@@ -315,45 +315,95 @@ Atlas) และ **Test run**/"Starting…" ไม่มีปุ่ม **Explai
 **Repair** รวมถึงไม่มี UI สำหรับ Draft-from-plain-language / Suggest-workers
 เลย (ดู "สิ่งที่ยังไม่มีใน UI" ด้านบน)
 
+### Application interface
+
+**Application interface** (ปุ่มที่ sidebar ด้านซ้าย ถัดจาก **Run policy** —
+กดแล้วสลับ inspector แบบเดียวกัน) ใช้สร้าง `interface` ที่เป็นทางเลือกและเป็น
+authoritative ต่อ workflow ของ Atlas เอง: input schema ที่เก็บไว้จริง ตัวอย่าง
+sample สังเคราะห์ และ public output ที่ผู้เรียกจากภายนอกอ้างอิงได้ workflow ที่
+ไม่มี interface จะไม่ได้รับผลกระทบใด ๆ — ทุกอย่างด้านล่างนี้เป็น opt-in ทั้งหมด
+
+- **input_schema** — ช่องแก้ไข JSON ดิบสำหรับ profile แบบมีขอบเขตของ Atlas ที่
+  คล้าย JSON Schema: ชนิด `object`/`array`/`string`/`number`/`integer`/
+  `boolean`/`null`, `properties`/`required`/`additionalProperties`/`items`/
+  `enum`/`const`, คีย์เวิร์ด `min`/`max` และฟิลด์อธิบายเฉย ๆ `title`/
+  `description`/`default`/`examples` ไม่มี `$ref` ไม่มี
+  `oneOf`/`anyOf`/`allOf`/`not` ไม่มี `pattern` หรือ `format` root ต้อง
+  ประกาศ `type: "object"` เป๊ะ ๆ (หรือรูปแบบสมาชิกเดียวที่เท่ากันคือ
+  `type: ["object"]`) — union ที่เป็น nullable หรือผสมชนิดอย่าง
+  `["object","null"]` จะถูกปฏิเสธ และกฎเดียวกันนี้ใช้กับทุก object segment บน
+  path ที่ **start** node ของ graph render diagnostic ฝั่ง local จะขึ้นระหว่าง
+  พิมพ์ แต่การตรวจสอบตอน save ฝั่ง Atlas เองเป็นคำตัดสินสุดท้ายเสมอ
+- **sample_input** — ช่องแก้ไข JSON ดิบสำหรับตัวอย่างเชิงเอกสาร/ทดสอบ มีคำเตือน
+  ชัดเจนว่าค่านี้ถูกเก็บไว้ในตัว workflow จริง (และอาจติดไปกับ pack export ด้วย)
+  จึงต้องเป็นข้อมูล **สังเคราะห์เท่านั้น** — ห้ามใส่ชื่อจริง เลขบัตรประชาชน
+  ข้อมูลติดต่อ credential หรือ API key
+- **Public outputs** — ตารางของ output key ที่ worker node ใน graph ปัจจุบัน
+  สามารถผลิตได้ แต่ละแถวมี checkbox, title (ไม่บังคับ) และ description (ไม่
+  บังคับ) จะประกาศได้เฉพาะ key ที่ผลิตโดย worker node เดียวเท่านั้น ส่วน key ที่
+  มีมากกว่าหนึ่ง node ผลิตจะถูกปิดใช้งาน (disabled) เพราะ Atlas บังคับความไม่ซ้ำ
+  นี้ output ที่ประกาศไว้เลือกได้หนึ่งตัวให้เป็น **primary_output** — เป็นเพียง
+  คำแนะนำให้ผู้เรียกภายนอก ไม่ใช่ข้อบังคับตอนรัน
+- **Clear** ลบ interface ทั้งหมดออก (Atlas จะได้ค่า `null` แบบชัดเจน ไม่ใช่แค่
+  เว้นฟิลด์ว่างไว้); **Add interface** ใช้เริ่มสร้างใหม่
+- ถ้า schema ที่ประกาศไว้กับการใช้งาน `{input.x}`/output จริงใน graph ไม่ตรงกัน
+  — เช่น path ของ start node ที่ schema ไม่รองรับ หรือ output ของ worker ที่
+  interface ไม่เคยประกาศไว้ — จะมีคำเตือน drift ระบุ path, node หรือ output ที่
+  ไม่ตรงกันนั้นตรง ๆ ทั้งสองฝั่งจะไม่ถูกแก้ให้อัตโนมัติ การตรวจไขว้ (cross-check)
+  ตอน save ของ Atlas เองยังเป็นเส้นแบ่งสุดท้าย
+- interface ที่ถูก save ไว้โดย flow-designer เวอร์ชัน **ใหม่กว่า** ด้วย
+  `schema_version` ที่ build นี้ไม่รู้จัก จะแสดงเป็น **read-only** พร้อม JSON
+  ดิบให้ดู — การ Save จะไม่เข้ารหัสใหม่หรือทิ้งข้อมูลนั้นไปเงียบ ๆ
+
 ### Test run
 
 กด **Test run** แล้วจะเปิด dialog ขึ้นมา การเปิด dialog ไม่ได้เริ่ม run ใด ๆ
-เป็นเพียงการอ่าน graph ที่ save ไว้ ใน dialog มี 2 แท็บ:
+เป็นเพียงการอ่าน graph ที่ save ไว้ และ `interface` ที่ save ไว้ (ถ้ามี) ป้าย
+กำกับในแท็บ Integration จะบอกว่ากำลังทำงานในโหมดไหน:
 
-- **Input JSON** — ช่องพิมพ์ JSON ดิบ พร้อมตัวอย่างที่สร้างจาก path `{input.x}`
-  ที่ graph อ้างถึงจริง ค่าในตัวอย่างเป็นเพียง placeholder ที่แสดง _รูปร่าง_
-  (`"<input.topic>"`) ไม่ใช่ค่า default และไม่ได้บอกชนิดข้อมูล จึงต้องแก้เป็นค่าจริง
-  ใส่ `{}` ก็ใช้ได้เสมอ ราก (root) ต้องเป็น JSON object เท่านั้น ถ้าเป็น array,
-  string, number, boolean หรือ `null` จะถูกปฏิเสธ เช่นเดียวกับ JSON ที่ผิดรูปแบบ
-- **Integration** — มีป้ายกำกับว่า **Observed · not enforced by Atlas** และแยก
-  ข้อเท็จจริงของ Atlas API ออกจากสิ่งที่เป็นเพียงการ _สังเกต_ จาก graph นี้ ดู
-  [คู่มือเชื่อมต่อกับแอปพลิเคชัน](application-integration-th.md)
+- **Declared · enforced by Atlas** — workflow มี interface แบบ
+  `schema_version: 1` แท็บ Input JSON จะถูกกรอกล่วงหน้าจาก `sample_input` ที่
+  เก็บไว้ (หรือ `{}` ถ้าไม่ได้ตั้งไว้) ค่าที่พิมพ์เข้าไปจะถูกตรวจสอบกับ
+  `input_schema` ที่เก็บไว้ในเครื่องทันทีเพื่อ feedback ที่รวดเร็ว และจะมี
+  ตัวเลขประมาณขนาดใกล้ 1 MiB แสดงเป็นข้อความแจ้งเตือนที่ไม่บล็อกอะไรด้วยตัวเอง
+  — Atlas เป็นผู้วัด effective input จริง (หลัง merge `default_reply` ถ้ามี)
+  และเป็นผู้ตัดสินสุดท้าย **Start test run** จะส่ง
+  `{ input, expected_workflow_version }` โดยปักเวอร์ชันไว้ที่เวอร์ชัน workflow
+  ตอนที่เปิด dialog นี้ Atlas จะตอบ **400** พร้อมระบุ field/path เมื่อ business
+  input ผิด และตอบ **409** เมื่อเวอร์ชันเก่าไปแล้ว ทั้งสองกรณี dialog จะยังเปิด
+  ค้างพร้อม payload เดิม — ไม่มีการ retry ให้อัตโนมัติทั้งคู่ แท็บ Integration
+  จะสร้างคู่มือ cURL/TypeScript/Python ที่ copy ได้ปลอดภัยจาก contract ที่
+  ประกาศไว้จริง รวมทั้งเวอร์ชัน workflow และ Atlas commit ขั้นต่ำที่รองรับ
+- **Observed · not enforced by Atlas** — ไม่มี interface ที่ใช้งานได้ถูกเก็บไว้
+  (ไม่มีเลย หรือไม่เคยประกาศไว้) ไม่เปลี่ยนจากเดิม: ช่องพิมพ์ JSON ดิบ พร้อม
+  ตัวอย่างที่สร้างจาก path `{input.x}` ที่ graph ที่ save ไว้อ้างถึงจริง ค่า
+  ตัวอย่างเป็น placeholder (`"<input.topic>"`) ที่แสดงรูปร่างเท่านั้น ไม่ใช่
+  ชนิดข้อมูลหรือค่า default path ที่ prompt ของ **start** node render ถ้าขาด
+  ไปจะเป็น error แบบ **บล็อก** (Atlas จะทำให้ run ล้มทันที) ส่วน path ที่มีแต่
+  node ถัดไปหรือ node ตามเงื่อนไขใช้ จะเป็นเพียง **คำเตือน** เพราะ node นั้นอาจ
+  ไม่ถูกเรียกเลย `{}` ใช้ได้เสมอ ส่วน root ที่ไม่ใช่ object หรือ JSON ที่ผิด
+  รูปแบบจะถูกปฏิเสธ
 
-ระหว่างพิมพ์จะมีคำเตือน 2 ระดับ:
+ตั้งแต่ Atlas แก้ manager-prompt-parity แล้ว prompt ของ node **AI Decision**
+(manager) จะถูกแทนค่าเหมือนกับของ **AI Task** ทุกประการ: `{input.x}` ใน
+prompt ของ manager เป็น reference ที่ใช้งานจริง และกฎบล็อก/เตือนของโหมด
+Observed ก็ใช้กับมันแบบเดียวกัน — manager ที่เป็น **start** node แล้วขาด path
+ที่อ้างถึงจะบล็อก ส่วน manager ที่อยู่ถัดไปจะได้แค่คำเตือน
 
-- path ที่ prompt ของ **start node** ใช้ ถ้าขาดไปจะเป็น error แบบ **บล็อก**
-  เพราะ Atlas render prompt นั้นก่อนเลือก branch ใด ๆ run จึงล้มทันทีที่เริ่ม
-- path ที่มีแต่ node ถัดไปหรือ node ตามเงื่อนไขใช้ จะเป็นเพียง **คำเตือน**
-  เพราะ node นั้นอาจไม่ถูกเรียกเลย การขาดค่าจึงเป็นความเสี่ยง ไม่ใช่ข้อบังคับ
-  ที่ UI นี้พิสูจน์ได้
-
-สิ่งที่พิมพ์ในช่องนี้ไม่ถูกบันทึกไว้ที่ใดเลย ไม่ว่าจะในเบราว์เซอร์ ใน URL หรือใน
-ตัวอย่างที่ copy/download ออกไป
+สิ่งที่พิมพ์ในทั้งสองโหมดไม่ถูกบันทึกไว้ที่ใดเลย ไม่ว่าจะในเบราว์เซอร์ ใน URL
+หรือในตัวอย่างที่ copy/download ออกไป
 
 กด **Start test run** จะสร้าง run จริงบน Atlas: worker ทำงานจริง มีการใช้ budget
 units จริง และ reply webhook ที่ตั้งไว้จะถูกส่งจริง ไม่มีโหมดทดลองแบบไม่ทำงานจริง
 จากนั้นหน้าจะพาไปยังหน้ารายละเอียดของ run นั้นด้วย id จริง `wfr_…` ถ้า Atlas
 ปฏิเสธ ข้อความจะยังอยู่บนจอพร้อมกับ payload เดิม
 
-> **AI Decision** (manager) เป็นกรณีพิเศษ Atlas สร้าง prompt ของ manager โดย
-> ไม่แทนค่า `{input.x}` ข้อความนั้นจึงถูกส่งถึงโมเดลตรง ๆ และการใส่ค่าให้ก็ไม่มีผล
-> dialog จะแจ้งเรื่องนี้ และจะไม่แสดงมันเป็น input
-
 ถ้าออกจาก editor ทั้งที่ยังไม่ได้ save จะมีข้อความถาม **Discard unsaved
 workflow changes?** (**Keep editing** / **Discard changes**) มี banner
-กู้คืนงานที่ยังไม่ได้ save ("Restore draft" / "Discard") ไว้กู้คืนงานแก้ไขใน
-แท็บเบราว์เซอร์เดิมหลังเผลอออกจากหน้าหรือ reload — เป็นการกู้คืนฝั่ง local
-เท่านั้น ไม่เกี่ยวกับฟีเจอร์ AI draft แต่อย่างใด
+กู้คืนงานที่ยังไม่ได้ save ("Restore draft" / "Discard") ไว้กู้คืนงานแก้ไข —
+รวมถึงงานแก้ไข **Application interface** ที่ยังไม่ได้ save ด้วย — จากแท็บ
+เบราว์เซอร์เดิมหลังเผลอออกจากหน้าหรือ reload เป็นการกู้คืนฝั่ง local เท่านั้น
+ไม่เกี่ยวกับฟีเจอร์ AI draft แต่อย่างใด
 
 ## 9. Runs
 
@@ -391,6 +441,14 @@ duration, state กรองด้วย chip สถานะ (`all`, `running`,
   บอกเมื่อถูกตัด) และแสดง **เฉพาะที่นี่** เท่านั้น ไม่ปรากฏในรายการ Runs
   รวมถึง `_meta` ที่เป็นซองสงวนของ Atlas ซึ่งเป็นที่ตั้งค่า reply webhook
   ถ้า run เริ่มโดยไม่มี input เลย ส่วนนี้จะไม่แสดง
+- **Application interface**: เวอร์ชันของ workflow และ interface
+  `schema_version` ที่ run นี้เริ่มทำงานด้วยจริง ถูก freeze ไว้ตั้งแต่ตอนสร้าง
+  run — ไม่ใช่การอ่านซ้ำจาก workflow definition ที่ยังใช้งานอยู่ปัจจุบัน ซึ่ง
+  อาจถูกแก้ไขหรือลบไปแล้วก็ได้ ส่วนที่พับเก็บไว้จะโชว์ `input_schema` และ
+  output ที่ประกาศไว้ (มีป้าย primary) ที่ run นี้ถูกประกาศไว้กับมันแบบเป๊ะ ๆ
+  run ที่ไม่มี interface snapshot — ไม่ว่าจะเป็น run เก่าหรือ run ของ workflow
+  ที่ไม่เคยมี interface เลย — จะระบุตรง ๆ ว่าไม่มี contract ที่เป็นทางการให้ดู
+  แทนที่จะเดาจากสถานะปัจจุบันของ workflow
 - ตาราง **Runtime nodes** (node, job, attempt, duration, error, state) และ
   ตาราง **Runtime edges** (from, to, เงื่อนไขตรงหรือไม่)
 - **Approvals**: หนึ่งแถวต่อ gate ที่ไปถึง มีปุ่ม **Approve** (หรือปุ่มต่อ
@@ -401,10 +459,14 @@ duration, state กรองด้วย chip สถานะ (`all`, `running`,
   Decision**
 - **Artifacts**: key, kind, size, created และปุ่ม **Download** หรือ
   **Preview** (ไม่มีทั้งสองพร้อมกัน — artifact ชนิด `file_ref` ดาวน์โหลด
-  ส่วนชนิดอื่น preview ในกล่องโต้ตอบที่จำกัดไว้ 32,000 ตัวอักษรแรก)
-  artifact ที่ถูกเขียนขึ้นระหว่างเปิดหน้าอยู่จะขึ้นมาเอง — ตารางจะ refresh เมื่อ
-  live event บอกว่ามีการเปลี่ยนแปลง และอีกครั้งเมื่อ run เข้าสู่สถานะสุดท้าย
-  ผลลัพธ์ของ test run จึงไม่ต้อง reload หน้า
+  ส่วนชนิดอื่น preview ในกล่องโต้ตอบที่จำกัดไว้ 32,000 ตัวอักษรแรก) key ที่
+  interface snapshot ของ run นี้เองประกาศไว้เป็น public output จะมีป้าย
+  **declared** (มี **· primary** ต่อท้ายเมื่อเป็น primary output) ส่วน key ที่
+  มีแต่ worker node ใน graph snapshot เป็นผู้ผลิต โดยไม่มี interface ประกาศไว้
+  จะมีป้าย **observed** แบบเดิมแทน — เกิดขึ้นได้ทั้งสองแบบ ไม่ได้รับประกันแบบ
+  ใดแบบหนึ่ง artifact ที่ถูกเขียนขึ้นระหว่างเปิดหน้าอยู่จะขึ้นมาเอง — ตารางจะ
+  refresh เมื่อ live event บอกว่ามีการเปลี่ยนแปลง และอีกครั้งเมื่อ run เข้าสู่
+  สถานะสุดท้าย ผลลัพธ์ของ test run จึงไม่ต้อง reload หน้า
   **ตรงนี้ไม่มีช่องอัปโหลด** — การแนบไฟล์เข้า run (เช่น สัญญาให้ human gate
   ตรวจ) ต้องผ่าน API เท่านั้น (`POST /api/workflow-runs/{id}/files`)
 - **Webhook delivery attempts** ของ run นี้ มีปุ่ม **Send webhook now** และ

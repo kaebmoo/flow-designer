@@ -1,20 +1,30 @@
 /**
- * The Test Run dialog: enter run input, read the observed contract, start one real Atlas run.
+ * The Test Run dialog: enter run input, read the contract, start one real Atlas run.
  *
- * Two rules shape everything here.
+ * Two modes, chosen by whether the workflow has a stored `interface`:
  *
- *  1. **Opening it has no side effect.** The editor's old one-click Run posted immediately, so
- *     there was no moment at which an operator could see what would be sent. This dialog reads
- *     and validates; only the explicit `Start test run` click mutates anything.
- *  2. **Nothing generated here contains anything real.** Snippets and downloads are built from
- *     the contract's illustrative skeleton, never from the textarea, never from the deployment's
- *     Atlas origin, and never from a bearer — the browser does not have one to leak. That is what
- *     makes offering copy and download safe at all.
+ *  - **Declared · enforced by Atlas** — the workflow has a `schema_version: 1` interface. Input
+ *    is prefilled from `sample_input`, validated locally against `input_schema` for fast
+ *    feedback, and submitted with `expected_workflow_version` so Atlas rejects a stale start
+ *    (409) before it rejects bad business input (400) — see `atlas/workflows.py`'s ordering.
+ *    Atlas's response is final; local validation exists to avoid an obviously doomed round trip,
+ *    never to override what Atlas actually says.
+ *  - **Observed · not enforced by Atlas** — Milestone A's legacy fallback, unchanged in
+ *    substance, for a workflow whose `interface` is absent (or in a schema_version this client
+ *    does not understand, which is treated the same way: nothing to declare from).
  *
- * The entered input is deliberately not persisted anywhere: no localStorage, no sessionStorage,
- * no search param, no log. A test payload is business data — often the most sensitive data in the
- * system — and a convenience that survives the dialog closing is a convenience that survives a
- * shared machine.
+ * Rules that hold in both modes:
+ *
+ *  1. **Opening it has no side effect.** Only the explicit `Start test run` click mutates
+ *     anything.
+ *  2. **Nothing generated here contains anything real.** Snippets and downloads come from the
+ *     contract (declared or observed), never from the textarea, the deployment's Atlas origin,
+ *     or a bearer.
+ *  3. **The entered input is never persisted.** No localStorage, no sessionStorage, no search
+ *     param, no log — cleared on every open and every close.
+ *  4. A **409** (stale `expected_workflow_version`) and a **400** (Atlas's own validation) are
+ *     both shown as Atlas wrote them, with no automatic retry. The operator resubmits
+ *     deliberately, after reloading if the version moved.
  *
  * The mutation lives in the route, not here. This component reports an explicit intent to start
  * with a parsed object; the route owns single-flight, Atlas's error, and navigation to the real
@@ -35,6 +45,21 @@ import {
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import type { AtlasWorkflowInterface } from "@/lib/atlas-types";
+import type { JsonObject } from "@/lib/workflow-graph";
+import {
+  authoritativeContractJson,
+  authoritativeContractMarkdown,
+  authoritativeSnippets,
+  businessProjection,
+  detectInterfaceGraphDrift,
+  EFFECTIVE_INPUT_MAX_BYTES,
+  estimateEffectiveInputBytes,
+  MIN_COMPATIBLE_ATLAS_COMMIT,
+  validateInstanceAgainstSchema,
+  type DriftFinding,
+  type InterfaceDiagnostic,
+} from "@/lib/workflow-interface-contract";
 import {
   contractJson,
   contractMarkdown,
@@ -45,20 +70,25 @@ import {
   preflightRunInput,
   type ObservedContract,
 } from "@/lib/workflow-run-contract";
-import type { JsonObject } from "@/lib/workflow-graph";
 
-/** The label the Integration tab carries. Asserted verbatim by the browser tests. */
+/** Labels asserted verbatim by the browser tests. */
 export const OBSERVED_BADGE = "Observed · not enforced by Atlas";
+export const DECLARED_BADGE = "Declared · enforced by Atlas";
 
 export interface WorkflowTestRunDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Always the current graph's observed contract — the legacy source, and the drift target. */
   contract: ObservedContract;
+  /** The workflow's `schema_version: 1` interface, or `null` for legacy/unsupported-version. */
+  declaredInterface: AtlasWorkflowInterface | null;
+  /** The workflow's current version — sent as `expected_workflow_version` in declared mode. */
+  workflowVersion: number;
   workflowName: string;
   /** True while the route's start mutation is in flight. Blocks a second submit. */
   pending: boolean;
   /** Atlas's own refusal, shown verbatim. Null when the last attempt did not fail. */
-  error: string | null;
+  error: { kind: string; message: string } | null;
   onStart: (input: JsonObject) => void;
 }
 
@@ -124,7 +154,222 @@ function Snippet({ title, language, code }: { title: string; language: string; c
   );
 }
 
-function IntegrationTab({ contract }: { contract: ObservedContract }) {
+function DriftNote({ drift }: { drift: DriftFinding[] }) {
+  if (drift.length === 0) return null;
+  return (
+    <div
+      role="status"
+      data-testid="test-run-drift"
+      className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs"
+    >
+      <p className="mb-1 font-semibold">Declared interface and observed prompt usage disagree:</p>
+      <ul className="space-y-1">
+        {drift.map((finding, index) => (
+          <li key={`${finding.kind}:${index}`} className="text-muted-foreground">
+            {finding.message}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-muted-foreground">
+        Neither source changes automatically. Atlas's declared validation remains the boundary.
+      </p>
+    </div>
+  );
+}
+
+function DeclaredIntegrationTab({
+  contract,
+  declaredInterface,
+  workflowVersion,
+}: {
+  contract: ObservedContract;
+  declaredInterface: AtlasWorkflowInterface;
+  workflowVersion: number;
+}) {
+  const ctx = useMemo(
+    () => ({ workflowId: contract.workflowId, workflowVersion, interfaceValue: declaredInterface }),
+    [contract.workflowId, workflowVersion, declaredInterface],
+  );
+  const snippets = useMemo(() => authoritativeSnippets(ctx), [ctx]);
+  const json = useMemo(() => authoritativeContractJson(ctx), [ctx]);
+  const markdown = useMemo(() => authoritativeContractMarkdown(ctx), [ctx]);
+  const drift = useMemo(
+    () =>
+      detectInterfaceGraphDrift(
+        { input_schema: declaredInterface.input_schema, outputs: declaredInterface.outputs ?? [] },
+        contract,
+      ),
+    [declaredInterface, contract],
+  );
+  const outputs = declaredInterface.outputs ?? [];
+
+  return (
+    <div className="space-y-6">
+      <p
+        data-testid="declared-badge"
+        role="note"
+        className="rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-xs leading-relaxed text-foreground"
+      >
+        <span className="font-bold uppercase tracking-wider">{DECLARED_BADGE}</span> — the
+        input_schema, sample, and outputs below are stored on this workflow definition and validated
+        by Atlas on every direct start. Minimum compatible Atlas commit:{" "}
+        <span className="font-mono text-[11px]">{MIN_COMPATIBLE_ATLAS_COMMIT}</span>.
+      </p>
+
+      <DriftNote drift={drift} />
+
+      <section>
+        <h3 className="mb-2 font-mono text-[10px] uppercase tracking-widest text-primary">
+          Atlas API facts
+        </h3>
+        <dl className="grid gap-2 rounded-lg border border-border bg-card px-3 py-3 text-xs sm:grid-cols-[13rem_1fr]">
+          <dt className="text-muted-foreground">Start a run</dt>
+          <dd className="font-mono text-[11px]">
+            POST /api/workflow-runs —{" "}
+            {`{ workflow_definition_id, input, expected_workflow_version }`}
+          </dd>
+
+          <dt className="text-muted-foreground">Version pin</dt>
+          <dd className="font-mono text-[11px]">expected_workflow_version: {workflowVersion}</dd>
+
+          <dt className="text-muted-foreground">Invalid business input</dt>
+          <dd>400, field/path named in the error, no run created.</dd>
+
+          <dt className="text-muted-foreground">Stale version</dt>
+          <dd>409, no run created, no automatic retry — reload and resubmit deliberately.</dd>
+
+          <dt className="text-muted-foreground">Response</dt>
+          <dd>
+            <span className="font-mono text-[11px]">202</span> with the real run row.
+          </dd>
+
+          <dt className="text-muted-foreground">Progress</dt>
+          <dd>
+            Poll <span className="font-mono text-[11px]">GET /api/workflow-runs/{`{id}`}</span>.
+          </dd>
+
+          <dt className="text-muted-foreground">Outputs</dt>
+          <dd className="font-mono text-[11px]">GET /api/workflow-runs/{`{id}`}/artifacts</dd>
+
+          <dt className="text-muted-foreground">Approvals</dt>
+          <dd className="font-mono text-[11px]">
+            POST /api/approvals/{`{id}`}/approve | /reject | /choose
+          </dd>
+
+          <dt className="text-muted-foreground">Reply webhook</dt>
+          <dd>
+            Optional, through <span className="font-mono text-[11px]">input._meta.reply</span>.
+          </dd>
+
+          <dt className="text-muted-foreground">Trigger limitation</dt>
+          <dd>
+            <span className="font-mono text-[11px]">POST …/fire</span> does not accept a version pin
+            in this Atlas version — a fixed-payload trigger that cannot satisfy this interface
+            records a failed event and starts no run.
+          </dd>
+        </dl>
+      </section>
+
+      <section>
+        <h3 className="mb-2 font-mono text-[10px] uppercase tracking-widest text-success">
+          Declared contract
+        </h3>
+        <div className="space-y-3 rounded-lg border border-success/40 bg-card px-3 py-3">
+          <div>
+            <h4 className="mb-1 text-xs font-semibold">input_schema</h4>
+            <pre className="max-h-48 overflow-auto rounded-md border border-border bg-secondary/20 px-2 py-1.5 text-[11px]">
+              {JSON.stringify(declaredInterface.input_schema, null, 2)}
+            </pre>
+          </div>
+          <div>
+            <h4 className="mb-1 text-xs font-semibold">Public outputs</h4>
+            {outputs.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No public output is declared.</p>
+            ) : (
+              <ul className="space-y-1" data-testid="declared-outputs">
+                {outputs.map((output) => (
+                  <li key={output.key} className="text-xs">
+                    <span className="font-mono text-[11px] text-primary">{output.key}</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      — kind {output.kind}
+                      {output.key === declaredInterface.primary_output ? " · primary" : ""}
+                      {output.title ? ` · ${output.title}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Every output is possible, never guaranteed: a graph can branch, so an omitted output
+              does not fail an otherwise successful run.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-mono text-[10px] uppercase tracking-widest text-primary">
+            Backend examples
+          </h3>
+          <span className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                downloadText(
+                  `${contract.workflowId}-declared-contract.json`,
+                  json,
+                  "application/json",
+                )
+              }
+            >
+              Download JSON
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                downloadText(
+                  `${contract.workflowId}-declared-contract.md`,
+                  markdown,
+                  "text/markdown",
+                )
+              }
+            >
+              Download Markdown
+            </Button>
+          </span>
+        </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          These use <span className="font-mono">$ATLAS_BASE_URL</span> and{" "}
+          <span className="font-mono">$ATLAS_TOKEN</span> placeholders and the stored
+          <span className="font-mono"> sample_input</span> — never this deployment's Atlas origin, a
+          bearer, or anything typed on the Input JSON tab. Call Atlas from your application's
+          backend: a bearer in browser JavaScript is readable by anything running on the page.
+        </p>
+        <Snippet title="cURL" language="bash" code={snippets.curl} />
+        <Snippet
+          title="TypeScript (server-side)"
+          language="typescript"
+          code={snippets.typescript}
+        />
+        <Snippet title="Python (server-side)" language="python" code={snippets.python} />
+        <Snippet title="Approvals (cURL)" language="bash" code={snippets.approval} />
+        <Snippet
+          title="Signed reply webhook (server-side)"
+          language="typescript"
+          code={snippets.webhook}
+        />
+      </section>
+    </div>
+  );
+}
+
+function ObservedIntegrationTab({ contract }: { contract: ObservedContract }) {
   const snippets = useMemo(() => contractSnippets(contract), [contract]);
   const json = useMemo(() => contractJson(contract), [contract]);
   const markdown = useMemo(() => contractMarkdown(contract), [contract]);
@@ -137,10 +382,10 @@ function IntegrationTab({ contract }: { contract: ObservedContract }) {
         className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-foreground"
       >
         <span className="font-bold uppercase tracking-wider">{OBSERVED_BADGE}</span> — everything
-        under “Observed workflow facts” was read out of this graph&apos;s prompt text. Atlas stores
-        no input schema for a workflow, so it cannot reject bad business input before creating a
-        run. Nothing below promises a type, a default, which fields matter on which branch, or that
-        an artifact will exist.
+        under “Observed workflow facts” was read out of this graph&apos;s prompt text. This workflow
+        has no authoritative interface (or one this build does not understand), so Atlas cannot
+        reject bad business input before creating a run. Nothing below promises a type, a default,
+        which fields matter on which branch, or that an artifact will exist.
       </p>
 
       <section>
@@ -224,7 +469,7 @@ function IntegrationTab({ contract }: { contract: ObservedContract }) {
                     <span className="text-muted-foreground">
                       {" "}
                       — read by {path.nodeIds.join(", ")}
-                      {path.referencedByStartWorker
+                      {path.referencedByStartNode
                         ? "; the start node renders it before any branch is chosen"
                         : "; only on the branch that reaches those nodes"}
                     </span>
@@ -354,15 +599,20 @@ export function WorkflowTestRunDialog({
   open,
   onOpenChange,
   contract,
+  declaredInterface,
+  workflowVersion,
   workflowName,
   pending,
   error,
   onStart,
 }: WorkflowTestRunDialogProps) {
-  const initial = useMemo(
-    () => `${JSON.stringify(contract.skeleton ?? {}, null, 2)}\n`,
-    [contract.skeleton],
-  );
+  const authoritative = declaredInterface !== null;
+
+  const initial = useMemo(() => {
+    if (declaredInterface)
+      return `${JSON.stringify(declaredInterface.sample_input ?? {}, null, 2)}\n`;
+    return `${JSON.stringify(contract.skeleton ?? {}, null, 2)}\n`;
+  }, [declaredInterface, contract.skeleton]);
   const [text, setText] = useState(initial);
 
   // Reset on every open rather than on mount. The dialog stays mounted between openings, and
@@ -419,18 +669,44 @@ export function WorkflowTestRunDialog({
   }, [pending]);
 
   const parsed = useMemo(() => parseRunInput(text), [text]);
-  const preflight = useMemo(
-    () => (parsed.ok ? preflightRunInput(contract, parsed.value) : null),
-    [parsed, contract],
+
+  const legacyPreflight = useMemo(
+    () => (!authoritative && parsed.ok ? preflightRunInput(contract, parsed.value) : null),
+    [authoritative, parsed, contract],
   );
 
-  const blocking = preflight?.blocking ?? [];
-  const warnings = preflight?.warnings ?? [];
+  const declaredDiagnostics: InterfaceDiagnostic[] = useMemo(() => {
+    if (!authoritative || !declaredInterface || !parsed.ok) return [];
+    return validateInstanceAgainstSchema(
+      declaredInterface.input_schema,
+      businessProjection(parsed.value),
+    );
+  }, [authoritative, declaredInterface, parsed]);
+
+  const effectiveBytes = useMemo(
+    () => (authoritative && parsed.ok ? estimateEffectiveInputBytes(parsed.value) : 0),
+    [authoritative, parsed],
+  );
+  const nearSizeLimit = authoritative && effectiveBytes > EFFECTIVE_INPUT_MAX_BYTES * 0.9;
+  const overSizeLimit = authoritative && effectiveBytes > EFFECTIVE_INPUT_MAX_BYTES;
+
+  const legacyBlocking = legacyPreflight?.blocking ?? [];
+  const legacyWarnings = legacyPreflight?.warnings ?? [];
+  const blockingErrors = authoritative
+    ? declaredDiagnostics.filter((d) => d.severity === "error")
+    : [];
+
   const problem = !parsed.ok ? parsed.message : null;
-  const canStart = parsed.ok && blocking.length === 0 && !pending;
+  const canStart =
+    parsed.ok &&
+    !pending &&
+    (authoritative ? blockingErrors.length === 0 : legacyBlocking.length === 0);
 
   const describedBy =
-    [problem || blocking.length > 0 ? "test-run-problem" : null, "test-run-cost"]
+    [
+      problem || legacyBlocking.length > 0 || blockingErrors.length > 0 ? "test-run-problem" : null,
+      "test-run-cost",
+    ]
       .filter(Boolean)
       .join(" ") || undefined;
 
@@ -482,21 +758,25 @@ export function WorkflowTestRunDialog({
                 className="min-h-56 font-mono text-xs"
                 value={text}
                 onChange={(event) => setText(event.target.value)}
-                aria-invalid={problem !== null || blocking.length > 0}
+                aria-invalid={
+                  problem !== null || legacyBlocking.length > 0 || blockingErrors.length > 0
+                }
                 aria-describedby={describedBy}
               />
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                {contract.skeleton === null
-                  ? "The example is empty because two observed paths overlap — see the Integration tab. Edit this freely."
-                  : contract.inputPaths.length === 0
-                    ? "This graph references no run input, so the example is an empty object. Edit it freely; Atlas accepts any JSON object."
-                    : "The example is generated from the paths this graph references. Its values are placeholders showing shape, not defaults or types — replace them."}{" "}
+                {authoritative
+                  ? "Prefilled from this workflow's declared sample_input. Edit freely — Atlas's stored input_schema is the authority, not this example."
+                  : contract.skeleton === null
+                    ? "The example is empty because two observed paths overlap — see the Integration tab. Edit this freely."
+                    : contract.inputPaths.length === 0
+                      ? "This graph references no run input, so the example is an empty object. Edit it freely; Atlas accepts any JSON object."
+                      : "The example is generated from the paths this graph references. Its values are placeholders showing shape, not defaults or types — replace them."}{" "}
                 Nothing typed here is saved, and it never appears in a generated example or
                 download.
               </p>
             </div>
 
-            {problem !== null || blocking.length > 0 ? (
+            {problem !== null || legacyBlocking.length > 0 || blockingErrors.length > 0 ? (
               <div
                 id="test-run-problem"
                 role="alert"
@@ -507,15 +787,22 @@ export function WorkflowTestRunDialog({
                   <p>{problem}</p>
                 ) : (
                   <ul className="space-y-1">
-                    {blocking.map((finding) => (
-                      <li key={finding.path}>{finding.message}</li>
-                    ))}
+                    {authoritative
+                      ? blockingErrors.map((diagnostic, index) => (
+                          <li key={`${diagnostic.path}:${index}`}>
+                            <span className="font-mono">{diagnostic.path}</span>:{" "}
+                            {diagnostic.message}
+                          </li>
+                        ))
+                      : legacyBlocking.map((finding) => (
+                          <li key={finding.path}>{finding.message}</li>
+                        ))}
                   </ul>
                 )}
               </div>
             ) : null}
 
-            {warnings.length > 0 ? (
+            {!authoritative && legacyWarnings.length > 0 ? (
               <div
                 role="status"
                 data-testid="test-run-warnings"
@@ -525,13 +812,29 @@ export function WorkflowTestRunDialog({
                   Observed, not enforced — these may not apply to the branch this run takes:
                 </p>
                 <ul className="space-y-1">
-                  {warnings.map((finding) => (
+                  {legacyWarnings.map((finding) => (
                     <li key={finding.path} className="text-muted-foreground">
                       {finding.message}
                     </li>
                   ))}
                 </ul>
               </div>
+            ) : null}
+
+            {authoritative && nearSizeLimit ? (
+              <p
+                role="status"
+                data-testid="test-run-size-warning"
+                className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground"
+              >
+                Advisory: this input is an estimated {effectiveBytes.toLocaleString()} bytes,{" "}
+                {overSizeLimit ? "over" : "near"} Atlas's{" "}
+                {EFFECTIVE_INPUT_MAX_BYTES.toLocaleString()}
+                -byte effective-input limit. This estimate is not byte-identical to Atlas's own
+                measurement (which also includes any{" "}
+                <span className="font-mono">default_reply</span> merge) and does not block starting
+                — Atlas's response is final.
+              </p>
             ) : null}
 
             <p
@@ -549,13 +852,24 @@ export function WorkflowTestRunDialog({
                 data-testid="test-run-error"
                 className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
               >
-                {error}
+                {error.message}
+                {error.kind === "conflict"
+                  ? " Reload the workflow to see the version Atlas now has, then decide whether to resubmit — this is not retried automatically."
+                  : null}
               </p>
             ) : null}
           </TabsContent>
 
           <TabsContent value="integration">
-            <IntegrationTab contract={contract} />
+            {authoritative && declaredInterface ? (
+              <DeclaredIntegrationTab
+                contract={contract}
+                declaredInterface={declaredInterface}
+                workflowVersion={workflowVersion}
+              />
+            ) : (
+              <ObservedIntegrationTab contract={contract} />
+            )}
           </TabsContent>
         </Tabs>
 

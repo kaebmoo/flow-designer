@@ -5,33 +5,40 @@
  * derived by reading prompt text and node configuration, which is why every name in this file
  * says *observed* or *possible* and never *declared*, *required*, *typed*, or *enforced*.
  *
+ * This is the Milestone A **legacy fallback**: it is what a workflow with no authoritative
+ * `interface` gets. A workflow that has one is served by `workflow-interface-contract.ts` and the
+ * "Declared · enforced by Atlas" path instead; see `src/components/atlas/workflow-test-run-dialog.tsx`.
+ *
  * ## What this is not
  *
- * Atlas has no workflow input schema today. `POST /api/workflow-runs` validates that `input` is
- * an object and that the reserved `_meta` envelope is well-formed; nothing else. A missing
- * `{input.x}` is discovered later, by a background node rendering its prompt, long after the
- * start API returned `202`. So this module cannot and does not promise types, defaults, business
- * meaning, branch-independent requiredness, or that any artifact will exist. It reports what the
- * saved graph *references* and what a worker *may* produce. That is useful for testing and for
- * scaffolding an application, and it is advisory.
+ * Atlas has no workflow input schema for a workflow without a stored `interface`.
+ * `POST /api/workflow-runs` validates that `input` is an object and that the reserved `_meta`
+ * envelope is well-formed; nothing else. A missing `{input.x}` is discovered later, by a
+ * background node rendering its prompt, long after the start API returned `202`. So this module
+ * cannot and does not promise types, defaults, business meaning, branch-independent requiredness,
+ * or that any artifact will exist. It reports what the saved graph *references* and what a worker
+ * *may* produce. That is useful for testing and for scaffolding an application, and it is
+ * advisory.
  *
- * ## Ground truth, read at Atlas `4b837cc`
+ * ## Ground truth, read at Atlas `15c4876` (requalified after the manager-prompt-parity fix)
  *
  *  - `atlas/workflows.py:31` — `_FIELD_RE`, the only placeholder grammar Atlas has.
- *  - `atlas/workflows.py:363` — `render_prompt`, and the five roots it resolves.
- *  - `atlas/workflows.py:2178` — `_resolve_path`, which is why an intermediate scalar is a miss.
- *  - `atlas/workflows.py:1614-1618` — the branch that decides which prompt is interpolated.
+ *  - `atlas/workflows.py:364` — `render_prompt`, and the five roots it resolves.
+ *  - `atlas/workflows.py:2230` — `_resolve_path`, which is why an intermediate scalar is a miss.
+ *  - `atlas/workflows.py:2249` — `_manager_prompt`, which now renders through `render_prompt`
+ *    exactly like a worker's prompt does, before appending the fixed `manager_decision_v1`
+ *    instruction and JSON context.
  *
- * That last one is load-bearing and is the reason {@link ObservedContract.managerReferences}
- * exists. A **worker** node's prompt goes through `render_prompt`. A **manager** node's does
- * not: `_prepare_worker_node_payload` calls `_manager_prompt`, which takes `node["prompt"]`
- * verbatim, appends the `manager_decision_v1` instruction and a JSON context of
- * `{graph, current_node, artifacts, counters, policy}`, and never touches `_FIELD_RE`. There is
- * no `input` in that context at all. So `{input.x}` in a manager prompt is **not substituted**
- * and **not an error** — the literal eight characters reach the model. Atlas's own concepts and
- * visual-builder docs describe manager substitution, so the docs and the executable path
- * disagree; see `docs/ATLAS_LIMITATIONS.md`. Reporting a manager reference as a run input would
- * invent a requirement Atlas does not have, so this module refuses to.
+ * Before this fix (any Atlas checkout older than `57be15f`), a **manager** node's prompt was
+ * built by `_manager_prompt` from `node["prompt"]` **verbatim** — `{input.x}` reached the model
+ * as eight literal characters, never substituted and never an error. As of the pinned commit
+ * above, `_manager_prompt`'s first step is `render_prompt(...)`, so a manager's `{input.*}`
+ * reference is exactly as executable — and exactly as fail-closed on an unresolved path — as a
+ * worker's. This module therefore treats `worker` and `manager` prompts identically: both
+ * contribute to {@link ObservedContract.inputPaths}, and a **start** node of either kind that
+ * references a path Atlas cannot resolve fails the run immediately
+ * ({@link ObservedInputPath.referencedByStartNode}). There is no longer a manager-only, always-
+ * advisory bucket — see `docs/ATLAS_LIMITATIONS.md` for the historical note.
  */
 
 import {
@@ -103,13 +110,14 @@ export interface ObservedInputPath {
   /** Every node whose executable prompt references it: graph order, deduplicated. */
   nodeIds: string[];
   /**
-   * True when the graph's start node is a **worker** that references this path.
+   * True when the graph's start node — worker or manager, both executable since the manager-
+   * prompt-parity fix — references this path.
    *
    * This is the only case that can be called blocking without inventing anything: the start
    * node's prompt is rendered before any branch decision, so Atlas fails the run immediately.
    * Every other reference is branch-dependent — the node may never execute.
    */
-  referencedByStartWorker: boolean;
+  referencedByStartNode: boolean;
 }
 
 /**
@@ -141,8 +149,6 @@ export type ObservedDiagnosticCode =
   | "unsupported_placeholder"
   /** A dotted placeholder whose root is not one of the five Atlas resolves. */
   | "unknown_placeholder_root"
-  /** `{input.*}` in a manager prompt, which the executable path does not substitute. */
-  | "manager_placeholder_not_substituted"
   /** More output keys than {@link MAX_RENDERED_OUTPUTS}; the rest are omitted from documents. */
   | "truncated";
 
@@ -163,13 +169,6 @@ export interface ObservedContract {
   startNodeKind: GraphNode["type"] | null;
   inputPaths: ObservedInputPath[];
   outputs: ObservedOutput[];
-  /**
-   * `{input.*}` references found in **manager** prompts.
-   *
-   * Listed separately and never merged into {@link inputPaths}, because Atlas does not
-   * substitute them. See this module's header for the exact call path.
-   */
-  managerReferences: Array<{ path: string; nodeIds: string[] }>;
   diagnostics: ObservedDiagnostic[];
   /**
    * A deterministic illustrative object shaped like {@link inputPaths}.
@@ -217,9 +216,10 @@ function unsupportedCandidates(template: string): string[] {
 
 /** The prompt Atlas actually interpolates for a node, or null when it interpolates none. */
 function executablePrompt(node: GraphNode): string | null {
-  // `atlas/workflows.py:1614` — only a worker's prompt reaches `render_prompt`. A manager's is
-  // handled by `_manager_prompt`; join and human_gate nodes have no prompt field at all.
-  return node.type === "worker" ? (node.prompt ?? "") : null;
+  // `atlas/workflows.py:1668` renders a worker's prompt through `render_prompt`; `_manager_prompt`
+  // (`atlas/workflows.py:2249`) now does the same for a manager's before appending the fixed
+  // `manager_decision_v1` instruction. `join` and `human_gate` nodes have no prompt field at all.
+  return node.type === "worker" || node.type === "manager" ? (node.prompt ?? "") : null;
 }
 
 /**
@@ -303,7 +303,6 @@ export function observeWorkflowContract(
   const diagnostics: ObservedDiagnostic[] = [];
 
   const byPath = new Map<string, ObservedInputPath>();
-  const managerByPath = new Map<string, string[]>();
   const unknownRoots = new Map<string, string[]>();
   const unsupported = new Map<string, string[]>();
 
@@ -314,45 +313,37 @@ export function observeWorkflowContract(
   };
 
   for (const node of graph.nodes) {
-    // A manager's prompt is scanned so its `{input.*}` references can be *reported*, but it is
-    // never treated as executable — see the header.
-    const prompt = node.type === "worker" || node.type === "manager" ? (node.prompt ?? "") : null;
+    // Both a worker's and a manager's prompt are executable since the manager-prompt-parity fix
+    // — see the header. `join` and `human_gate` nodes have no prompt field, so `executablePrompt`
+    // returns null for them and this loop skips them entirely.
+    const prompt = executablePrompt(node);
     if (prompt === null || prompt === "") continue;
 
     for (const candidate of unsupportedCandidates(prompt)) push(unsupported, candidate, node.id);
-
-    const executable = executablePrompt(node) !== null;
 
     for (const placeholder of extractPlaceholders(prompt)) {
       const segments = placeholder.split(".");
       const root = segments[0]!;
 
       if (!(PLACEHOLDER_ROOTS as readonly string[]).includes(root)) {
-        // Reported only for a prompt Atlas interpolates. In a manager prompt the same text is
-        // simply literal, so calling it an error would be false.
-        if (executable) push(unknownRoots, placeholder, node.id);
+        push(unknownRoots, placeholder, node.id);
         continue;
       }
       // `artifact`, `run`, `node`, and `job` are resolved by Atlas from run state. They are not
       // supplied by the caller, so they are deliberately not part of a run-input contract.
       if (root !== "input") continue;
 
-      if (!executable) {
-        push(managerByPath, placeholder, node.id);
-        continue;
-      }
-
       const existing = byPath.get(placeholder);
       if (existing) {
         if (!existing.nodeIds.includes(node.id)) existing.nodeIds.push(node.id);
-        existing.referencedByStartWorker ||= node.id === graph.start;
+        existing.referencedByStartNode ||= node.id === graph.start;
         continue;
       }
       byPath.set(placeholder, {
         path: placeholder,
         segments: segments.slice(1),
         nodeIds: [node.id],
-        referencedByStartWorker: node.id === graph.start,
+        referencedByStartNode: node.id === graph.start,
       });
     }
   }
@@ -360,7 +351,7 @@ export function observeWorkflowContract(
   /**
    * Every observed path, never truncated.
    *
-   * Truncating here would blind {@link preflightRunInput}: a start worker referencing more paths
+   * Truncating here would blind {@link preflightRunInput}: a start node referencing more paths
    * than the display cap would look satisfied once the visible ones were supplied, and Atlas
    * would then fail the run on a field this UI had declared present. Rendering is bounded at
    * {@link MAX_RENDERED_PATHS} by the document builders instead, which is a display concern.
@@ -404,17 +395,6 @@ export function observeWorkflowContract(
     });
   }
 
-  const managerReferences = [...managerByPath].map(([path, nodeIds]) => ({ path, nodeIds }));
-  if (managerReferences.length > 0) {
-    diagnostics.push({
-      code: "manager_placeholder_not_substituted",
-      severity: "warning",
-      message:
-        "An AI Decision (manager) prompt references {input.*}. Atlas builds a manager prompt without input substitution, so this text reaches the model literally and supplying a value changes nothing. It is not listed as a run input.",
-      nodeIds: [...new Set(managerReferences.flatMap((reference) => reference.nodeIds))],
-    });
-  }
-
   const outputs: ObservedOutput[] = graph.nodes.flatMap((node) => {
     if (node.type !== "worker") return [];
     // Exactly `outputs[0]`: Atlas's schema pins the list to one entry, and a graph that somehow
@@ -441,7 +421,6 @@ export function observeWorkflowContract(
     startNodeKind: startNode?.type ?? null,
     inputPaths,
     outputs,
-    managerReferences,
     diagnostics,
     skeleton: buildSkeleton(inputPaths),
   };
@@ -521,7 +500,7 @@ export interface RunInputFinding {
 }
 
 export interface RunInputPreflight {
-  /** Paths the start worker renders. Missing one fails the run immediately, so this blocks. */
+  /** Paths the start node renders. Missing one fails the run immediately, so this blocks. */
   blocking: RunInputFinding[];
   /** Paths only a later or conditional node renders. That node may never run, so this warns. */
   warnings: RunInputFinding[];
@@ -530,10 +509,11 @@ export interface RunInputPreflight {
 /**
  * Checks an already-parsed input object against the observed contract.
  *
- * The asymmetry between the two lists is the whole point. Anything the start worker needs is
- * provably rendered before a single branch decision is taken, so Atlas fails the run at once and
- * blocking is truthful. Anything else is reached only along a path this function cannot predict —
- * calling it required would invent a global requirement the graph does not have.
+ * The asymmetry between the two lists is the whole point. Anything the start node needs — worker
+ * or manager, both executable since the manager-prompt-parity fix — is provably rendered before a
+ * single branch decision is taken, so Atlas fails the run at once and blocking is truthful.
+ * Anything else is reached only along a path this function cannot predict — calling it required
+ * would invent a global requirement the graph does not have.
  */
 export function preflightRunInput(
   contract: ObservedContract,
@@ -547,11 +527,11 @@ export function preflightRunInput(
     const finding: RunInputFinding = {
       path: observed.path,
       nodeIds: observed.nodeIds,
-      message: observed.referencedByStartWorker
+      message: observed.referencedByStartNode
         ? `The start node ${contract.startNodeId} renders {${observed.path}} before any branch is chosen, so Atlas fails this run as soon as it starts.`
         : `{${observed.path}} is referenced by ${observed.nodeIds.join(", ")}. Those nodes may not run on every path, so this is a risk rather than a known requirement — but if one of them does run without it, that node fails.`,
     };
-    if (observed.referencedByStartWorker) blocking.push(finding);
+    if (observed.referencedByStartNode) blocking.push(finding);
     else warnings.push(finding);
   }
 
@@ -599,7 +579,7 @@ export function contractJson(contract: ObservedContract): string {
     observed_input_paths: contract.inputPaths.slice(0, MAX_RENDERED_PATHS).map((path) => ({
       path: path.path,
       referenced_by: path.nodeIds,
-      referenced_by_start_worker: path.referencedByStartWorker,
+      referenced_by_start_node: path.referencedByStartNode,
     })),
     /** How many paths this document omits. The dialog still checks every one of them. */
     observed_input_paths_omitted: Math.max(0, contract.inputPaths.length - MAX_RENDERED_PATHS),
@@ -612,7 +592,6 @@ export function contractJson(contract: ObservedContract): string {
       guaranteed: false,
     })),
     possible_outputs_omitted: Math.max(0, contract.outputs.length - MAX_RENDERED_OUTPUTS),
-    manager_prompt_references: contract.managerReferences,
     diagnostics: contract.diagnostics,
   });
 }
@@ -884,10 +863,10 @@ export function contractMarkdown(contract: ObservedContract): string {
   if (contract.inputPaths.length === 0) {
     lines.push(`No \`{input.*}\` reference was found in any executable prompt.`, ``);
   } else {
-    lines.push(`| Path | Referenced by | Rendered by the start worker |`, `| --- | --- | --- |`);
+    lines.push(`| Path | Referenced by | Rendered by the start node |`, `| --- | --- | --- |`);
     for (const path of contract.inputPaths.slice(0, MAX_RENDERED_PATHS)) {
       lines.push(
-        `| \`${path.path}\` | ${path.nodeIds.map((id) => `\`${id}\``).join(", ")} | ${path.referencedByStartWorker ? "yes" : "no"} |`,
+        `| \`${path.path}\` | ${path.nodeIds.map((id) => `\`${id}\``).join(", ")} | ${path.referencedByStartNode ? "yes" : "no"} |`,
       );
     }
     const omitted = contract.inputPaths.length - MAX_RENDERED_PATHS;
@@ -900,7 +879,7 @@ export function contractMarkdown(contract: ObservedContract): string {
     }
     lines.push(
       ``,
-      `A path rendered by the start worker fails the run immediately when it is absent. Every`,
+      `A path rendered by the start node fails the run immediately when it is absent. Every`,
       `other path belongs to a node that may never execute, so its absence is a risk, not a`,
       `known requirement.`,
       ``,
