@@ -52,9 +52,10 @@ test("table header/hover washes and the canvas backdrop render from their tokens
   // Table header wash (bg-highlight/[0.03]) is present, not transparent.
   await page.getByRole("link", { name: "Jobs", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Jobs" })).toBeVisible();
-  const theadColor = await page.evaluate(
-    () => getComputedStyle(document.querySelector("thead")!).backgroundColor,
-  );
+  // The table streams in after the heading; wait for it so getComputedStyle has an element.
+  const thead = page.locator("thead").first();
+  await expect(thead).toBeVisible();
+  const theadColor = await thead.evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(theadColor).not.toMatch(TRANSPARENT);
 
   // Canvas edge labels resolve React Flow's variables to the promoted tokens — a broken
