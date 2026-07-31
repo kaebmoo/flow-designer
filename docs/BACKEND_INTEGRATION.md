@@ -283,6 +283,55 @@ Verified against `atlas/app.py` (`_stream_job_events`, `_is_authorized`), `atlas
 
 Do not recreate the UI `run.log` field. Read run metadata, runtime nodes, approvals, artifacts, and job event streams from their Atlas endpoints and combine them in a view model.
 
+### Run input: what Atlas does and does not check
+
+`POST /api/workflow-runs` validates that `input` is a JSON object and that the reserved `_meta` envelope is well-formed. **There is no business schema.** A run whose start node references a `{input.x}` that was not supplied is still created and still answered `202`; the failure happens later, on the background thread that renders that node's prompt. Any UI that claims otherwise is guessing.
+
+Business values round-trip unchanged — nested objects, arrays, and every JSON scalar. The single documented mutation is additive and confined to the reserved envelope: `WorkflowRunner._with_default_reply` merges the workflow's `default_reply` into `_meta.reply` when the caller omitted one. `tests/contract/mutations.contract.test.ts` asserts both halves against a real Atlas.
+
+Two gaps a caller has to design around, because Atlas offers no mechanism for either:
+
+- **No dedupe on the direct route.** Two POSTs are two runs. A trigger's `POST /api/workflow-triggers/{id}/fire` does support a dedupe key; this route does not.
+- **No version pin.** There is no `expected_workflow_version`, so an edit between reading a workflow's shape and starting a run against it is undetectable.
+
+### Prompt placeholders — worker versus manager
+
+`_FIELD_RE` (`atlas/workflows.py:31`) is the only placeholder grammar Atlas has:
+
+```python
+re.compile(r"{([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+)}")
+```
+
+At least one dot is mandatory, so `{input}` and `{files_dir}` are not placeholders — the latter is substituted separately by a plain string replace (`atlas/workflows.py:1623`). There is no array-index syntax. `render_prompt` resolves exactly five roots: `input`, `artifact`, `run`, `node`, `job`; anything else raises `unknown prompt variable` and fails the node. A path resolves only when every intermediate segment is a dict holding that key (`_resolve_path`), so an intermediate scalar or array is a miss.
+
+**Only a worker node's prompt is interpolated.** `_prepare_worker_node_payload` (`atlas/workflows.py:1614-1618`) routes a manager node to `_manager_prompt`, which takes `node["prompt"]` verbatim, appends the `manager_decision_v1` instruction and a JSON context of `{graph, current_node, artifacts, counters, policy}`, and never calls `render_prompt`. That context contains no `input` at all. A `{input.x}` in a manager prompt is therefore **not substituted and not an error** — the literal characters reach the model. Atlas's own concepts and visual-builder docs describe manager substitution, so docs and executable path disagree; tracked in [ATLAS_LIMITATIONS.md](ATLAS_LIMITATIONS.md).
+
+A parent reference and a child reference are **not** in conflict. `_prompt_value`
+(`atlas/workflows.py:2193`) JSON-encodes a dict, so given `{"user":{"name":"Alice"}}` the prompt
+`{input.user}` renders `{"name":"Alice"}` and `{input.user.name}` renders `Alice` — one object
+satisfies both, and the generated example nests accordingly.
+
+`__proto__` is an ordinary dict key to Python, so the grammar matches `{input.__proto__.x}` and
+Atlas would substitute it from a caller-supplied key of that name. Any JavaScript client building
+an object from these paths must therefore use null-prototype containers and own-property checks;
+`{}` plus direct assignment writes the leaf onto `Object.prototype`.
+
+### Response envelopes
+
+Every one of these is wrapped, and `src/lib/atlas-api.server.ts` asserts the exact shapes:
+
+| Call                                    | Body                                                 |
+| --------------------------------------- | ---------------------------------------------------- |
+| `POST /api/workflow-runs`               | `{"run": {…}}`                                       |
+| `GET /api/workflow-runs/{id}`           | `{"run": …, "nodes": …, "edges": …, "approvals": …}` |
+| `GET /api/workflow-runs/{id}/artifacts` | `{"artifacts": [...]}`                               |
+
+`SNIPPET_ENVELOPE` in `src/lib/workflow-run-contract.ts` is the single source of truth for the
+generated integration examples, and `tests/contract/mutations.contract.test.ts` walks those paths
+against a live Atlas so a snippet cannot claim an access path the wire does not satisfy.
+
+`src/lib/workflow-run-contract.ts` mirrors this grammar (using `\p{L}\p{N}_` because JavaScript's `\w` is ASCII-only while Python's is Unicode-aware) and reports manager references separately from run inputs for exactly this reason.
+
 ## Role and permission matrix (UI gating only)
 
 Atlas enforces these centrally in `_dispatch`; the frontend mirrors them **only** to hide/disable

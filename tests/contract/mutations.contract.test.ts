@@ -49,6 +49,7 @@ import {
   atlasValidateWorkflow,
 } from "@/lib/atlas-api.server";
 import { toApprovalView, toTriggerView } from "@/lib/atlas-mappers";
+import { SNIPPET_ENVELOPE } from "@/lib/workflow-run-contract";
 import { resetServerEnvCache } from "@/lib/env.server";
 import type { AtlasWorkflowRun } from "@/lib/atlas-types";
 import {
@@ -764,6 +765,131 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
       expect(detail.run.id).toBe(run.id);
       // The graph is snapshotted onto the run, so a later edit cannot rewrite history.
       expect(detail.run.graph_snapshot).toBeTruthy();
+    });
+
+    /**
+     * The Test Run dialog's whole premise: what the operator typed is what the run receives.
+     *
+     * Asserted against a real Atlas rather than against the adapter, because the interesting
+     * failure is silent coercion somewhere in the chain — a JSON round trip that turns an
+     * integer into a float, an adapter that flattens a nested object, a boundary that drops a
+     * key it did not recognise. Every JSON shape is covered in one payload so a regression in
+     * any one of them fails here.
+     */
+    it("persists nested objects, arrays, and scalars exactly as sent", async () => {
+      const input = {
+        applicant: { name: "นายทดสอบ ระบบ", address: { city: "กรุงเทพฯ", postcode: "10200" } },
+        permit_types: ["build", "modify"],
+        revisions: [{ n: 1, ok: true }, { n: 2, ok: false }, null],
+        count: 42,
+        ratio: 0.5,
+        negative: -7,
+        approved: false,
+        absent: null,
+        empty_object: {},
+        empty_list: [],
+        "unicode key ✓": 'value with "quotes" and \\ backslash\nand a newline',
+      };
+
+      const run = await atlasStartWorkflowRun(adminToken, {
+        workflowDefinitionId: seeded!.workflowId,
+        input,
+      });
+
+      // Read back from Atlas's own row, not from the start response, so persistence is proven.
+      const { run: persisted } = await atlasGetWorkflowRun(adminToken, run.id);
+
+      /**
+       * The single documented exception, and the reason this is not a plain `toEqual`.
+       *
+       * `WorkflowRunner._with_default_reply` merges the workflow's `default_reply` into
+       * `_meta.reply` when the caller omitted one. It is additive and confined to the reserved
+       * `_meta` envelope — no business key is added, removed, or rewritten. The seeded workflow
+       * has no default reply, so `_meta` is absent here; the merge itself is covered by
+       * "inherits the stored reply into runs" above.
+       */
+      const { _meta, ...business } = persisted.input;
+      expect(business).toEqual(input);
+      expect(_meta).toBeUndefined();
+    });
+
+    it("returns a real wfr_ id for a run started with business input", async () => {
+      const run = await atlasStartWorkflowRun(adminToken, {
+        workflowDefinitionId: seeded!.workflowId,
+        input: { topic: "weather" },
+      });
+      expect(run.id).toMatch(/^wfr_[a-z0-9]+$/);
+      expect((await atlasGetWorkflowRun(adminToken, run.id)).run.input).toMatchObject({
+        topic: "weather",
+      });
+    });
+
+    /**
+     * Atlas remains the authorization authority for a run started with input, exactly as it is
+     * for one started without. Nothing about carrying a payload changes who may start it.
+     */
+    it("still refuses a viewer's start, and says 403", async () => {
+      const error = atlasErrorFrom(
+        await atlasStartWorkflowRun(viewerToken, {
+          workflowDefinitionId: seeded!.workflowId,
+          input: { topic: "weather" },
+        }).catch((e: unknown) => e),
+      );
+      expect(error.kind).toBe("forbidden");
+      expect(error.status).toBe(403);
+    });
+
+    /**
+     * The envelope shapes the generated examples are written against, checked on the wire.
+     *
+     * `SNIPPET_ENVELOPE` is the single source of truth for both the snippets and this test, so a
+     * generated example can only claim an access path that a real Atlas response actually
+     * satisfies. The bug this replaces shipped `body.state` in the TypeScript example and
+     * `run["state"]` in the Python one, against a body that is really `{"run": {...}}` — a
+     * polling loop that never terminates and a `KeyError`, neither visible to a unit test that
+     * only greps the generated string.
+     */
+    it("answers the three example endpoints with the envelopes the snippets unwrap", async () => {
+      const walk = (body: unknown, path: readonly string[]) =>
+        path.reduce<unknown>(
+          (value, key) =>
+            value !== null && typeof value === "object"
+              ? (value as Record<string, unknown>)[key]
+              : undefined,
+          body,
+        );
+
+      const token = adminToken;
+      const base = atlas!.origin;
+      const json = async (path: string, init?: RequestInit) => {
+        const response = await fetch(`${base}${path}`, {
+          ...init,
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        });
+        expect(response.ok, `${path} → ${response.status}`).toBe(true);
+        return (await response.json()) as unknown;
+      };
+
+      const started = await json("/api/workflow-runs", {
+        method: "POST",
+        body: JSON.stringify({ workflow_definition_id: seeded!.workflowId, input: {} }),
+      });
+      const runId = walk(started, SNIPPET_ENVELOPE.startRunId);
+      expect(typeof runId, "startRunId resolved on the real body").toBe("string");
+      expect(runId as string).toMatch(/^wfr_/);
+      // The mistake the snippets used to make: the run row is not at the top level.
+      expect(walk(started, ["id"])).toBeUndefined();
+
+      const detail = await json(`/api/workflow-runs/${runId as string}`);
+      expect(typeof walk(detail, SNIPPET_ENVELOPE.runState)).toBe("string");
+      expect(walk(detail, ["state"])).toBeUndefined();
+      // The detail envelope the TypeScript example destructures for waiting_for_human.
+      for (const key of ["run", "nodes", "edges", "approvals"]) {
+        expect(detail).toHaveProperty(key);
+      }
+
+      const artifacts = await json(`/api/workflow-runs/${runId as string}/artifacts`);
+      expect(Array.isArray(walk(artifacts, SNIPPET_ENVELOPE.artifacts))).toBe(true);
     });
 
     it("rejects a start against a workflow id that does not exist", async () => {

@@ -52,7 +52,7 @@ through Atlas's REST API (see the
 - Non-saving Explain/Repair drafts and Draft-from-plain-language (`POST /api/workflows/{id}/explain|repair`, `POST /api/workflows/draft`).
 - Suggest-workers / Suggest-triggers helpers (`POST /api/workflows/suggest-workers`, `POST /api/workflows/{id}/suggest-triggers`).
 - A dedicated "manager decision" panel with proposal/acceptance reasoning (visible via run events and audit instead — see §9).
-- Supplying run-input JSON when starting a workflow run from the editor (Run starts immediately with empty input; use `POST /api/workflow-runs` directly to pass `input`).
+- Staging a binary file for the _start_ node. `POST /api/workflow-runs/{id}/files` needs a run that already exists, so a JSON `attachments` field carries text or metadata, never an upload.
 
 ## 1. Start the system
 
@@ -313,14 +313,45 @@ entirely form-based:
 
 Toolbar actions (exact button text): **Auto-arrange**, **Save**/"Saving…",
 **Check against Atlas**/"Checking…" (calls Atlas's
-`POST /api/workflows/{id}/validate`), and **Run**/"Starting…". There is no
-**Explain** and no **Repair** button, and no Draft-from-plain-language /
+`POST /api/workflows/{id}/validate`), and **Test run**/"Starting…". There is
+no **Explain** and no **Repair** button, and no Draft-from-plain-language /
 Suggest-workers UI anywhere (see "Not here" above).
 
-Clicking **Run** starts the workflow immediately with empty input and
-navigates straight to its **Runs** detail page — there is no Run-input-JSON
-field. If a workflow's start node needs `{input.x}` values, start it through
-`POST /api/workflow-runs` with an `input` object instead.
+### Test run
+
+**Test run** opens a dialog. Opening it starts nothing — it only reads the
+saved graph. The dialog has two tabs:
+
+- **Input JSON** — a raw JSON textarea, pre-filled with an example built from
+  the `{input.x}` paths the saved graph references. Those example values are
+  placeholders showing the _shape_ (`"<input.topic>"`); they are not defaults
+  and carry no type information, so replace them. `{}` is always valid. The
+  root must be a JSON object: an array, string, number, boolean, or `null` is
+  refused, as is malformed JSON.
+- **Integration** — labelled **Observed · not enforced by Atlas**, and split
+  into Atlas's own API facts and what was merely _observed_ in this graph.
+  See the [application integration guide](application-integration-en.md).
+
+Two kinds of feedback appear as you type:
+
+- A path the **start** node's prompt renders is a **blocking** error when it
+  is missing. Atlas renders that prompt before choosing any branch, so the run
+  would fail the moment it started.
+- A path only a later or conditional node uses is a **warning**. That node may
+  never run, so its absence is a risk — not a requirement this UI can prove.
+
+Nothing typed here is saved anywhere: not in the browser, not in the URL, and
+not in any example you copy or download.
+
+Clicking **Start test run** creates a **real** Atlas run: workers execute,
+budget units are consumed, and any configured reply webhook is sent. There is
+no dry run. The page then navigates to that run's real `wfr_…` detail page. A
+refusal from Atlas stays on screen with the payload intact.
+
+> An **AI Decision** (manager) prompt is a special case. Atlas builds a
+> manager prompt without substituting `{input.x}`, so such a reference reaches
+> the model literally and supplying a value changes nothing. The dialog says
+> so and does not list it as an input.
 
 Leaving the editor with unsaved changes prompts **Discard unsaved workflow
 changes?** (**Keep editing** / **Discard changes**). A crash-recovery banner
@@ -358,6 +389,13 @@ Opening a run shows, in order:
   (with attempt count and backoff), closed, or — on failure — disconnected,
   session expired, access denied, job not found. Up to 4 concurrent streams;
   the visible log is capped with a note on how much is buffered above it.
+- **Run input**: the exact payload Atlas stored for this run, collapsed behind
+  "Show the input this run was started with". It carries a
+  personal/sensitive-data warning because it is the caller's own data, is
+  capped at 32,000 characters (with a note when cut), and appears **only
+  here** — never on the Runs list. It includes the reserved `_meta` envelope,
+  which is where a reply webhook is configured. The section is absent when the
+  run was started with no input at all.
 - A **Runtime nodes** table (node, job, attempt, duration, error, state) and
   a **Runtime edges** table (from, to, whether the condition matched).
 - **Approvals**: one row per gate reached, with **Approve** (or one button
@@ -368,9 +406,12 @@ Opening a run shows, in order:
   Runtime nodes/the canvas, labeled **AI Decision**.
 - **Artifacts**: key, kind, size, created, and a **Download** or **Preview**
   action (never both — `file_ref` artifacts download, everything else
-  previews in a dialog capped at the first 32,000 characters). **There is no
-  upload control here** — attaching a file to a run (e.g. a contract for a
-  human gate) is API-only (`POST /api/workflow-runs/{id}/files`).
+  previews in a dialog capped at the first 32,000 characters). An artifact
+  written while the page is open appears on its own — the table refreshes when
+  live events report a change and once more when the run reaches a terminal
+  state, so a test run's output needs no reload. **There is no upload control
+  here** — attaching a file to a run (e.g. a contract for a human gate) is
+  API-only (`POST /api/workflow-runs/{id}/files`).
 - **Webhook delivery attempts** for this run, with a **Send webhook now**
   button and a **Retry webhook** button on `failed`/`blocked` rows (see §11
   for the full Deliveries page).
@@ -494,8 +535,9 @@ light/dark theme toggle anywhere, unlike Atlas's own console.
 | Session-expiry banner appears mid-task                                | Save your work; sign in again once it lapses — the 5-session cap can also have evicted this session from another sign-in                                                      |
 | "Atlas is not responding" banner                                      | Atlas is unreachable; retry the affected panel once it recovers rather than trusting the cached numbers on screen                                                             |
 | A page shows a forbidden state                                        | The signed-in user's Atlas role does not permit it — Users & Tokens, for instance, is admin-only                                                                              |
-| Workflow won't Run                                                    | Fix every item in the editor's live Checks list first, then **Save**, then **Run**                                                                                            |
-| Need to pass run input (`{input.x}`)                                  | Not available from the editor's Run button; start the run through `POST /api/workflow-runs` with an `input` object                                                            |
+| Workflow won't Run                                                    | Fix every item in the editor's live Checks list first, then **Save**, then **Test run**                                                                                       |
+| Need to pass run input (`{input.x}`)                                  | Use **Test run** and enter it on the Input JSON tab — see §8                                                                                                                  |
+| **Start test run** is disabled                                        | Either the JSON is malformed or its root is not an object, or a path the start node renders is missing — the message above the button says which                              |
 | Need to attach a file to a run, or submit an ad-hoc job               | Both are API-only today; see [API Reference](https://github.com/kaebmoo/atlas-control-plane/blob/main/docs/specs/api-reference-en.md)                                         |
 | Need deep per-job debugging (tool calls, raw events, collected files) | Use [Atlas's own console](https://github.com/kaebmoo/atlas-control-plane/blob/main/docs/guides/web-user-guide-en.md#4-jobs-output-and-events) instead of this app's Jobs page |
 

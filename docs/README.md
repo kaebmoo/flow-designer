@@ -7,14 +7,25 @@ This project is the web UI for the existing Atlas Control Plane. It is not a sec
 - [Web User Guide — English](guides/web-user-guide-en.md)
 - [คู่มือใช้งานผ่านเว็บ — ภาษาไทย](guides/web-user-guide-th.md)
 
-The guides above are for operators: navigation, fleet, jobs, the workflow
-editor, runs and approvals, triggers, deliveries, the artifact ledger, usage,
-and audit — including what is deliberately out of scope today (ad-hoc job
-composition, run file uploads, and solution-pack import/export remain
-API-only; see
+The two guides above are for operators: navigation, fleet, jobs, the workflow
+editor, test runs, runs and approvals, triggers, deliveries, the artifact
+ledger, usage, and audit — including what is deliberately out of scope today
+(ad-hoc job composition, run file uploads, and solution-pack import/export
+remain API-only; see
 [Atlas's own Web User Guide](https://github.com/kaebmoo/atlas-control-plane/blob/main/docs/guides/web-user-guide-en.md)
-for the minimal embedded ops console that ships with Atlas itself). Everything
-below this section is engineering documentation.
+for the minimal embedded ops console that ships with Atlas itself).
+
+## Application integration guide
+
+For developers building an application **on top of** a workflow rather than
+operating one. Covers the boundary between your application's backend, Atlas,
+and thClaws, the five Atlas calls involved, and what the generated **Observed**
+contract can and cannot promise.
+
+- [Calling a workflow from your own application — English](guides/application-integration-en.md)
+- [เรียกใช้ workflow จากแอปพลิเคชันของคุณเอง — ภาษาไทย](guides/application-integration-th.md)
+
+Everything below this section is engineering documentation.
 
 ## Read first
 
@@ -32,6 +43,9 @@ below this section is engineering documentation.
 - [Phase 7 release notes](RELEASE_NOTES_PHASE_7.md)
 - [Atlas 82207f7 adoption plan](ATLAS_82207F7_ADOPTION_PLAN.md)
 - [Atlas 82207f7 coding prompt](ATLAS_82207F7_CODING_PROMPT.md)
+- [Workflow Test and Application Interface Contract plan](WORKFLOW_TEST_INTEGRATION_CONTRACT_PLAN.md)
+- [Claude Code prompt pack for the workflow interface work](WORKFLOW_TEST_INTEGRATION_CONTRACT_CLAUDE_PROMPTS.md)
+- [Test plan for the workflow interface work](WORKFLOW_TEST_INTEGRATION_CONTRACT_TEST_PLAN.md)
 - [Atlas limitations and backend backlog](ATLAS_LIMITATIONS.md)
 - [ADR-0001: Atlas is the source of truth](adr/0001-atlas-is-source-of-truth.md)
 

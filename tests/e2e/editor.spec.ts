@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 import { ADMIN_CREDENTIALS } from "../contract/atlas-instance";
 import { readSeed } from "./global-setup";
@@ -436,7 +436,8 @@ test.describe("workflow editor", () => {
     await createWorkflow(page);
     await expect(dirtyState(page)).toHaveText("Saved");
 
-    await page.getByRole("button", { name: "Run", exact: true }).click();
+    await page.getByRole("button", { name: "Test run", exact: true }).click();
+    await page.getByTestId("start-test-run").click();
     // Atlas mints the id — the scaffold minted `run_000NN` in the browser from an array length.
     await page.waitForURL(/\/runs\/wfr_[a-z0-9]+$/);
     expect(new URL(page.url()).pathname).toMatch(/\/runs\/wfr_/);
@@ -449,7 +450,7 @@ test.describe("workflow editor", () => {
     await page.getByRole("button", { name: /^Wait for branches/ }).click();
     await expect(dirtyState(page)).toHaveText("Unsaved changes");
 
-    const run = page.getByRole("button", { name: "Run", exact: true });
+    const run = page.getByRole("button", { name: "Test run", exact: true });
     await expect(run).toBeDisabled();
     await expect(run).toHaveAttribute("title", /Save first/);
 

@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ARTIFACT_PREVIEW_MAX_CHARS,
   atlasDurationMs,
   formatAtlasTimestamp,
   formatDurationMs,
@@ -354,6 +355,25 @@ describe("toRunView", () => {
   it("keeps a null workflow definition id, which Atlas sets when a definition is deleted", () => {
     expect(toRunView({ ...run, workflow_definition_id: null }).workflowDefinitionId).toBeNull();
   });
+
+  /**
+   * The run *list* is built from this model, and `GET /api/workflow-runs` is a `SELECT *`, so
+   * every listed run carries its full business payload. Adding input here would ship all of it
+   * into a browser query cache that renders none of it — a page of runs would leak a page of
+   * caller data. The bounded preview belongs to `RunDetailView` and to nothing else.
+   */
+  it("carries no business input, in any form, on any run-list row", () => {
+    const view = toRunView({
+      ...run,
+      input: { applicant_name: "a real person", _meta: { reply: { mode: "none" } } },
+    });
+
+    expect(view).not.toHaveProperty("input");
+    expect(view).not.toHaveProperty("inputPreview");
+    // The one value deliberately read out of input is the reply callback URL, which decides
+    // whether `POST /deliver` can succeed. Nothing else may follow it.
+    expect(JSON.stringify(view)).not.toContain("a real person");
+  });
 });
 
 describe("toRunDetailView", () => {
@@ -440,6 +460,59 @@ describe("toRunDetailView", () => {
       approvals: [],
     });
     expect(view.graphSnapshot).toBeNull();
+  });
+
+  describe("bounded input preview", () => {
+    const detailOf = (input: Record<string, unknown>) =>
+      toRunDetailView({ run: { ...run, input }, nodes: [], edges: [], approvals: [] });
+
+    it("pretty-prints the persisted input", () => {
+      const view = detailOf({ applicant: { name: "ผู้ยื่น" }, permit_type: "build" });
+      expect(view.inputPreview).toBe(
+        JSON.stringify({ applicant: { name: "ผู้ยื่น" }, permit_type: "build" }, null, 2),
+      );
+      expect(view.inputTruncated).toBe(false);
+    });
+
+    it("keeps _meta visible, because it explains the run's delivery", () => {
+      const view = detailOf({ _meta: { reply: { mode: "webhook", callback_url: "https://x/y" } } });
+      expect(view.inputPreview).toContain("_meta");
+      expect(view.inputPreview).toContain("callback_url");
+    });
+
+    it("reports null for an empty input rather than rendering an empty object", () => {
+      expect(detailOf({})).toMatchObject({ inputPreview: null, inputTruncated: false });
+    });
+
+    it("cuts a multi-byte payload on a character boundary, never mid-sequence", () => {
+      // Thai text with combining marks: slicing by code units alone can split a surrogate pair
+      // or strand a mark, and the result would render as replacement characters.
+      const view = detailOf({ detail: "ก่อสร้างอาคารพาณิชย์ ".repeat(4_000) });
+
+      expect(view.inputTruncated).toBe(true);
+      expect(view.inputPreview!.length).toBeLessThanOrEqual(ARTIFACT_PREVIEW_MAX_CHARS);
+      expect(view.inputPreview).not.toContain("\uFFFD");
+      // Still valid UTF-16: re-encoding round-trips without loss.
+      expect([...view.inputPreview!].join("")).toBe(view.inputPreview);
+    });
+
+    it("keeps an emoji cluster whole at the boundary", () => {
+      const family = "👩‍👩‍👧‍👦";
+      const view = detailOf({ detail: family.repeat(ARTIFACT_PREVIEW_MAX_CHARS) });
+
+      expect(view.inputTruncated).toBe(true);
+      expect(view.inputPreview!.length).toBeLessThanOrEqual(ARTIFACT_PREVIEW_MAX_CHARS);
+      // No lone surrogate at the cut.
+      const lastUnit = view.inputPreview!.charCodeAt(view.inputPreview!.length - 1);
+      expect(lastUnit >= 0xd800 && lastUnit <= 0xdbff).toBe(false);
+    });
+
+    it("caps at the shared preview budget and flags the truncation", () => {
+      const view = detailOf({ blob: "x".repeat(ARTIFACT_PREVIEW_MAX_CHARS * 2) });
+
+      expect(view.inputTruncated).toBe(true);
+      expect(view.inputPreview!.length).toBeLessThanOrEqual(ARTIFACT_PREVIEW_MAX_CHARS);
+    });
   });
 
   it("distinguishes an unrecorded edge condition from a false one", () => {

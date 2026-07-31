@@ -55,9 +55,9 @@ Atlas (ดู
   (`POST /api/workflows/suggest-workers`, `POST /api/workflows/{id}/suggest-triggers`)
 - แผง "manager decision" ที่แสดง proposal และเหตุผลรับ/ปฏิเสธโดยเฉพาะ (ดูได้
   ผ่าน run events และ audit แทน — ดู §9)
-- ใส่ run-input JSON ตอนเริ่ม workflow run จากหน้า editor (ปุ่ม Run เริ่มทันที
-  ด้วย input ว่าง; ต้องเรียก `POST /api/workflow-runs` ตรง ๆ พร้อม `input`
-  เพื่อกำหนดค่า)
+- แนบไฟล์ binary ให้ start node ตั้งแต่ก่อนเริ่ม run เพราะ
+  `POST /api/workflow-runs/{id}/files` ต้องมี run อยู่ก่อนแล้ว ดังนั้นฟิลด์
+  `attachments` ใน JSON จึงเป็นข้อความหรือ metadata เท่านั้น ไม่ใช่การอัปโหลดไฟล์
 
 ## 1. เริ่มระบบ
 
@@ -311,14 +311,43 @@ policy (ด้านล่าง) จะเปิด
 
 ปุ่มใน toolbar (ข้อความจริง): **Auto-arrange**, **Save**/"Saving…", **Check
 against Atlas**/"Checking…" (เรียก `POST /api/workflows/{id}/validate` ของ
-Atlas) และ **Run**/"Starting…" ไม่มีปุ่ม **Explain** และไม่มีปุ่ม **Repair**
-รวมถึงไม่มี UI สำหรับ Draft-from-plain-language / Suggest-workers เลย (ดู
-"สิ่งที่ยังไม่มีใน UI" ด้านบน)
+Atlas) และ **Test run**/"Starting…" ไม่มีปุ่ม **Explain** และไม่มีปุ่ม
+**Repair** รวมถึงไม่มี UI สำหรับ Draft-from-plain-language / Suggest-workers
+เลย (ดู "สิ่งที่ยังไม่มีใน UI" ด้านบน)
 
-กด **Run** แล้ว workflow จะเริ่มทันทีด้วย input ว่าง แล้วพาไปหน้ารายละเอียด
-**Runs** เลย — ไม่มีช่อง Run-input-JSON ถ้า start node ของ workflow ต้องใช้
-ค่า `{input.x}` ให้เริ่ม run ผ่าน `POST /api/workflow-runs` พร้อมใส่ object
-`input` แทน
+### Test run
+
+กด **Test run** แล้วจะเปิด dialog ขึ้นมา การเปิด dialog ไม่ได้เริ่ม run ใด ๆ
+เป็นเพียงการอ่าน graph ที่ save ไว้ ใน dialog มี 2 แท็บ:
+
+- **Input JSON** — ช่องพิมพ์ JSON ดิบ พร้อมตัวอย่างที่สร้างจาก path `{input.x}`
+  ที่ graph อ้างถึงจริง ค่าในตัวอย่างเป็นเพียง placeholder ที่แสดง _รูปร่าง_
+  (`"<input.topic>"`) ไม่ใช่ค่า default และไม่ได้บอกชนิดข้อมูล จึงต้องแก้เป็นค่าจริง
+  ใส่ `{}` ก็ใช้ได้เสมอ ราก (root) ต้องเป็น JSON object เท่านั้น ถ้าเป็น array,
+  string, number, boolean หรือ `null` จะถูกปฏิเสธ เช่นเดียวกับ JSON ที่ผิดรูปแบบ
+- **Integration** — มีป้ายกำกับว่า **Observed · not enforced by Atlas** และแยก
+  ข้อเท็จจริงของ Atlas API ออกจากสิ่งที่เป็นเพียงการ _สังเกต_ จาก graph นี้ ดู
+  [คู่มือเชื่อมต่อกับแอปพลิเคชัน](application-integration-th.md)
+
+ระหว่างพิมพ์จะมีคำเตือน 2 ระดับ:
+
+- path ที่ prompt ของ **start node** ใช้ ถ้าขาดไปจะเป็น error แบบ **บล็อก**
+  เพราะ Atlas render prompt นั้นก่อนเลือก branch ใด ๆ run จึงล้มทันทีที่เริ่ม
+- path ที่มีแต่ node ถัดไปหรือ node ตามเงื่อนไขใช้ จะเป็นเพียง **คำเตือน**
+  เพราะ node นั้นอาจไม่ถูกเรียกเลย การขาดค่าจึงเป็นความเสี่ยง ไม่ใช่ข้อบังคับ
+  ที่ UI นี้พิสูจน์ได้
+
+สิ่งที่พิมพ์ในช่องนี้ไม่ถูกบันทึกไว้ที่ใดเลย ไม่ว่าจะในเบราว์เซอร์ ใน URL หรือใน
+ตัวอย่างที่ copy/download ออกไป
+
+กด **Start test run** จะสร้าง run จริงบน Atlas: worker ทำงานจริง มีการใช้ budget
+units จริง และ reply webhook ที่ตั้งไว้จะถูกส่งจริง ไม่มีโหมดทดลองแบบไม่ทำงานจริง
+จากนั้นหน้าจะพาไปยังหน้ารายละเอียดของ run นั้นด้วย id จริง `wfr_…` ถ้า Atlas
+ปฏิเสธ ข้อความจะยังอยู่บนจอพร้อมกับ payload เดิม
+
+> **AI Decision** (manager) เป็นกรณีพิเศษ Atlas สร้าง prompt ของ manager โดย
+> ไม่แทนค่า `{input.x}` ข้อความนั้นจึงถูกส่งถึงโมเดลตรง ๆ และการใส่ค่าให้ก็ไม่มีผล
+> dialog จะแจ้งเรื่องนี้ และจะไม่แสดงมันเป็น input
 
 ถ้าออกจาก editor ทั้งที่ยังไม่ได้ save จะมีข้อความถาม **Discard unsaved
 workflow changes?** (**Keep editing** / **Discard changes**) มี banner
@@ -356,6 +385,12 @@ duration, state กรองด้วย chip สถานะ (`all`, `running`,
   attempt และเวลารอ), closed หรือถ้าล้มเหลว: disconnected, session expired,
   access denied, job not found สตรีมพร้อมกันได้สูงสุด 4 ตัว log ที่แสดงถูก
   จำกัดจำนวนพร้อมข้อความบอกว่ามีเก็บสำรองไว้อีกเท่าไร
+- **Run input**: payload ที่ Atlas เก็บไว้จริงสำหรับ run นี้ ถูกพับเก็บไว้หลัง
+  "Show the input this run was started with" มีคำเตือนเรื่องข้อมูลส่วนบุคคล/
+  ข้อมูลอ่อนไหว เพราะเป็นข้อมูลของผู้เรียกเอง จำกัดที่ 32,000 ตัวอักษร (มีข้อความ
+  บอกเมื่อถูกตัด) และแสดง **เฉพาะที่นี่** เท่านั้น ไม่ปรากฏในรายการ Runs
+  รวมถึง `_meta` ที่เป็นซองสงวนของ Atlas ซึ่งเป็นที่ตั้งค่า reply webhook
+  ถ้า run เริ่มโดยไม่มี input เลย ส่วนนี้จะไม่แสดง
 - ตาราง **Runtime nodes** (node, job, attempt, duration, error, state) และ
   ตาราง **Runtime edges** (from, to, เงื่อนไขตรงหรือไม่)
 - **Approvals**: หนึ่งแถวต่อ gate ที่ไปถึง มีปุ่ม **Approve** (หรือปุ่มต่อ
@@ -367,6 +402,9 @@ duration, state กรองด้วย chip สถานะ (`all`, `running`,
 - **Artifacts**: key, kind, size, created และปุ่ม **Download** หรือ
   **Preview** (ไม่มีทั้งสองพร้อมกัน — artifact ชนิด `file_ref` ดาวน์โหลด
   ส่วนชนิดอื่น preview ในกล่องโต้ตอบที่จำกัดไว้ 32,000 ตัวอักษรแรก)
+  artifact ที่ถูกเขียนขึ้นระหว่างเปิดหน้าอยู่จะขึ้นมาเอง — ตารางจะ refresh เมื่อ
+  live event บอกว่ามีการเปลี่ยนแปลง และอีกครั้งเมื่อ run เข้าสู่สถานะสุดท้าย
+  ผลลัพธ์ของ test run จึงไม่ต้อง reload หน้า
   **ตรงนี้ไม่มีช่องอัปโหลด** — การแนบไฟล์เข้า run (เช่น สัญญาให้ human gate
   ตรวจ) ต้องผ่าน API เท่านั้น (`POST /api/workflow-runs/{id}/files`)
 - **Webhook delivery attempts** ของ run นี้ มีปุ่ม **Send webhook now** และ
@@ -489,8 +527,9 @@ Atlas, เวอร์ชัน schema, เวลาของ server) ดึง�
 | banner หมดอายุ session ขึ้นระหว่างทำงาน                                     | บันทึกงานที่ทำค้างไว้ก่อน แล้ว sign in ใหม่เมื่อหมดอายุจริง — quota 5 session อาจทำให้ session นี้ถูกเบียดออกจากที่อื่นด้วย                                          |
 | banner "Atlas is not responding"                                            | Atlas ติดต่อไม่ได้ ให้ลอง retry panel ที่ได้รับผลกระทบเมื่อ Atlas กลับมา แทนที่จะเชื่อตัวเลขที่ค้างอยู่บนจอ                                                          |
 | หน้าใดหน้าหนึ่งแสดงสถานะ forbidden                                          | role ของผู้ใช้ที่ sign in ไม่มีสิทธิ์เข้าถึง — เช่น Users & Tokens เฉพาะ admin เท่านั้น                                                                              |
-| Workflow กด Run ไม่ได้                                                      | แก้รายการใน Checks ของ editor ให้ครบก่อน แล้วค่อย **Save** แล้วค่อย **Run**                                                                                          |
-| ต้องส่งค่า run input (`{input.x}`)                                          | ทำผ่านปุ่ม Run ของ editor ไม่ได้ ต้องเริ่ม run ผ่าน `POST /api/workflow-runs` พร้อม object `input` แทน                                                               |
+| Workflow กด Run ไม่ได้                                                      | แก้รายการใน Checks ของ editor ให้ครบก่อน แล้วค่อย **Save** แล้วค่อย **Test run**                                                                                     |
+| ต้องส่งค่า run input (`{input.x}`)                                          | ใช้ปุ่ม **Test run** แล้วกรอกในแท็บ Input JSON — ดู §8                                                                                                               |
+| ปุ่ม **Start test run** กดไม่ได้                                            | JSON ผิดรูปแบบ หรือ root ไม่ใช่ object หรือขาด path ที่ start node ต้องใช้ — ข้อความเหนือปุ่มจะบอกว่าเป็นกรณีไหน                                                     |
 | ต้องแนบไฟล์เข้า run หรือสั่งงานเดี่ยวแบบ ad-hoc                             | ทั้งสองอย่างต้องผ่าน API เท่านั้นในตอนนี้ ดู [API Reference](https://github.com/kaebmoo/atlas-control-plane/blob/main/docs/specs/api-reference-th.md)                |
 | ต้องดีบัก job รายตัวแบบละเอียด (เรียกเครื่องมือ, raw event, ไฟล์ที่เก็บไว้) | ใช้ [Atlas console เดิม](https://github.com/kaebmoo/atlas-control-plane/blob/main/docs/guides/web-user-guide-th.md#4-งาน-ผลลัพธ์และเหตุการณ์) แทนหน้า Jobs ของแอปนี้ |
 

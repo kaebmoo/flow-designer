@@ -109,6 +109,129 @@ Record the following for each release:
 - known Atlas limitations exercised
 - build/lint/test output
 
+## Workflow Test Run and observed contract — Milestone A evidence (2026-07-31)
+
+Scope: `docs/WORKFLOW_TEST_INTEGRATION_CONTRACT_PLAN.md` §6. Atlas was read only; neither Atlas
+nor thClaws was modified.
+
+Three claims needed evidence that ordinary unit tests cannot give.
+
+**The grammar is Atlas's, not ours.** `tests/unit/workflow-run-contract.test.ts` drives a table of
+templates whose expected results were produced by running Atlas's own compiled `_FIELD_RE`
+(`atlas/workflows.py:31`) over the same strings — including the cases where JavaScript and Python
+would otherwise diverge (`{input.a_ก}` matches, `{input.ชื่อ}` does not, because Python's `\w` is
+Unicode-aware while JavaScript's is ASCII-only). A divergence there is a divergence from the
+executor, not a style difference.
+
+**The manager finding is behavioural.** Prompt inspection alone would have reported `{input.x}` in
+a manager prompt as a run input. Reading the executable path instead
+(`_prepare_worker_node_payload`, `atlas/workflows.py:1614-1618`) showed manager prompts never
+reach `render_prompt`. The tests assert the _absence_ of such a path from `inputPaths` and from
+the preflight, which is the assertion that would fail if someone "fixed" the extractor to include
+manager prompts. Recorded as an Atlas follow-up in `ATLAS_LIMITATIONS.md`.
+
+**Input round-trips through a real Atlas.** `tests/contract/mutations.contract.test.ts` posts one
+payload covering nested objects, arrays, every JSON scalar, `null`, empty containers, Unicode
+keys, and escapes, then reads the persisted row back and asserts equality after removing exactly
+`_meta` — the single documented exception, Atlas's `default_reply` merge. A fixture could not have
+caught a coercion introduced anywhere in the chain.
+
+Browser coverage lives in `tests/e2e/test-run.spec.ts`. Two harness constraints shaped it, both
+documented in the file: it must sort **after** `reads.spec.ts`, whose 25-row window assertion only
+holds while the instance has few workflows, and it signs in **once** for the whole file, because
+Atlas revokes a user's oldest dashboard sessions beyond `max_active_sessions` (default 5) and a
+login-per-test eventually invalidates the token `globalSetup` handed to `zz-live.spec.ts`.
+`zz-live.spec.ts` gained the artifact-without-reload case, which needs the stub worker: it asserts
+the table is empty while the node runs and populated after it succeeds, with no `page.reload()`.
+
+Mutation-tested: dropping `input` from the start call, submitting on dialog open, removing the
+terminal artifact invalidation, putting input on `RunView`, and deleting the observed/advisory
+label each make a specific targeted test fail. Every mutation was reverted before the final gate.
+
+Results: `format:check`, `lint`, `typecheck`, `build`, `scan:bundle` exit 0 (57 public files
+clean); unit `528 passed`; real-Atlas contract `146 passed, 3 skipped`; stream `27 passed`;
+browser `119 passed`.
+
+**`test:remote` did not run.** Its `globalSetup` requires Node 24.x and the recording machine has
+only Node v25.2.1 (plus an nvm-managed v20.17.0); the run failed with
+`Phase 7 requires Node 24.x, got v25.2.1`. The guard was left in place rather than relaxed — it
+exists so the remote-like artifact is exercised on the runtime `engines` pins, and disabling it to
+produce a green line would report the opposite of what happened. Re-run this milestone's gate with
+`PHASE7_NODE_BINARY` pointing at a Node 24 executable before treating the remote-like evidence as
+current. Nothing in this milestone touches the transport, cookie, or CSRF behaviour that suite
+covers, but that is an argument about likelihood, not evidence.
+
+## Milestone A correction pass (2026-07-31)
+
+A review of the first Milestone A candidate found six defects. Each was reproduced with a focused
+test that went red before any fix.
+
+**Prototype pollution (release blocker).** `{input.__proto__.atlasPolluted}` in a worker prompt
+made `buildSkeleton` read `Object.prototype`, treat it as the nested branch, and write the leaf
+onto it — one saved workflow poisoning every object in the running app. The path itself is
+legitimate: Python has no prototype chain, so `__proto__` is an ordinary dict key Atlas would
+substitute. Fixed with `Object.create(null)` containers and `hasOwnProperty` reads throughout, so
+the key survives as an own property and still serialises. Covered as leaf, intermediate, repeated,
+and `constructor.prototype`, each asserting `Object.prototype` is untouched afterwards.
+
+**A false collision.** The module reported `{input.user}` and `{input.user.name}` as unsatisfiable
+and refused to generate an example. Atlas renders both from `{"user":{"name":"Alice"}}` —
+`_prompt_value` JSON-encodes the dict for the parent. Now one nested skeleton serves both, in
+either authoring order, with an informational note rather than an error. **This supersedes test
+plan item A-U02, which still asserts the blocking behaviour; that document needs a later
+correction and was deliberately not edited here.**
+
+**Wrong response envelopes in generated examples.** The TypeScript and Python examples read the
+run row off the top level, but Atlas wraps every relevant body. The TypeScript poll loop would
+never terminate and the Python equivalent would `KeyError`. The access paths are now exported as
+`SNIPPET_ENVELOPE`, rendered into the snippets from that constant, checked against representative
+bodies in unit tests, and walked against a **live** Atlas in the contract suite — string-presence
+assertions could not have caught this.
+
+**Truncation blinded the preflight.** `inputPaths` was capped at 200 before preflight ran, so a
+start worker referencing 201 paths became startable once the visible 200 were supplied. Bounding
+now applies only to rendering; the contract keeps every path. Regression test uses 201 fields.
+
+**Submission was not single-flight.** The guard was React `pending`, which only exists on a later
+render, so two clicks in one task both dispatched. A synchronous ref latch now flips inside the
+first handler. The browser test issues two `HTMLElement.click()` calls from one page evaluation
+while the request is held, and asserts one request left the browser and Atlas created one run.
+
+**Canvas and contract could disagree.** The editor is keyed on workflow id so a background refetch
+cannot discard a draft — which let another tab's save reach the contract while the canvas kept
+drawing the old graph. The route now compares the live version against the one the editor mounted
+on, shows a banner, and withholds Test run until an explicit reload. Reproduced with two real
+tabs, tab B saving through its own editor.
+
+### Acceptance closure
+
+- `PERMIT_APPLICATION_CONTRACT_V1`: a two-node permit workflow driven through the real dialog
+  against the stub worker. Four Thai-language fields block when absent, persist byte-identically,
+  and both `intake_review` and `assessment_result` appear with no reload.
+- **Manager placeholder, captured from the wire.** The stub fixture now records every `/agent/run`
+  prompt. On Atlas `4b837cc` an authored `{input.routing_hint}` arrives _literally_, and a value
+  supplied for it never reaches the model — executable evidence for the discrepancy recorded in
+  `ATLAS_LIMITATIONS.md`, replacing an argument from reading source.
+- Production boundary: a non-object `input` is refused by the server function for a caller who
+  never touched the dialog, an anonymous caller cannot start a run, and a viewer's identical
+  well-formed request is refused by Atlas. Note that a `createServerFn` validator rejection is
+  transported as **HTTP 200** with an error envelope — asserting on status would have been wrong
+  in both directions, so these assert on the refusal text and the absence of any `wfr_` id.
+- Viewer UX: the Test run button is disabled with a reason. UX only — the RPC assertion above is
+  what proves a viewer cannot start one.
+- Entered input is cleared on close and proven absent from the DOM and both web storages.
+- Run-list responses are read **off the wire** and asserted not to contain the payload, rather
+  than only checking the rendered DOM.
+- Bounded preview cuts Thai text and emoji ZWJ clusters without stranding a surrogate.
+- The terminal artifact refresh is counted: zero further refetches after the run settles.
+- Every Copy (5) and Download (2) variant is checked for the entered value, the bearer, and the
+  private origin.
+
+Results: `format:check`, `lint`, `typecheck`, `build`, `scan:bundle` exit 0 (57 public files
+clean); unit `549 passed`; real-Atlas contract `147 passed, 3 skipped`; stream `27 passed`;
+browser `126 passed`; remote-like `1 passed` on Node `v24.14.0` supplied through
+`PHASE7_NODE_BINARY`.
+
 ## Phase 7 evidence and strategy additions (2026-07-21)
 
 The Phase 7 matrix is recorded in `RELEASE_READINESS.md`. The new remote-like suite builds the

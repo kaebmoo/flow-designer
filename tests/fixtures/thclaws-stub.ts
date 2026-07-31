@@ -26,6 +26,16 @@ export interface StubWorker {
   port: number;
   /** Number of /agent/run requests served, for asserting Atlas actually dialled us. */
   runsServed: () => number;
+  /**
+   * Every prompt Atlas actually sent, in order.
+   *
+   * This is the only way to prove what Atlas *renders* rather than what its docs claim: a
+   * manager node's `{input.x}` is asserted here to arrive literally, because
+   * `_prepare_worker_node_payload` never passes a manager prompt through `render_prompt`.
+   */
+  promptsSeen: () => string[];
+  /** Forgets recorded prompts, so one test's assertions cannot see another's traffic. */
+  resetPrompts: () => void;
   close: () => Promise<void>;
 }
 
@@ -57,6 +67,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 export async function startStubWorker(): Promise<StubWorker> {
   let runsServed = 0;
+  const prompts: string[] = [];
 
   const server: Server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/healthz") {
@@ -83,6 +94,7 @@ export async function startStubWorker(): Promise<StubWorker> {
         } catch {
           // An unreadable body streams the defaults.
         }
+        prompts.push(prompt);
         const directives = parseDirectives(prompt);
 
         response.writeHead(200, {
@@ -124,6 +136,10 @@ export async function startStubWorker(): Promise<StubWorker> {
     origin: `http://127.0.0.1:${address.port}`,
     port: address.port,
     runsServed: () => runsServed,
+    promptsSeen: () => [...prompts],
+    resetPrompts: () => {
+      prompts.length = 0;
+    },
     close: () =>
       new Promise<void>((resolve, reject) => {
         // Open SSE responses hold the server; close them so shutdown never hangs.

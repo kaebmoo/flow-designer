@@ -208,7 +208,12 @@ export interface WorkflowEditorProps {
   }) => void;
   validating?: boolean;
   atlasValidation?: { ok: boolean; message: string } | null;
-  /** Starts a real run. Absent while the workflow is unsaved or the role cannot run it. */
+  /**
+   * Opens the Test Run dialog. Absent while the workflow is unsaved or the role cannot run it.
+   *
+   * Deliberately not a mutation: the caller opens a dialog that reads and validates, and only an
+   * explicit `Start test run` inside it creates an Atlas run.
+   */
   onRun?: () => void;
   running?: boolean;
   /** Why running is unavailable, when it is. Shown instead of a silently dead button. */
@@ -908,7 +913,7 @@ function EditorSurface({
               onClick={() => onRun?.()}
             >
               <Play className="mr-1.5 size-3.5" aria-hidden="true" />
-              {running ? "Starting…" : "Run"}
+              {running ? "Starting…" : "Test run"}
             </Button>
           </div>
         </div>

@@ -716,6 +716,17 @@ export interface RunDetailView {
    * total. See `docs/ATLAS_LIMITATIONS.md`.
    */
   approvalsMayBeTruncated: boolean;
+  /**
+   * The run's persisted `input`, pretty-printed and bounded. `null` when it is empty.
+   *
+   * **Detail only, on purpose.** `RunView` is the shared model behind the run *list*, and
+   * `GET /api/workflow-runs` is a `SELECT *`, so putting input there would ship every listed
+   * run's business payload — the most sensitive data a run carries — into a browser query cache
+   * that renders none of it. It belongs to the one page that was explicitly opened.
+   */
+  inputPreview: string | null;
+  /** True when {@link inputPreview} was cut at the bound, so the UI can say so. */
+  inputTruncated: boolean;
 }
 
 /** Atlas's hard cap on the approvals embedded in a run detail response (`atlas/app.py:671`). */
@@ -727,7 +738,27 @@ function toRunGraphSnapshot(run: AtlasWorkflowRun): RunGraphSnapshot {
   return parsed.ok ? { ok: true, graph: parsed.value } : { ok: false, reason: parsed.reason };
 }
 
+/**
+ * Bounds the persisted run input the same way an artifact preview is bounded.
+ *
+ * Reuses `ARTIFACT_PREVIEW_MAX_CHARS` and `limitPreviewCodeUnits` (defined further down this
+ * file) rather than picking a second number: Atlas caps neither artifact content nor run input,
+ * so this repo has exactly one budget for "how much text may be serialised into a browser cache
+ * on an explicit user action", and two budgets that drift apart is how one of them stops being
+ * a bound at all.
+ */
+function toRunInputPreview(input: Record<string, unknown>): {
+  preview: string | null;
+  truncated: boolean;
+} {
+  if (Object.keys(input).length === 0) return { preview: null, truncated: false };
+  const serialized = JSON.stringify(input, null, 2) ?? "";
+  const bounded = limitPreviewCodeUnits(serialized, ARTIFACT_PREVIEW_MAX_CHARS);
+  return { preview: bounded.preview, truncated: bounded.truncated };
+}
+
 export function toRunDetailView(detail: AtlasWorkflowRunDetail): RunDetailView {
+  const input = toRunInputPreview(detail.run.input ?? {});
   return {
     run: toRunView(detail.run),
     nodes: detail.nodes.map(toRuntimeNodeView),
@@ -735,6 +766,8 @@ export function toRunDetailView(detail: AtlasWorkflowRunDetail): RunDetailView {
     approvals: detail.approvals.map(toApprovalView),
     graphSnapshot: toRunGraphSnapshot(detail.run),
     approvalsMayBeTruncated: detail.approvals.length >= RUN_DETAIL_APPROVALS_CAP,
+    inputPreview: input.preview,
+    inputTruncated: input.truncated,
   };
 }
 

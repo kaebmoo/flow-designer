@@ -19,11 +19,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useArtifactDownloads } from "@/hooks/use-artifact-downloads";
 import {
+  ARTIFACT_PREVIEW_MAX_CHARS,
   describeAtlasError,
   formatDurationMs,
   toClientAtlasError,
   type ApprovalView,
   type ClientAtlasError,
+  type RunDetailView,
   type RunView,
 } from "@/lib/atlas-mappers";
 import {
@@ -39,6 +41,7 @@ import {
   EMPTY_RUN_EVENT_HISTORY,
   RUN_EVENT_HISTORY_CAP,
 } from "@/lib/run-event-history";
+import { observeWorkflowContract } from "@/lib/workflow-run-contract";
 
 /**
  * A single workflow run, read from `GET /api/workflow-runs/{id}`, plus every operator action
@@ -660,8 +663,60 @@ function ApprovalActions({ approval, runState }: { approval: ApprovalView; runSt
   );
 }
 
-/** Artifacts of the run. Only a `file_ref` has bytes behind a download. */
-function ArtifactsSection({ runId }: { runId: string }) {
+/**
+ * The exact input Atlas persisted for this run, bounded and collapsed.
+ *
+ * Collapsed by default because this is the run's business payload: a permit application, a
+ * customer record, whatever the caller sent. Someone screen-sharing a run page should not
+ * broadcast it by opening the page, and someone who needs it is one click away.
+ *
+ * `_meta` shows here with everything else — it is part of what Atlas stored, and hiding the
+ * reply configuration from the one view that explains a delivery would be unhelpful. It stays
+ * inside this bounded preview: nothing on this page feeds run input into a generated snippet.
+ */
+function RunInputSection({ detail }: { detail: RunDetailView }) {
+  if (detail.inputPreview === null) return null;
+
+  return (
+    <section className="mb-8">
+      <SectionHeading>Run input</SectionHeading>
+      <details className="rounded-lg border border-border bg-card" data-testid="run-input">
+        <summary className="cursor-pointer px-4 py-3 text-xs text-muted-foreground">
+          Show the input this run was started with
+        </summary>
+        <div className="border-t border-border px-4 py-3">
+          <p className="mb-2 text-xs leading-relaxed text-warning">
+            This is the caller&apos;s payload as Atlas stored it. It may contain personal or
+            otherwise sensitive data — take care before sharing a screenshot or an export.
+          </p>
+          <pre
+            data-testid="run-input-preview"
+            className="max-h-80 overflow-auto rounded border border-border bg-secondary/20 px-3 py-2 text-[11px] leading-relaxed"
+          >
+            {detail.inputPreview}
+          </pre>
+          {detail.inputTruncated ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Truncated at {ARTIFACT_PREVIEW_MAX_CHARS.toLocaleString()} characters. Atlas holds the
+              complete value; read it with{" "}
+              <span className="font-mono">GET /api/workflow-runs/{detail.run.id}</span>.
+            </p>
+          ) : null}
+        </div>
+      </details>
+    </section>
+  );
+}
+
+/**
+ * Artifacts of the run. Only a `file_ref` has bytes behind a download.
+ *
+ * `observedKeys` are the artifact keys the run's **own graph snapshot** declares — not the live
+ * workflow definition, which may have been edited since. They are marked so a test run's expected
+ * output is findable at a glance, and every other row is still listed: an artifact this UI did
+ * not predict is exactly the one worth noticing, so nothing is filtered.
+ */
+function ArtifactsSection({ runId, observedKeys }: { runId: string; observedKeys: Set<string> }) {
   const artifacts = useQuery(runArtifactsQuery(runId));
   const [shown, setShown] = useState(PAGE_STEP);
   const { pendingIds, downloadError, downloadArtifact } = useArtifactDownloads();
@@ -684,7 +739,18 @@ function ArtifactsSection({ runId }: { runId: string }) {
             key: "key",
             header: "Key",
             render: (artifact) => (
-              <span className="font-mono text-xs text-primary">{artifact.key}</span>
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs text-primary">{artifact.key}</span>
+                {observedKeys.has(artifact.key) ? (
+                  <span
+                    data-testid={`observed-output-${artifact.key}`}
+                    title="This graph declares this key on a worker node. Observed, not guaranteed."
+                    className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground"
+                  >
+                    observed
+                  </span>
+                ) : null}
+              </span>
             ),
           },
           {
@@ -1081,6 +1147,26 @@ function RunDetail() {
   /** Atlas's own record of where the run is, and the only source of node highlighting here. */
   const currentNodes = new Set(run.currentNodes);
 
+  /**
+   * Output keys this run's own graph snapshot declares.
+   *
+   * Read from the snapshot rather than the live workflow definition on purpose: the definition
+   * may have been edited or deleted since, and marking a row against a graph the run never used
+   * would be a lie about what produced it.
+   */
+  const observedOutputKeys = useMemo(
+    () =>
+      new Set(
+        detail.graphSnapshot?.ok
+          ? observeWorkflowContract(detail.graphSnapshot.graph, {
+              workflowId: run.workflowDefinitionId ?? "",
+              observedVersion: 0,
+            }).outputs.map((output) => output.key)
+          : [],
+      ),
+    [detail.graphSnapshot, run.workflowDefinitionId],
+  );
+
   return (
     <>
       <PageHeader
@@ -1155,6 +1241,8 @@ function RunDetail() {
           <Field label="Workflow" value={run.workflowDefinitionId ?? "—"} />
           <Field label="Run id" value={run.id} />
         </div>
+
+        <RunInputSection detail={detail} />
 
         <section className="mb-8">
           <SectionHeading>Runtime nodes ({nodes.length})</SectionHeading>
@@ -1276,7 +1364,7 @@ function RunDetail() {
 
         <section className="mb-8">
           <SectionHeading>Artifacts</SectionHeading>
-          <ArtifactsSection runId={run.id} />
+          <ArtifactsSection runId={run.id} observedKeys={observedOutputKeys} />
         </section>
 
         <DeliveriesSection run={run} />

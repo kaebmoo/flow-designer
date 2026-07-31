@@ -250,3 +250,79 @@ export const FAIL_CLOSED_GRAPHS: Array<{ why: string; graph: unknown }> = [
     },
   },
 ];
+
+/**
+ * The canonical two-node permit workflow used for Milestone A's end-to-end acceptance.
+ *
+ * It exists to exercise the whole path with realistic, non-ASCII business data: four
+ * `{input.*}` fields the **start** worker renders (so a missing one is provably blocking), a
+ * second worker behind it, and two distinct output artifact keys so "outputs appear without a
+ * reload" is asserted on more than one row.
+ *
+ * `worker_id` is injected rather than baked in, because the only worker that can actually
+ * produce these artifacts is the per-run stub the browser harness starts.
+ */
+export function permitApplicationContractV1(workerId: string) {
+  return {
+    start: "intake",
+    nodes: [
+      {
+        id: "intake",
+        type: "worker",
+        // The stub directives keep the run observable for a few seconds; the placeholders are
+        // what this fixture is really for.
+        prompt: [
+          "stub:count=6;interval=300",
+          "Applicant: {input.applicant_name}",
+          "Permit: {input.permit_type}",
+          "Detail: {input.detail}",
+          "Attachments: {input.attachments}",
+        ].join("\n"),
+        worker_id: workerId,
+        outputs: ["intake_review"],
+      },
+      {
+        id: "assess",
+        type: "worker",
+        prompt: "stub:count=4;interval=200\nAssess {artifact.intake_review}",
+        worker_id: workerId,
+        outputs: ["assessment_result"],
+      },
+    ],
+    edges: [{ from: "intake", to: "assess", condition: { type: "always" } }],
+  };
+}
+
+/** A realistic, deliberately non-ASCII payload for {@link permitApplicationContractV1}. */
+export const PERMIT_APPLICATION_INPUT = {
+  applicant_name: "นายทดสอบ ระบบ",
+  permit_type: "ขออนุญาตก่อสร้าง",
+  detail: "ก่อสร้างอาคารพาณิชย์ 2 ชั้น",
+  attachments: "สำเนาบัตรประชาชน, โฉนดที่ดิน, แบบแปลน",
+} as const satisfies Record<string, string>;
+
+/**
+ * A manager node whose prompt authors a `{input.*}` placeholder.
+ *
+ * On Atlas `4b837cc` that placeholder is **not** substituted — `_manager_prompt` never calls
+ * `render_prompt` — so the literal text reaches the worker. The browser probe asserts exactly
+ * that against a captured `/agent/run` payload.
+ */
+export function managerPlaceholderProbeGraph(workerId: string) {
+  return {
+    start: "decide",
+    nodes: [
+      {
+        id: "decide",
+        type: "manager",
+        schema: "manager_decision_v1",
+        prompt: "stub:count=1;interval=0\nRoute using {input.routing_hint} please.",
+        worker_id: workerId,
+      },
+      { id: "done", type: "worker", prompt: "stub:count=1;interval=0", worker_id: workerId },
+    ],
+    edges: [
+      { from: "decide", to: "done", condition: { type: "manager_selected", target: "done" } },
+    ],
+  };
+}

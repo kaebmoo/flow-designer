@@ -12,7 +12,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import type { RunDetailView, RuntimeNodeView } from "@/lib/atlas-mappers";
 import type { JobStreamEvent, JobStreamPhase, JobStreamSnapshot } from "@/lib/job-stream";
@@ -199,15 +199,39 @@ export function RunLiveSection({ detail }: { detail: RunDetailView }) {
 
   /**
    * The narrowest refetch that covers what an event can change: this run's detail (state,
-   * runtime nodes, approvals — the canvas reads these) and this run's persisted events. Not
-   * the dashboard, not the run list, not other runs.
+   * runtime nodes, approvals — the canvas reads these), this run's persisted events, and this
+   * run's artifacts. Not the dashboard, not the run list, not other runs.
+   *
+   * Artifacts belong here because a node writes one as it finishes, which is a `done` frame away
+   * — without this the outputs table kept showing the set that existed when the page loaded, and
+   * the only way to see a result was a manual reload.
    */
   const onAtlasChanged = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.runDetail(runId) });
     void queryClient.invalidateQueries({ queryKey: queryKeys.runEventsAll(runId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.runArtifacts(runId) });
   }, [queryClient, runId]);
 
   const terminal = ["succeeded", "failed", "cancelled"].includes(detail.run.state.label);
+
+  /**
+   * One refetch when the run first reaches a terminal state.
+   *
+   * The stream-driven path above cannot cover this on its own: the last node's artifact is
+   * written as its job closes, and a run can also finish with no streamable job at all — a human
+   * gate rejection, a cancel, a failure between nodes. The run poll stops at exactly this
+   * transition, so without this the final artifact would need a manual reload.
+   *
+   * The ref is what keeps it to one. Invalidating produces a fresh `detail` object on the next
+   * render, and an effect keyed on that would invalidate again, forever.
+   */
+  const refreshedOnTerminal = useRef(false);
+  useEffect(() => {
+    if (!terminal || refreshedOnTerminal.current) return;
+    refreshedOnTerminal.current = true;
+    onAtlasChanged();
+  }, [terminal, onAtlasChanged]);
+
   const streamable = detail.nodes.filter(
     (node) => node.jobId !== null && STREAMABLE_NODE_STATES.has(node.state.label),
   );
