@@ -28,7 +28,7 @@ delivery และรายงานข้าม run ที่
 | Artifact ของแต่ละ run                                                   | มี ดาวน์โหลดได้อย่างเดียว                          | มี ดาวน์โหลดหรือ preview ในหน้าได้                                                           |
 | อัปโหลดไฟล์เข้า run (เช่น PDF สัญญาให้ human gate ตรวจ)                 | ไม่มี — ผ่าน API เท่านั้น                          | ไม่มี — ผ่าน API เท่านั้น                                                                    |
 | สั่งงานเดี่ยวแบบ ad-hoc / handoff                                       | ไม่มี — ผ่าน API เท่านั้น                          | ไม่มี — ผ่าน API เท่านั้น                                                                    |
-| Import/export solution pack                                             | ไม่มี — ผ่าน API เท่านั้น                          | ไม่มี — ผ่าน API เท่านั้น                                                                    |
+| Import/export solution pack                                             | ไม่มี — ผ่าน API เท่านั้น                          | มีให้ใช้จากหน้า Workflows และ workflow editor                                                |
 | Draft-from-plain-language, Explain, Repair, Suggest workers/triggers    | ไม่มี — ผ่าน API เท่านั้น                          | ไม่มี — ผ่าน API เท่านั้น                                                                    |
 | การวัดการใช้งาน (Usage)                                                 | มี พร้อมกราฟ 7 วันและแจ้งเตือน quota               | มี ไม่มีกราฟ ไม่มีแจ้งเตือน quota                                                            |
 | Audit log                                                               | มี กรองตามประเภทได้ แถวกดแล้วพาไปหา job/run/worker | มี เป็น log ธรรมดา ไม่มีตัวกรองตามประเภท แถวกดไม่ได้                                         |
@@ -48,7 +48,6 @@ Atlas (ดู
 
 - สั่งงานเดี่ยวแบบ ad-hoc นอก workflow พร้อม routing/handoff (`POST /api/jobs`)
 - อัปโหลดไฟล์เข้า run เช่น สัญญาให้ human gate ตรวจ (`POST /api/workflow-runs/{id}/files`)
-- Import หรือ export solution pack (`GET`/`POST /api/packs`)
 - Explain/Repair แบบ non-saving และ Draft-from-plain-language
   (`POST /api/workflows/{id}/explain|repair`, `POST /api/workflows/draft`)
 - ตัวช่วย Suggest-workers / Suggest-triggers
@@ -230,8 +229,7 @@ node/edge, version, แก้ไขล่าสุด) **New workflow** สร�
 Reviewer, Coder → Tester → Reviewer และ Manager-directed loop — ซึ่งเรียกได้
 เฉพาะผ่าน `GET /api/workflow-templates`)
 
-หน้านี้ไม่มีปุ่ม import/export solution pack เลย (ดู "สิ่งที่ยังไม่มีใน UI"
-ด้านบน)
+ปุ่ม import/export solution pack อธิบายไว้ในหัวข้อ Workflow packs ด้านล่าง
 
 ### ตัวแก้ไข (editor)
 
@@ -404,6 +402,23 @@ workflow changes?** (**Keep editing** / **Discard changes**) มี banner
 รวมถึงงานแก้ไข **Application interface** ที่ยังไม่ได้ save ด้วย — จากแท็บ
 เบราว์เซอร์เดิมหลังเผลอออกจากหน้าหรือ reload เป็นการกู้คืนฝั่ง local เท่านั้น
 ไม่เกี่ยวกับฟีเจอร์ AI draft แต่อย่างใด
+
+### Workflow packs
+
+ที่หน้า Workflows ปุ่ม **Import pack** จะอ่านไฟล์ `.json` ใน browser และแสดง preview ก่อนติดต่อ
+Atlas: ชื่อ/เวอร์ชัน pack, ชื่อ workflow, จำนวน trigger และสถานะ signed/unsigned ไฟล์ที่ใหญ่กว่า
+5 MiB และ JSON ที่อ่านไม่ได้จะถูกปฏิเสธใน browser ส่วน schema version ที่ไม่ใช่ 1 จะแสดงเป็นคำเตือน
+แล้วปล่อยให้ Atlas เป็นผู้ตัดสินเมื่อกดส่ง
+
+การ import ต้องมี permission `workflows.manage` ของ Atlas และจะสร้าง workflow แถวใหม่เสมอ — ไม่ใช่
+การ restore, overwrite หรือ merge ของเดิม เมื่อสำเร็จจะแสดงลิงก์ไปยัง workflow ที่สร้างใหม่ เมื่อ
+Atlas ปฏิเสธ dialog จะยังเปิดพร้อม bundle เดิมเพื่ออ่านข้อความจาก Atlas และการปิด dialog จะล้างไฟล์
+กับ preview ที่เลือกไว้
+
+ในหน้า workflow editor ปุ่ม **Export pack** จะดาวน์โหลดไฟล์รูปแบบ
+`<workflow-name-slug>.pack.json` ที่จัด JSON ให้อ่านง่าย ภายในมี graph, policy, interface (รวม
+`sample_input` ที่เป็นข้อมูลสังเคราะห์) และ triggers แต่ **ไม่มี `default_reply`** ใน pack ห้ามใส่ข้อมูล
+ผู้ใช้จริงหรือข้อมูลลับใน sample input และ trigger config
 
 ## 9. Runs
 

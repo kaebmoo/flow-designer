@@ -4,6 +4,18 @@ This document records limitations that belong to Atlas Control Plane, not to the
 
 ## Current limitations
 
+### P2 — Workflow pack export omits `default_reply`
+
+Atlas `15c4876aa4f86e109a3cc52d6a299f46791053a2` leaves a workflow's `default_reply` out of
+`export_pack`. Import therefore creates the workflow with Atlas's empty default-reply value. The
+flow-designer pack UI surfaces this sentence next to **Export pack** and does not try to
+compensate or rewrite the bundle.
+
+Backend follow-up:
+
+- Include `default_reply` in the Atlas pack format in a future backwards-compatible pack-schema
+  revision, with contract coverage for export/import and signature canonicalisation.
+
 ### P0 — Single-node persistence and runtime
 
 Atlas currently uses SQLite persistence with an in-process lock and WAL connection setup in `atlas/db.py`. The HTTP server is threaded and workflow/job execution uses in-process background threads. This is suitable for a single active Atlas instance, but it is not a transparent active-active cluster.

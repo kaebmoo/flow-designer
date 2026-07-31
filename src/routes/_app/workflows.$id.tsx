@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
 import { WorkflowEditor, type WorkflowDraft } from "@/components/atlas/workflow-editor";
 import { WorkflowTestRunDialog } from "@/components/atlas/workflow-test-run-dialog";
+import { WorkflowPackExportAction } from "@/components/atlas/workflow-pack-export-action";
 import { clearSemanticWorkflowDraft } from "@/components/atlas/workflow-draft";
 import { migrateLayoutVersion } from "@/components/atlas/workflow-layout";
 import {
@@ -228,13 +229,16 @@ function WorkflowEditorRoute() {
             </span>
           }
           actions={
-            <Link
-              to="/runs"
-              search={{ limit: 100, workflow: workflow.id, state: undefined }}
-              className="inline-flex items-center rounded border border-border bg-secondary/40 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:bg-secondary"
-            >
-              View runs
-            </Link>
+            <div className="flex max-w-full flex-wrap items-start justify-end gap-2">
+              <WorkflowPackExportAction definitionId={workflow.id} workflowName={workflow.name} />
+              <Link
+                to="/runs"
+                search={{ limit: 100, workflow: workflow.id, state: undefined }}
+                className="inline-flex items-center rounded border border-border bg-secondary/40 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:bg-secondary"
+              >
+                View runs
+              </Link>
+            </div>
           }
         />
         <div className="flex-1 overflow-y-auto px-8 py-6">
@@ -274,7 +278,8 @@ function WorkflowEditorRoute() {
           </span>
         }
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex max-w-full flex-wrap items-start justify-end gap-2">
+            <WorkflowPackExportAction definitionId={workflow.id} workflowName={workflow.name} />
             <Link
               to="/runs"
               search={{ limit: 100, workflow: workflow.id, state: undefined }}

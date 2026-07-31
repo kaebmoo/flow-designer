@@ -24,6 +24,7 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   atlasGetJob,
   atlasGetMetrics,
+  atlasExportPack,
   atlasGetUsage,
   atlasGetWorkflow,
   atlasGetWorkflowRun,
@@ -71,6 +72,7 @@ import {
   type WorkflowView,
   type WorkspaceView,
 } from "./atlas-mappers";
+import type { AtlasPackBundle } from "./atlas-types";
 import { clearSession, requireAtlasToken } from "./auth.server";
 import { currentRequestSignal } from "./request-signal.server";
 
@@ -228,6 +230,14 @@ export const getWorkflowFn = createServerFn({ method: "GET" })
       read(async (token, options) =>
         toWorkflowDetailView(await atlasGetWorkflow(token, workflowId, options)),
       ),
+  );
+
+/** `GET /api/packs/{definitionId}/export` — a read-permission pack export. */
+export const exportPackFn = createServerFn({ method: "GET" })
+  .validator((data: unknown) => validateId(data, "definitionId"))
+  .handler(
+    async ({ data }): Promise<AtlasResult<AtlasPackBundle>> =>
+      read(async (token, options) => atlasExportPack(token, data, options)),
   );
 
 /** `GET /api/workflow-runs?limit=&workflow_definition_id=` — a bounded, newest-first window. */

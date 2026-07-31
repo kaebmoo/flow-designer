@@ -41,6 +41,7 @@ import {
   atlasFireWorkflowTrigger,
   atlasGetArtifact,
   atlasGetWorkflow,
+  atlasImportPack,
   atlasListApprovals,
   atlasListArtifacts,
   atlasListDeliveries,
@@ -103,6 +104,7 @@ import {
   ATLAS_USER_STATUSES,
   type AtlasWorkflowInterface,
 } from "./atlas-types";
+import type { AtlasPackBundle, AtlasPackImportResponse } from "./atlas-types";
 import { clearSession, requireAtlasToken } from "./auth.server";
 import { currentRequestSignal } from "./request-signal.server";
 import type { AtlasResult } from "./atlas-reads.functions";
@@ -115,6 +117,7 @@ import {
   type JsonObject,
   type ValidationIssue,
 } from "./workflow-graph";
+import { MAX_PACK_BYTES } from "./workflow-pack";
 
 /**
  * Runs a mutation, converting any Atlas failure into the serialisable result shape.
@@ -258,6 +261,21 @@ function plainObject(data: unknown, key: string): Record<string, unknown> {
     throw new Error(`${key} must be an object.`);
   }
   return value as Record<string, unknown>;
+}
+
+function requiredPackBundle(data: unknown): AtlasPackBundle {
+  const value = field(data, "bundle");
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("bundle must be an object.");
+  }
+  let bytes: number;
+  try {
+    bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  } catch {
+    throw new Error("bundle must contain JSON values.");
+  }
+  if (bytes > MAX_PACK_BYTES) throw new Error("bundle exceeds the 5 MiB upload limit.");
+  return value as AtlasPackBundle;
 }
 
 /** Keeps undefined (leave unchanged) and null (explicit clear) distinct for partial PUTs. */
@@ -601,6 +619,14 @@ export const deleteWorkflowFn = createServerFn({ method: "POST" })
         await atlasDeleteWorkflow(token, workflowId);
         return { deleted: true as const };
       }),
+  );
+
+/** `POST /api/packs/import` — Atlas validates and imports the unchanged bundle atomically. */
+export const importPackFn = createServerFn({ method: "POST" })
+  .validator(requiredPackBundle)
+  .handler(
+    async ({ data }): Promise<AtlasResult<AtlasPackImportResponse>> =>
+      mutate(async (token) => atlasImportPack(token, data)),
   );
 
 /**

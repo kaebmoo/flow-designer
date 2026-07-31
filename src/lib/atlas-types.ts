@@ -12,7 +12,7 @@
  */
 
 import { ATLAS_LIMIT_MAX, ATLAS_LIMIT_MIN } from "./atlas-limits";
-import type { JsonObject } from "./workflow-graph";
+import type { JsonObject, JsonValue } from "./workflow-graph";
 
 /** The four roles Atlas recognises. Atlas is the only authority that enforces them. */
 export const ATLAS_ROLES = ["admin", "operator", "viewer", "auditor"] as const;
@@ -265,6 +265,104 @@ export interface AtlasWorkflowDefinition {
   interface?: AtlasWorkflowInterface | null;
   created_at: string;
   updated_at: string;
+}
+
+/** The opaque-but-typed bundle carried by the pack endpoints. Unknown JSON keys are preserved. */
+export interface AtlasPackWorkflow {
+  name: string;
+  description: string;
+  version: number;
+  status: string;
+  graph: JsonObject;
+  policy: JsonObject;
+  interface?: AtlasWorkflowInterface | null;
+}
+
+export interface AtlasPackTrigger {
+  workflow: number;
+  name: string;
+  type: string;
+  config: JsonObject;
+  enabled: boolean;
+}
+
+export interface AtlasPackSignature {
+  algorithm: string;
+  value: string;
+}
+
+/** `GET /api/packs/{definitionId}/export` returns the bundle itself under `pack`. */
+export interface AtlasPackBundle {
+  schema_version: number;
+  name: string;
+  version: string;
+  description: string;
+  roles: JsonValue[];
+  sample_input: JsonObject;
+  docs: string;
+  workflows: AtlasPackWorkflow[];
+  triggers: AtlasPackTrigger[];
+  signature?: AtlasPackSignature;
+}
+
+export interface AtlasPackCreatedWorkflow extends JsonObject {
+  id: string;
+  name: string;
+}
+
+export interface AtlasPackCreatedTrigger extends JsonObject {
+  id: string;
+}
+
+/** `POST /api/packs/import` — 201. */
+export interface AtlasPackImportResponse {
+  pack: { name: string; version: string };
+  workflows: AtlasPackCreatedWorkflow[];
+  triggers: AtlasPackCreatedTrigger[];
+}
+
+function isPlainAtlasObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+export function isAtlasPackBundle(value: unknown): value is AtlasPackBundle {
+  if (!isPlainAtlasObject(value)) return false;
+  return (
+    value.schema_version !== undefined &&
+    typeof value.schema_version === "number" &&
+    typeof value.name === "string" &&
+    typeof value.version === "string" &&
+    typeof value.description === "string" &&
+    Array.isArray(value.roles) &&
+    isPlainAtlasObject(value.sample_input) &&
+    typeof value.docs === "string" &&
+    Array.isArray(value.workflows) &&
+    Array.isArray(value.triggers)
+  );
+}
+
+export function isAtlasPackImportResponse(value: unknown): value is AtlasPackImportResponse {
+  if (!isPlainAtlasObject(value)) return false;
+  const pack = value.pack;
+  if (
+    !isPlainAtlasObject(pack) ||
+    typeof pack.name !== "string" ||
+    typeof pack.version !== "string"
+  ) {
+    return false;
+  }
+  if (!Array.isArray(value.workflows) || !Array.isArray(value.triggers)) return false;
+  return (
+    value.workflows.every(
+      (workflow) =>
+        isPlainAtlasObject(workflow) &&
+        typeof workflow.id === "string" &&
+        typeof workflow.name === "string",
+    ) &&
+    value.triggers.every((trigger) => isPlainAtlasObject(trigger) && typeof trigger.id === "string")
+  );
 }
 
 export interface AtlasWorkflowDefaultReply {

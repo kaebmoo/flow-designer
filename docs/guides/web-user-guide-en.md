@@ -28,7 +28,7 @@ Both frontends stay in use; they cover different ground.
 | Per-run artifacts                                                    | Yes, download only                                       | Yes, download or in-page preview                                               |
 | Run file upload (e.g. a contract PDF for a human gate)               | No — API only                                            | No — API only                                                                  |
 | Ad-hoc job submission / handoff                                      | No — API only                                            | No — API only                                                                  |
-| Solution-pack import/export                                          | No — API only                                            | No — API only                                                                  |
+| Solution-pack import/export                                          | No — API only                                            | Yes, from the Workflows list and workflow editor                               |
 | Draft-from-plain-language, Explain, Repair, Suggest workers/triggers | No — API only                                            | No — API only                                                                  |
 | Usage metering                                                       | Yes, plus a 7-day chart and a quota/threshold alert      | Yes, no chart, no quota alert                                                  |
 | Audit log                                                            | Yes, filterable by type, rows jump to the job/run/worker | Yes, plain log, no type filter, rows are not clickable                         |
@@ -48,7 +48,6 @@ through Atlas's REST API (see the
 
 - Submitting an ad-hoc job outside a workflow, with routing/handoff (`POST /api/jobs`).
 - Uploading a file to a run, e.g. a contract for a human gate to review (`POST /api/workflow-runs/{id}/files`).
-- Importing or exporting a solution pack (`GET`/`POST /api/packs`).
 - Non-saving Explain/Repair drafts and Draft-from-plain-language (`POST /api/workflows/{id}/explain|repair`, `POST /api/workflows/draft`).
 - Suggest-workers / Suggest-triggers helpers (`POST /api/workflows/suggest-workers`, `POST /api/workflows/{id}/suggest-triggers`).
 - A dedicated "manager decision" panel with proposal/acceptance reasoning (visible via run events and audit instead — see §9).
@@ -228,8 +227,7 @@ Researcher → Writer → Reviewer, Coder → Tester → Reviewer, and
 Manager-directed loop — which remain reachable only via
 `GET /api/workflow-templates`.)
 
-There is no solution-pack import/export button anywhere on this page (see
-"Not here" above).
+Pack import/export controls are described in the Workflow packs section below.
 
 ### The editor
 
@@ -407,6 +405,23 @@ changes?** (**Keep editing** / **Discard changes**). A crash-recovery banner
 unsaved **Application interface** edit — from the same browser tab after an
 accidental navigation or reload; this is local-only recovery, unrelated to
 any AI drafting feature.
+
+### Workflow packs
+
+On the Workflows list, **Import pack** reads a `.json` file in the browser and shows a preview
+before contacting Atlas: pack name/version, workflow names, trigger count, and signed/unsigned
+status. Packs over 5 MiB and invalid JSON are rejected locally. A schema version other than 1 is
+shown as an advisory warning, then Atlas remains the authority when you submit.
+
+Import requires the Atlas `workflows.manage` permission. It always creates new workflows; it never
+restores, overwrites, or merges existing definitions. A successful import links to the newly
+created rows, and a rejected import keeps the dialog and original bundle open so Atlas's message
+can be read. Closing the dialog clears the selected file and preview.
+
+On a workflow editor page, **Export pack** downloads a pretty-printed `<workflow-name-slug>.pack.json`
+bundle. It contains the graph, policy, interface (including synthetic `sample_input`), and
+triggers. `default_reply` is not included in a pack; do not put sensitive or real user data in
+sample input or trigger configuration.
 
 ## 9. Runs
 

@@ -43,12 +43,14 @@ import {
   upsertWorkerFn,
   upsertWorkspaceFn,
   validateWorkflowFn,
+  importPackFn,
   type GraphRejection,
   type SaveResult,
 } from "./atlas-mutations.functions";
-import type { AtlasResult } from "./atlas-reads.functions";
+import { exportPackFn, type AtlasResult } from "./atlas-reads.functions";
 import type { ApiTokenView, ClientAtlasError } from "./atlas-mappers";
 import type { AtlasWorkflowInterface } from "./atlas-types";
+import type { AtlasPackBundle, AtlasPackImportResponse } from "./atlas-types";
 import type { JsonObject } from "./workflow-graph";
 import { queryKeys } from "./query-keys";
 
@@ -181,6 +183,19 @@ export function useDeleteWorkflow() {
   return useAtlasMutation(
     (data: { workflowId: string }) => deleteWorkflowFn({ data }),
     ["workflows", "runs", "triggers", "metrics"],
+  );
+}
+
+/** Export is a read operation exposed as an explicit user action; it changes no cache state. */
+export function useExportPack() {
+  return useAtlasMutation((data: { definitionId: string }) => exportPackFn({ data }), []);
+}
+
+/** Import creates new workflow and trigger rows, so all affected lists and metrics must refresh. */
+export function useImportPack() {
+  return useAtlasMutation<AtlasPackBundle, AtlasPackImportResponse>(
+    (bundle) => importPackFn({ data: { bundle } }),
+    ["workflows", "triggers", "metrics"],
   );
 }
 

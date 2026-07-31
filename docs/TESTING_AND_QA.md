@@ -327,6 +327,46 @@ render, unchanged-interface omission on save (no re-encode), the closed local-mi
 genuinely reaches Atlas's 400 through the advisory 1 MiB gap instead of stopping at the local
 mirror.
 
+## Milestone D — workflow pack export/import UI evidence (2026-07-31)
+
+Scope: the typed Flow Designer pack export/import UI against Atlas
+`15c4876aa4f86e109a3cc52d6a299f46791053a2`, which was inspected and run read-only. Atlas and
+thClaws were not modified; the protected workflow contract plan documents and generated route tree
+were not edited.
+
+The pack contract is covered at the real Atlas boundary in
+`tests/contract/pack-ui.contract.test.ts`: export shape and interface/trigger round-trip, the
+non-REST 400 for an unknown export id, fresh IDs and duplicate imports, atomic rollback, the
+bounded interface profile, HMAC signing/tamper/unsigned policy, strict schema version rejection,
+and the `default_reply` export gap. Exported bundles are recursively checked for token/secret
+fields. The browser suite (`tests/e2e/pack-ui.spec.ts`) covers download naming, client-side
+preview, successful import and direct Atlas read-back of graph/policy/interface, verbatim 400s,
+unsupported-schema pass-through, parse failure before network, anonymous server-boundary replay,
+close/reopen reset, and viewer RBAC UX.
+
+Mutation evidence: each temporary mutation below produced the listed targeted red result and was
+reverted before the final gate. The source-boundary check is intentionally static because a
+TanStack `createServerFn` handler cannot be invoked outside a request context in the unit runner;
+the browser replay separately proves the live anonymous boundary.
+
+- Removing the imported graph from the server-side bundle → pack happy-path browser test: `1
+failed`.
+- Closing the dialog from the import error callback → verbatim-400 browser test: `1 failed`.
+- Removing the shared `mutate()` session wrapper → pack server-boundary unit invariant: `1 failed`.
+- Enabling Import after parse failure and removing the null guard → parse-failure browser test:
+  `1 failed`.
+- Omitting close/reset state handling → state-reset browser test: `1 failed`.
+- Building the filename from the raw workflow name → slug unit cases: `5 failed`.
+- Rewriting an unsupported `schema_version` to `1` in the import validator → schema pass-through
+  browser test: `1 failed`.
+
+Final gate results: `git diff --check`, `format:check`, `typecheck`, `build`, and `scan:bundle`
+exit 0; lint has 0 errors and the 10 pre-existing warnings; unit `624 passed`; real-Atlas
+contract `171 passed, 3 skipped`; stream `27 passed`; browser `149 passed`; remote-like `1
+passed` on Node `v24.14.0` supplied through `PHASE7_NODE_BINARY`. The bundle scan is clean across
+58 public files. The worktree remains intentionally uncommitted on `main` for independent
+verification.
+
 ## Phase 7 evidence and strategy additions (2026-07-21)
 
 The Phase 7 matrix is recorded in `RELEASE_READINESS.md`. The new remote-like suite builds the

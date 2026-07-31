@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
+import { useState } from "react";
 
 import { PageHeader, StatusPill } from "@/components/atlas/page";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { toClientAtlasError } from "@/lib/atlas-mappers";
 import { workflowsQuery } from "@/lib/atlas-queries";
 import { serializeWorkflowGraph, serializeWorkflowPolicy } from "@/lib/workflow-graph";
 import { WORKFLOW_EXAMPLES, type WorkflowExample } from "@/lib/workflow-examples";
+import { WorkflowPackImportDialog } from "@/components/atlas/workflow-pack-import-dialog";
 
 export const Route = createFileRoute("/_app/workflows/")({
   /**
@@ -27,6 +29,8 @@ export const Route = createFileRoute("/_app/workflows/")({
   component: WorkflowsIndex,
   head: () => ({ meta: [{ title: "Workflows · Atlas Control" }] }),
 });
+
+const appRoute = getRouteApi("/_app");
 
 /**
  * Workflow definitions, read from `GET /api/workflows?limit=`.
@@ -43,8 +47,13 @@ function WorkflowsIndex() {
   const { limit } = Route.useSearch();
   const navigate = Route.useNavigate();
   const routerNavigate = useNavigate();
+  const identity = appRoute.useLoaderData();
+  const [importOpen, setImportOpen] = useState(false);
   const workflows = useQuery(workflowsQuery({ limit }));
   const create = useCreateWorkflow();
+  const canImportPacks =
+    identity.status === "authenticated" &&
+    (identity.identity.role === "admin" || identity.identity.role === "operator");
 
   const createWorkflow = (example?: WorkflowExample) => {
     const template = example
@@ -77,15 +86,38 @@ function WorkflowsIndex() {
         title="Workflows"
         subtitle="Workflow definitions stored in Atlas."
         actions={
-          <Button
-            type="button"
-            size="sm"
-            disabled={create.isPending}
-            onClick={() => createWorkflow()}
-          >
-            <Plus className="mr-1.5 size-3.5" aria-hidden="true" />
-            {create.isPending ? "Creating…" : "New workflow"}
-          </Button>
+          <div className="flex max-w-full flex-wrap items-start justify-end gap-2">
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!canImportPacks}
+                title={
+                  canImportPacks
+                    ? "Import a pack and create new workflows"
+                    : "Import pack requires the workflows.manage permission"
+                }
+                onClick={() => setImportOpen(true)}
+              >
+                Import pack
+              </Button>
+              {!canImportPacks ? (
+                <span className="font-mono text-[9px] uppercase tracking-widest text-accent">
+                  workflows.manage required
+                </span>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={create.isPending}
+              onClick={() => createWorkflow()}
+            >
+              <Plus className="mr-1.5 size-3.5" aria-hidden="true" />
+              {create.isPending ? "Creating…" : "New workflow"}
+            </Button>
+          </div>
         }
         meta={
           <div className="flex items-center gap-1">
@@ -212,6 +244,7 @@ function WorkflowsIndex() {
           </>
         )}
       </div>
+      <WorkflowPackImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </>
   );
 }

@@ -25,6 +25,8 @@ import {
   isAtlasUser,
   isAtlasWorkflowDefaultReply,
   isAtlasWorkflowEventPage,
+  isAtlasPackBundle,
+  isAtlasPackImportResponse,
   readAtlasErrorMessage,
   type AtlasApiToken,
   type AtlasApproval,
@@ -55,6 +57,8 @@ import {
   type AtlasWorkflowTrigger,
   type AtlasWorkspace,
   type AtlasWorkspaceListRow,
+  type AtlasPackBundle,
+  type AtlasPackImportResponse,
 } from "./atlas-types";
 import { clampAtlasLimit } from "./atlas-limits";
 import { MAX_RETRY_AFTER_SECONDS } from "./atlas-retry";
@@ -526,6 +530,45 @@ export async function atlasGetWorkflow(
   });
 
   return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, hasWorkflow).workflow;
+}
+
+/** `GET /api/packs/{definitionId}/export` — 200, `{ pack }`. */
+export async function atlasExportPack(
+  token: string,
+  definitionId: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasPackBundle> {
+  const payload = await atlasRequest({
+    method: "GET",
+    path: `/api/packs/${encodeURIComponent(definitionId)}/export`,
+    token,
+    ...options,
+  });
+
+  return expectShape<{ pack: AtlasPackBundle }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      isAtlasPackBundle((value as Record<string, unknown>).pack),
+  ).pack;
+}
+
+/** `POST /api/packs/import` — 201, body is the bundle itself, not an envelope. */
+export async function atlasImportPack(
+  token: string,
+  bundle: AtlasPackBundle,
+  options: AtlasCallOptions = {},
+): Promise<AtlasPackImportResponse> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/packs/import",
+    token,
+    body: bundle,
+    ...options,
+  });
+
+  return expectShape<AtlasPackImportResponse>(payload, isAtlasPackImportResponse);
 }
 
 /**
