@@ -280,6 +280,9 @@ const STATE_TONES: Record<string, StatusTone> = {
   pending: "warning",
   approved: "success",
   rejected: "danger",
+  // deliveries — terminal success reads green; blocked is retryable and needs attention (amber)
+  delivered: "success",
+  blocked: "warning",
   // workflow definitions
   draft: "muted",
   active: "success",

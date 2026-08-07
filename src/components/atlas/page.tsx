@@ -25,9 +25,16 @@ export function PageHeader({
 
 export function StatusPill({
   tone = "muted",
+  icon,
   children,
 }: {
   tone?: "primary" | "success" | "warning" | "danger" | "muted";
+  /**
+   * Optional per-state glyph. When two states share a tone (failed vs recovery_required both
+   * `danger`), an icon separates them pre-reading; it replaces the generic dot. Mark it
+   * aria-hidden at the call site — the label text is the accessible name.
+   */
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   const tones: Record<string, string> = {
@@ -41,10 +48,14 @@ export function StatusPill({
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${tones[tone]}`}
     >
-      <span
-        // The primary "live" dot pulses; motion-reduce silences it for users who ask the OS to.
-        className={`size-1.5 rounded-full ${tone === "primary" ? "bg-primary animate-pulse motion-reduce:animate-none" : tone === "success" ? "bg-success" : tone === "warning" ? "bg-accent" : tone === "danger" ? "bg-destructive" : "bg-muted-foreground"}`}
-      />
+      {icon ? (
+        <span className="[&_svg]:size-3">{icon}</span>
+      ) : (
+        <span
+          // The primary "live" dot pulses; motion-reduce silences it for users who ask the OS to.
+          className={`size-1.5 rounded-full ${tone === "primary" ? "bg-primary animate-pulse motion-reduce:animate-none" : tone === "success" ? "bg-success" : tone === "warning" ? "bg-accent" : tone === "danger" ? "bg-destructive" : "bg-muted-foreground"}`}
+        />
+      )}
       {children}
     </span>
   );
