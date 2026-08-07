@@ -417,7 +417,7 @@ function FleetPage() {
                       <ControlReason
                         reason={
                           canManage
-                            ? `Edit ${w.name}`
+                            ? undefined
                             : `Editing a worker requires the Atlas admin role — yours is ${roleLabel}.`
                         }
                       >
@@ -437,7 +437,7 @@ function FleetPage() {
                       <ControlReason
                         reason={
                           canManage
-                            ? `Delete ${w.name}`
+                            ? undefined
                             : `Deleting a worker requires the Atlas admin role — yours is ${roleLabel}.`
                         }
                       >

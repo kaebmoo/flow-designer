@@ -180,7 +180,7 @@ function AuthPage() {
                 disabled={submitting || retrySeconds > 0}
                 aria-invalid={message !== null}
                 aria-describedby={message !== null ? "auth-error" : undefined}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60 md:text-sm"
               />
             </div>
 
@@ -197,7 +197,7 @@ function AuthPage() {
                 disabled={submitting || retrySeconds > 0}
                 aria-invalid={message !== null}
                 aria-describedby={message !== null ? "auth-error" : undefined}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-60 md:text-sm"
               />
             </div>
           </div>

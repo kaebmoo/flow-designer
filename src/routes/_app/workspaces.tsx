@@ -314,9 +314,7 @@ function WorkspacesPage() {
                 className: "text-right",
                 render: (w) => (
                   <div className="flex justify-end gap-1">
-                    <ControlReason
-                      reason={editReason === null ? `Edit ${w.workspaceKey}` : editReason}
-                    >
+                    <ControlReason reason={editReason ?? undefined}>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -330,7 +328,7 @@ function WorkspacesPage() {
                     <ControlReason
                       reason={
                         canManage
-                          ? `Delete ${w.workspaceKey}`
+                          ? undefined
                           : `Deleting a workspace requires the operator or admin role — yours is ${roleLabel}.`
                       }
                     >

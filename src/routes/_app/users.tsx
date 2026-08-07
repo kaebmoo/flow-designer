@@ -93,6 +93,7 @@ function UsersPage() {
   const tokens = useQuery(apiTokensQuery());
 
   const [createUserOpen, setCreateUserOpen] = useState(false);
+  const createUserFocus = useReturnFocus();
   const [editUser, setEditUser] = useState<UserAdminView | null>(null);
   const editUserFocus = useReturnFocus();
   const [deleteUser, setDeleteUser] = useState<UserAdminView | null>(null);
@@ -158,7 +159,13 @@ function UsersPage() {
         title="Users & Tokens"
         subtitle="Atlas identities and API access. All changes are enforced and audited by Atlas."
         actions={
-          <Button size="sm" onClick={() => setCreateUserOpen(true)}>
+          <Button
+            size="sm"
+            onClick={(event) => {
+              createUserFocus.capture(event.currentTarget);
+              setCreateUserOpen(true);
+            }}
+          >
             <Plus className="size-4" /> Create user
           </Button>
         }
@@ -378,7 +385,13 @@ function UsersPage() {
       </div>
 
       {createUserOpen ? (
-        <UserFormDialog mode="create" onClose={() => setCreateUserOpen(false)} />
+        <UserFormDialog
+          mode="create"
+          onClose={() => {
+            setCreateUserOpen(false);
+            createUserFocus.restore();
+          }}
+        />
       ) : null}
       {editUser ? (
         <UserFormDialog

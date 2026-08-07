@@ -214,12 +214,16 @@ function RunsIndex() {
                   key: "state",
                   header: "State",
                   render: (r) => (
-                    // title carries a plain-language gloss for jargon states without displacing
-                    // the mono state token; the icon separates same-tone states pre-reading.
+                    // title carries a plain-language gloss for jargon states (mouse hover) without
+                    // displacing the mono token; an sr-only copy makes the same gloss reach screen
+                    // readers; the icon separates same-tone states pre-reading.
                     <span title={STATE_GLOSS[r.state.label]}>
                       <StatusPill tone={r.state.tone} icon={STATE_ICONS[r.state.label]}>
                         {r.state.label}
                       </StatusPill>
+                      {STATE_GLOSS[r.state.label] ? (
+                        <span className="sr-only"> — {STATE_GLOSS[r.state.label]}</span>
+                      ) : null}
                     </span>
                   ),
                 },
