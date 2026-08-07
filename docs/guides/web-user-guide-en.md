@@ -233,10 +233,13 @@ Pack import/export controls are described in the Workflow packs section below.
 
 Opening a definition opens a true drag-and-drop visual canvas — there is no
 raw Graph JSON textarea anywhere in flow-designer. A left-hand palette adds
-nodes; a right-hand inspector edits whatever is selected. **Delete** (top of
-the editor) removes the whole definition after confirming ("Delete "{name}"?
-Atlas removes the definition and cascades its triggers and run history. This
-cannot be undone.").
+nodes; a right-hand inspector edits whatever is selected. The canvas is also
+keyboard-operable: **Tab** moves between nodes, and with a node selected the
+inspector's **Connect to…** control draws an edge without a mouse. **Cmd/Ctrl+Z**
+undoes an edit and **Shift+Cmd/Ctrl+Z** redoes it (in-editor only, until you
+Save). **Delete** (top of the editor) removes the whole definition after
+confirming ("Delete "{name}"? Atlas removes the definition and cascades its
+triggers and run history. This cannot be undone.").
 
 Four node kinds, each shown on the canvas with a plain-language label rather
 than its internal type:

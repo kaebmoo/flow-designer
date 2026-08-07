@@ -235,9 +235,13 @@ Reviewer, Coder → Tester → Reviewer และ Manager-directed loop — ซ�
 
 เปิด definition แล้วจะเจอ visual canvas แบบลากวางของจริง — ไม่มีช่อง Graph
 JSON ดิบให้แก้ที่ไหนใน flow-designer เลย มี palette ด้านซ้ายไว้เพิ่ม node
-และ inspector ด้านขวาไว้แก้สิ่งที่เลือกอยู่ ปุ่ม **Delete** (ด้านบนของ editor)
-ลบทั้ง definition หลังยืนยัน ("Delete "{name}"? Atlas removes the definition
-and cascades its triggers and run history. This cannot be undone.")
+และ inspector ด้านขวาไว้แก้สิ่งที่เลือกอยู่ ใช้คีย์บอร์ดได้ด้วย: กด **Tab**
+เพื่อย้ายระหว่าง node และเมื่อเลือก node แล้ว ใช้ปุ่ม **Connect to…** ใน
+inspector เพื่อสร้าง edge โดยไม่ต้องใช้เมาส์ กด **Cmd/Ctrl+Z** เพื่อ undo และ
+**Shift+Cmd/Ctrl+Z** เพื่อ redo (เฉพาะในตัวแก้ไข จนกว่าจะกด Save) ปุ่ม
+**Delete** (ด้านบนของ editor) ลบทั้ง definition หลังยืนยัน ("Delete "{name}"?
+Atlas removes the definition and cascades its triggers and run history. This
+cannot be undone.")
 
 node มี 4 ชนิด แต่ละชนิดแสดงบน canvas ด้วยชื่อภาษาธรรมดาแทนชื่อชนิดภายใน:
 

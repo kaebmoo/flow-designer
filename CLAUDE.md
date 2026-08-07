@@ -19,7 +19,10 @@
 
 ## UI and styling
 
+- The design system is `DESIGN.md` ("Air Traffic Obsidian") and product truth is `PRODUCT.md`; `docs/FRONTEND_ENGINEERING.md` has the UI conventions. Follow them.
 - Use design tokens from `src/styles.css`; do not introduce hardcoded colors such as `bg-black`, `text-white`, or arbitrary color literals like `bg-[#...]`.
+- Reuse the shared primitives in `src/components/atlas/page.tsx` (`PageHeader`, `DataTable`, `StatusPill`, `FilterChip`, `EmptyHint`) rather than re-implementing tables, chips, pills, or empty states.
+- Accessibility bar is WCAG 2.1 AA: never convey state by colour alone (hue + icon + text); disabled-reasons reach keyboard/SR via `aria-describedby`, not `title=`; ration the cyan primary to live/primary/selected.
 - Keep loading, empty, error, forbidden, and not-found states explicit for every server-backed page.
 - Live logs must be bounded and virtualized or incrementally rendered; never render an unbounded event list in one DOM tree.
 
