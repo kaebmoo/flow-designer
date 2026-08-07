@@ -41,6 +41,7 @@ Everything below this section is engineering documentation.
 
 - [Product context](../PRODUCT.md) — durable product truth: audiences, purpose, constraints, accessibility bar
 - [Design system](../DESIGN.md) — the "Air Traffic Obsidian" visual system (tokens, typography, components, do's/don'ts) extracted from the code
+- [Changelog](../CHANGELOG.md)
 - [Frontend engineering rules](FRONTEND_ENGINEERING.md)
 - [Configuration decisions for Phase 1](CONFIGURATION.md)
 - [Testing and QA strategy](TESTING_AND_QA.md)
