@@ -66,6 +66,7 @@ export function DataTable<T>({
   rows,
   rowKey,
   onRowClick,
+  activeRowKey,
   empty,
 }: {
   columns: {
@@ -77,10 +78,14 @@ export function DataTable<T>({
   rows: T[];
   rowKey: (row: T) => string;
   onRowClick?: (row: T) => void;
+  /** rowKey of the currently-selected row (e.g. the one whose detail pane is open). */
+  activeRowKey?: string;
   empty?: ReactNode;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    // overflow-x-auto (not overflow-hidden) so a wide table scrolls on narrow screens instead
+    // of clipping columns; the rounded border still clips horizontally.
+    <div className="overflow-x-auto rounded-lg border border-border bg-card">
       <table className="w-full text-sm">
         <thead className="bg-highlight/[0.03]">
           <tr>
@@ -106,34 +111,38 @@ export function DataTable<T>({
               </td>
             </tr>
           )}
-          {rows.map((row) => (
-            <tr
-              key={rowKey(row)}
-              onClick={() => onRowClick?.(row)}
-              // A clickable row must be reachable and operable by keyboard too: it enters the
-              // tab order and answers Enter/Space like the click it stands for.
-              tabIndex={onRowClick ? 0 : undefined}
-              onKeyDown={
-                onRowClick
-                  ? (event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      if (event.target !== event.currentTarget) return;
-                      event.preventDefault();
-                      onRowClick(row);
-                    }
-                  : undefined
-              }
-              className={`border-t border-border transition-colors ${onRowClick ? "cursor-pointer hover:bg-highlight/[0.03] focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring" : ""}`}
-            >
-              {columns.map((c) => (
-                <td key={String(c.key)} className={`px-4 py-3 align-middle ${c.className ?? ""}`}>
-                  {c.render
-                    ? c.render(row)
-                    : String((row as Record<string, unknown>)[c.key as string] ?? "")}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const isActive = activeRowKey !== undefined && rowKey(row) === activeRowKey;
+            return (
+              <tr
+                key={rowKey(row)}
+                onClick={() => onRowClick?.(row)}
+                aria-current={isActive ? "true" : undefined}
+                // A clickable row must be reachable and operable by keyboard too: it enters the
+                // tab order and answers Enter/Space like the click it stands for.
+                tabIndex={onRowClick ? 0 : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        if (event.target !== event.currentTarget) return;
+                        event.preventDefault();
+                        onRowClick(row);
+                      }
+                    : undefined
+                }
+                className={`border-t border-border transition-colors ${isActive ? "bg-primary/5 shadow-[inset_2px_0_0_0_var(--color-primary)]" : ""} ${onRowClick ? "cursor-pointer hover:bg-highlight/[0.03] focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-ring" : ""}`}
+              >
+                {columns.map((c) => (
+                  <td key={String(c.key)} className={`px-4 py-3 align-middle ${c.className ?? ""}`}>
+                    {c.render
+                      ? c.render(row)
+                      : String((row as Record<string, unknown>)[c.key as string] ?? "")}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

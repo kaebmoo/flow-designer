@@ -502,25 +502,9 @@ function JobsPage() {
     {
       key: "id",
       header: "Job",
-      // The whole row is the click target, so the ID stays neutral; cyan (with a left rail + tint,
-      // never colour alone) is reserved for the row whose detail pane is open in the URL. A true
-      // full-row highlight would need a shared DataTable `activeRowKey`/`rowClassName` prop; this
-      // marks the row via the one cell render this page controls.
-      render: (j: JobView) => {
-        const selected = j.id === selectedJobId;
-        return (
-          <span
-            aria-current={selected ? "true" : undefined}
-            className={`-my-3 -ml-4 flex items-center border-l-2 py-3 pl-4 font-mono text-xs ${
-              selected
-                ? "border-primary bg-primary/5 text-primary"
-                : "border-transparent text-foreground"
-            }`}
-          >
-            {j.id}
-          </span>
-        );
-      },
+      // The whole row is the click target and the open row is highlighted via DataTable's
+      // activeRowKey (full-row tint + inset rail + aria-current), so the ID stays neutral.
+      render: (j: JobView) => <span className="font-mono text-xs text-foreground">{j.id}</span>,
     },
     {
       key: "prompt",
@@ -779,6 +763,7 @@ function JobsPage() {
                           rows={section.rows}
                           rowKey={(j) => j.id}
                           onRowClick={(j) => toggleSelectedJob(j.id)}
+                          activeRowKey={selectedJobId}
                           columns={jobColumns}
                         />
                       </section>
@@ -790,6 +775,7 @@ function JobsPage() {
                   rows={rows}
                   rowKey={(j) => j.id}
                   onRowClick={(j) => toggleSelectedJob(j.id)}
+                  activeRowKey={selectedJobId}
                   empty={empty}
                   columns={jobColumns}
                 />
