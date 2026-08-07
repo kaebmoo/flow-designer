@@ -4,7 +4,7 @@ import type { SearchSchemaInput } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 
-import { PageHeader, StatusPill } from "@/components/atlas/page";
+import { FilterChip, PageHeader, StatusPill } from "@/components/atlas/page";
 import { Button } from "@/components/ui/button";
 import { useCreateWorkflow } from "@/lib/atlas-mutations";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
@@ -120,23 +120,18 @@ function WorkflowsIndex() {
           </div>
         }
         meta={
-          <div className="flex items-center gap-1">
+          <div role="group" aria-label="Rows to load" className="flex items-center gap-1">
             <span className="mr-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               Window
             </span>
             {ATLAS_LIMIT_OPTIONS.map((option) => (
-              <button
+              <FilterChip
                 key={option}
-                type="button"
+                active={limit === option}
                 onClick={() => void navigate({ search: { limit: option } })}
-                className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
-                  limit === option
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
-                }`}
               >
                 {option}
-              </button>
+              </FilterChip>
             ))}
           </div>
         }

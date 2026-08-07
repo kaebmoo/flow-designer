@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -555,6 +555,7 @@ function DeleteUserDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
+            className={buttonVariants({ variant: "destructive" })}
             disabled={remove.isPending}
             onClick={(event) => {
               // Keep the dialog open until Atlas confirms; closing optimistically would hide
@@ -805,6 +806,7 @@ function RevokeTokenDialog({ token, onClose }: { token: ApiTokenView; onClose: (
         <AlertDialogFooter>
           <AlertDialogCancel disabled={revoke.isPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
+            className={buttonVariants({ variant: "destructive" })}
             disabled={revoke.isPending}
             onClick={(event) => {
               event.preventDefault();

@@ -4,7 +4,7 @@ import type { SearchSchemaInput } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { DataTable, FilterChip, PageHeader, StatusPill } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import {
   AlertDialog,
@@ -540,6 +540,7 @@ function JobsPage() {
             </label>
             <button
               type="button"
+              aria-pressed={groupByWorkflow}
               onClick={() =>
                 void navigate({
                   search: (prev) => ({
@@ -548,7 +549,7 @@ function JobsPage() {
                   }),
                 })
               }
-              className={`rounded border px-3 py-1 font-mono text-[10px] uppercase tracking-widest transition ${
+              className={`rounded border px-3 py-1 font-mono text-[10px] uppercase tracking-widest transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                 groupByWorkflow
                   ? "border-primary/40 bg-primary/10 text-primary"
                   : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
@@ -557,49 +558,46 @@ function JobsPage() {
               Group by workflow
             </button>
             <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-            <button
-              type="button"
-              onClick={() => void navigate({ search: (prev) => ({ ...prev, state: undefined }) })}
-              className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
-                state === undefined
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
-              }`}
+            <div
+              role="group"
+              aria-label="Filter by state"
+              className="flex flex-wrap items-center gap-1"
             >
-              all
-            </button>
-            {JOB_STATES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => void navigate({ search: (prev) => ({ ...prev, state: s }) })}
-                className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
-                  state === s
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
-                }`}
+              <FilterChip
+                active={state === undefined}
+                onClick={() => void navigate({ search: (prev) => ({ ...prev, state: undefined }) })}
               >
-                {s}
-              </button>
-            ))}
+                all
+              </FilterChip>
+              {JOB_STATES.map((s) => (
+                <FilterChip
+                  key={s}
+                  active={state === s}
+                  onClick={() => void navigate({ search: (prev) => ({ ...prev, state: s }) })}
+                >
+                  {s}
+                </FilterChip>
+              ))}
+            </div>
             <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Window
-            </span>
-            {ATLAS_LIMIT_OPTIONS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => void navigate({ search: (prev) => ({ ...prev, limit: option }) })}
-                className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
-                  limit === option
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {option}
-              </button>
-            ))}
+            <div
+              role="group"
+              aria-label="Rows to load"
+              className="flex flex-wrap items-center gap-1"
+            >
+              <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                Window
+              </span>
+              {ATLAS_LIMIT_OPTIONS.map((option) => (
+                <FilterChip
+                  key={option}
+                  active={limit === option}
+                  onClick={() => void navigate({ search: (prev) => ({ ...prev, limit: option }) })}
+                >
+                  {option}
+                </FilterChip>
+              ))}
+            </div>
           </div>
         }
       />

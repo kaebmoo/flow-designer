@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
 
-import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { DataTable, FilterChip, PageHeader, StatusPill } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import { WindowNotice } from "@/components/atlas/window";
 import { ATLAS_LIMIT_OPTIONS, parseLimitSearch, parseStringSearch } from "@/lib/atlas-search";
@@ -63,46 +63,43 @@ function RunsIndex() {
         subtitle="Every workflow execution Atlas has recorded."
         meta={
           <div className="flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              onClick={() => void navigate({ search: (prev) => ({ ...prev, state: undefined }) })}
-              className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
-                state === undefined
-                  ? "border-primary/40 bg-primary/10 text-primary"
-                  : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
-              }`}
+            <div
+              role="group"
+              aria-label="Filter by state"
+              className="flex flex-wrap items-center gap-1"
             >
-              all
-            </button>
-            {RUN_STATES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => void navigate({ search: (prev) => ({ ...prev, state: s }) })}
-                className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
-                  state === s
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
-                }`}
+              <FilterChip
+                active={state === undefined}
+                onClick={() => void navigate({ search: (prev) => ({ ...prev, state: undefined }) })}
               >
-                {s}
-              </button>
-            ))}
+                all
+              </FilterChip>
+              {RUN_STATES.map((s) => (
+                <FilterChip
+                  key={s}
+                  active={state === s}
+                  onClick={() => void navigate({ search: (prev) => ({ ...prev, state: s }) })}
+                >
+                  {s}
+                </FilterChip>
+              ))}
+            </div>
             <span className="mx-2 h-4 w-px bg-border" aria-hidden="true" />
-            {ATLAS_LIMIT_OPTIONS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => void navigate({ search: (prev) => ({ ...prev, limit: option }) })}
-                className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
-                  limit === option
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {option}
-              </button>
-            ))}
+            <div
+              role="group"
+              aria-label="Rows to load"
+              className="flex flex-wrap items-center gap-1"
+            >
+              {ATLAS_LIMIT_OPTIONS.map((option) => (
+                <FilterChip
+                  key={option}
+                  active={limit === option}
+                  onClick={() => void navigate({ search: (prev) => ({ ...prev, limit: option }) })}
+                >
+                  {option}
+                </FilterChip>
+              ))}
+            </div>
           </div>
         }
       />

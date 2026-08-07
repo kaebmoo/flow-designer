@@ -4,7 +4,7 @@ import type { SearchSchemaInput } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { ArtifactContentActions, ArtifactDownloadError } from "@/components/atlas/artifact-actions";
-import { DataTable, PageHeader } from "@/components/atlas/page";
+import { DataTable, FilterChip, PageHeader } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -320,29 +320,4 @@ function formatBytes(bytes: number | null): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
-        active
-          ? "border-primary/40 bg-primary/10 text-primary"
-          : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      {children}
-    </button>
-  );
 }

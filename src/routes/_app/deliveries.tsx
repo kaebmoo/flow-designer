@@ -5,7 +5,7 @@ import { getRouteApi } from "@tanstack/react-router";
 import { RotateCcw } from "lucide-react";
 import { useState } from "react";
 
-import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { DataTable, FilterChip, PageHeader, StatusPill } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import { WindowNotice } from "@/components/atlas/window";
 import { Button } from "@/components/ui/button";
@@ -270,29 +270,5 @@ function RetryCell({ row, canRetry }: { row: DeliveryView; canRetry: boolean }) 
         </span>
       ) : null}
     </div>
-  );
-}
-
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition ${
-        active
-          ? "border-primary/40 bg-primary/10 text-primary"
-          : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      {children}
-    </button>
   );
 }

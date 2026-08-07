@@ -32,8 +32,7 @@ export function StatusPill({
 }) {
   const tones: Record<string, string> = {
     primary: "bg-primary/10 text-primary border-primary/25",
-    success:
-      "bg-[var(--color-success)]/10 text-[var(--color-success)] border-[var(--color-success)]/30",
+    success: "bg-success/10 text-success border-success/30",
     warning: "bg-accent/10 text-accent border-accent/30",
     danger: "bg-destructive/10 text-destructive border-destructive/30",
     muted: "bg-highlight/5 text-muted-foreground border-highlight/10",
@@ -43,7 +42,8 @@ export function StatusPill({
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${tones[tone]}`}
     >
       <span
-        className={`size-1.5 rounded-full ${tone === "primary" ? "bg-primary animate-pulse" : tone === "success" ? "bg-[var(--color-success)]" : tone === "warning" ? "bg-accent" : tone === "danger" ? "bg-destructive" : "bg-muted-foreground"}`}
+        // The primary "live" dot pulses; motion-reduce silences it for users who ask the OS to.
+        className={`size-1.5 rounded-full ${tone === "primary" ? "bg-primary animate-pulse motion-reduce:animate-none" : tone === "success" ? "bg-success" : tone === "warning" ? "bg-accent" : tone === "danger" ? "bg-destructive" : "bg-muted-foreground"}`}
       />
       {children}
     </span>
@@ -76,6 +76,7 @@ export function DataTable<T>({
             {columns.map((c) => (
               <th
                 key={String(c.key)}
+                scope="col"
                 className={`px-4 py-2.5 text-left font-mono text-[10px] uppercase tracking-widest text-muted-foreground ${c.className ?? ""}`}
               >
                 {c.header}
@@ -125,6 +126,36 @@ export function DataTable<T>({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * A filter / window toggle pill. Active state is carried by border + fill + text (not colour
+ * alone) AND announced to assistive tech via `aria-pressed`, so a keyboard or screen-reader user
+ * always knows which option is selected. Wrap a set in `<div role="group" aria-label="…">`.
+ */
+export function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+        active
+          ? "border-primary/40 bg-primary/10 text-primary"
+          : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
