@@ -10,7 +10,7 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { AlertTriangle } from "lucide-react";
 
-import { NODE_PRESENTATION } from "./workflow-node-presentation";
+import { MONO_RAMP, NODE_PRESENTATION } from "./workflow-node-presentation";
 import type { NodeKind } from "@/lib/workflow-graph";
 
 export interface CanvasNodeData extends Record<string, unknown> {
@@ -61,10 +61,16 @@ export function WorkflowCanvasNode({ data, selected }: NodeProps) {
       data-node-start={node.isStart ? "true" : "false"}
       data-run-state={node.runState ?? undefined}
     >
+      {/*
+        DESIGN specifies handles as 10px cyan dots ringed in the node background. Reconciled to
+        that spec here: at canvas zoom the dots are small enough that the cyan reads as "this is a
+        connection point" without meaningfully spending the rationed accent, and it makes the
+        draggable target obvious to a first-time operator.
+      */}
       <Handle
         type="target"
         position={Position.Left}
-        className="!size-3 !border-2 !border-card !bg-muted-foreground"
+        className="!size-2.5 !border-2 !border-card !bg-primary"
       />
 
       <div className="flex items-center gap-2.5">
@@ -73,7 +79,7 @@ export function WorkflowCanvasNode({ data, selected }: NodeProps) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-[13px] font-semibold tracking-tight text-foreground">
+            <span className="truncate text-sm font-semibold tracking-tight text-foreground">
               {node.title}
             </span>
             {/*
@@ -82,7 +88,9 @@ export function WorkflowCanvasNode({ data, selected }: NodeProps) {
               on the canvas would be a shape Atlas rejects on save.
             */}
             {node.isStart ? (
-              <span className="shrink-0 rounded border border-primary/40 bg-primary/15 px-1 py-px font-mono text-[9px] uppercase tracking-widest text-primary">
+              <span
+                className={`shrink-0 rounded border border-primary/40 bg-primary/15 px-1 py-px font-mono ${MONO_RAMP.chip} uppercase tracking-widest text-primary`}
+              >
                 start
               </span>
             ) : null}
@@ -97,14 +105,16 @@ export function WorkflowCanvasNode({ data, selected }: NodeProps) {
               />
             ) : null}
           </div>
-          <div className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">
+          <div className={`mt-0.5 truncate ${MONO_RAMP.meta} font-medium text-muted-foreground`}>
             {node.hint || presentation.description}
           </div>
         </div>
       </div>
 
       {node.runState ? (
-        <div className="mt-2 border-t border-border pt-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <div
+          className={`mt-2 border-t border-border pt-1.5 font-mono ${MONO_RAMP.meta} uppercase tracking-widest text-muted-foreground`}
+        >
           {node.runState}
         </div>
       ) : null}
@@ -112,7 +122,7 @@ export function WorkflowCanvasNode({ data, selected }: NodeProps) {
       <Handle
         type="source"
         position={Position.Right}
-        className="!size-3 !border-2 !border-card !bg-muted-foreground group-hover:!bg-primary"
+        className="!size-2.5 !border-2 !border-card !bg-primary"
       />
     </div>
   );

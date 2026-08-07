@@ -160,7 +160,7 @@ function ArtifactsTable({
             key: "key",
             header: "Key",
             render: (artifact) => (
-              <span className="font-mono text-xs text-primary">{artifact.key}</span>
+              <span className="font-mono text-xs text-foreground">{artifact.key}</span>
             ),
           },
           {
@@ -262,6 +262,14 @@ function ArtifactFilterForm({
         });
       }}
     >
+      <p className="w-full text-xs text-muted-foreground">
+        These filters match exact Atlas ids and keys — searching by name or date isn&apos;t
+        available (Atlas limit). Without an id,{" "}
+        <Link to="/runs" className="text-primary hover:underline">
+          find the run first
+        </Link>{" "}
+        and open it to see all of its artifacts.
+      </p>
       <div className="w-72">
         <Label htmlFor="artifact-run-filter" className="text-xs text-muted-foreground">
           Filter by run id (applied by Atlas)

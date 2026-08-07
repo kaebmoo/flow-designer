@@ -148,6 +148,22 @@ function DeliveriesPage() {
                   ),
                 },
                 {
+                  key: "createdAt",
+                  header: "Created",
+                  render: (row: DeliveryView) => (
+                    <span className="font-mono text-xs whitespace-nowrap">{row.createdAt}</span>
+                  ),
+                },
+                {
+                  key: "deliveredAt",
+                  header: "Delivered",
+                  render: (row: DeliveryView) => (
+                    <span className="font-mono text-xs whitespace-nowrap text-muted-foreground">
+                      {row.deliveredAt}
+                    </span>
+                  ),
+                },
+                {
                   key: "attempts",
                   header: "Attempts",
                   render: (row: DeliveryView) => (
@@ -161,7 +177,12 @@ function DeliveriesPage() {
                   header: "Last error",
                   render: (row: DeliveryView) =>
                     row.lastError ? (
-                      <span className="text-xs text-muted-foreground">{row.lastError}</span>
+                      <span
+                        className="block max-w-xs truncate text-xs text-muted-foreground"
+                        title={row.lastError}
+                      >
+                        {row.lastError}
+                      </span>
                     ) : (
                       "—"
                     ),
@@ -250,20 +271,33 @@ function RunFilterForm({
  */
 function RetryCell({ row, canRetry }: { row: DeliveryView; canRetry: boolean }) {
   const retry = useRetryDelivery();
-  const retryable = row.status.label === "failed" || row.status.label === "blocked";
+  /**
+   * Drive the gate off the view model's `attemptsExhausted` (Atlas has stopped its own retry
+   * loop) plus `blocked`, so the offered action matches the documented rule rather than a
+   * status label. Keep the button disabled through `isSuccess` too: the mutation invalidates
+   * ["deliveries"], and holding it disabled until that refetch replaces the row closes the
+   * double-submit window.
+   */
+  const retryable = row.attemptsExhausted || row.status.label === "blocked";
   if (!retryable || !canRetry) return null;
+  const busy = retry.isPending || retry.isSuccess;
   return (
     <div className="flex flex-col items-end gap-1">
       <Button
         size="sm"
         variant="outline"
-        disabled={retry.isPending}
+        disabled={busy}
         onClick={() => retry.mutate({ deliveryId: row.id })}
       >
         <RotateCcw className="size-3" /> {retry.isPending ? "Retrying webhook…" : "Retry webhook"}
       </Button>
+      {retry.isSuccess ? (
+        <span role="status" aria-live="polite" className="text-[11px] text-muted-foreground">
+          Retry queued — refreshing ledger…
+        </span>
+      ) : null}
       {retry.isError ? (
-        <span role="alert" className="text-[10px] text-destructive">
+        <span role="alert" className="text-[11px] text-destructive">
           {retry.error.kind === "forbidden"
             ? "Atlas refused: retrying requires workflows.run."
             : retry.error.message}

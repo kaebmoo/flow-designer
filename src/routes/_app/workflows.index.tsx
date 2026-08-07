@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { ChevronRight, Loader2, Plus, Workflow } from "lucide-react";
 import { useState } from "react";
 
-import { FilterChip, PageHeader, StatusPill } from "@/components/atlas/page";
+import { EmptyHint, FilterChip, PageHeader, StatusPill } from "@/components/atlas/page";
 import { Button } from "@/components/ui/button";
 import { useCreateWorkflow } from "@/lib/atlas-mutations";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
@@ -32,6 +32,9 @@ export const Route = createFileRoute("/_app/workflows/")({
 
 const appRoute = getRouteApi("/_app");
 
+/** Sentinel id for the blank "New workflow" create, so its pending label is tracked like an example. */
+const NEW_WORKFLOW_ID = "__new_workflow__";
+
 /**
  * Workflow definitions, read from `GET /api/workflows?limit=`.
  *
@@ -49,6 +52,9 @@ function WorkflowsIndex() {
   const routerNavigate = useNavigate();
   const identity = appRoute.useLoaderData();
   const [importOpen, setImportOpen] = useState(false);
+  // Which control kicked off the in-flight create, so only that button shows "Creating…"
+  // (`create.isPending` alone is global and would relabel every create button at once).
+  const [pendingCreateId, setPendingCreateId] = useState<string | null>(null);
   const workflows = useQuery(workflowsQuery({ limit }));
   const create = useCreateWorkflow();
   const canImportPacks =
@@ -74,11 +80,57 @@ function WorkflowsIndex() {
           policy: {},
         };
 
+    setPendingCreateId(example ? example.id : NEW_WORKFLOW_ID);
     create.mutate(template, {
       onSuccess: (workflow) =>
         routerNavigate({ to: "/workflows/$id", params: { id: workflow.id } }),
+      // Success navigates away; on error we re-enable the controls and clear the label.
+      onSettled: () => setPendingCreateId(null),
     });
   };
+
+  // One grid of starter cards, reused whether the operator's list is empty (shown prominently)
+  // or populated (tucked into a "Start from a template" disclosure below the list).
+  const starterGrid = (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {WORKFLOW_EXAMPLES.map((example) => {
+        const isPending = pendingCreateId === example.id;
+        return (
+          <div
+            key={example.id}
+            className="flex min-h-48 flex-col rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/35"
+          >
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-bold leading-snug">{example.name}</h3>
+              <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+                {example.description}
+              </p>
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                {example.graph.nodes.length} nodes · {example.graph.edges.length} edges
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={create.isPending}
+                onClick={() => createWorkflow(example)}
+              >
+                {isPending ? (
+                  <Loader2
+                    className="mr-1.5 size-3.5 animate-spin motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                ) : null}
+                {isPending ? "Creating…" : "Create example"}
+              </Button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <>
@@ -103,7 +155,7 @@ function WorkflowsIndex() {
                 Import pack
               </Button>
               {!canImportPacks ? (
-                <span className="font-mono text-[9px] uppercase tracking-widest text-accent">
+                <span className="font-mono text-[10px] uppercase tracking-widest text-accent">
                   workflows.manage required
                 </span>
               ) : null}
@@ -114,8 +166,15 @@ function WorkflowsIndex() {
               disabled={create.isPending}
               onClick={() => createWorkflow()}
             >
-              <Plus className="mr-1.5 size-3.5" aria-hidden="true" />
-              {create.isPending ? "Creating…" : "New workflow"}
+              {pendingCreateId === NEW_WORKFLOW_ID ? (
+                <Loader2
+                  className="mr-1.5 size-3.5 animate-spin motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Plus className="mr-1.5 size-3.5" aria-hidden="true" />
+              )}
+              {pendingCreateId === NEW_WORKFLOW_ID ? "Creating…" : "New workflow"}
             </Button>
           </div>
         }
@@ -144,53 +203,6 @@ function WorkflowsIndex() {
             {create.error.message}
           </p>
         ) : null}
-        <section className="mb-8" aria-labelledby="starter-workflows-heading">
-          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2
-                id="starter-workflows-heading"
-                className="text-sm font-bold uppercase tracking-wider"
-              >
-                Starter workflows
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Four Atlas-native examples you can create and customize.
-              </p>
-            </div>
-            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Ready to use
-            </span>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {WORKFLOW_EXAMPLES.map((example) => (
-              <div
-                key={example.id}
-                className="flex min-h-48 flex-col rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/35"
-              >
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-sm font-bold leading-snug">{example.name}</h3>
-                  <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
-                    {example.description}
-                  </p>
-                </div>
-                <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
-                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                    {example.graph.nodes.length} steps · {example.graph.edges.length} paths
-                  </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={create.isPending}
-                    onClick={() => createWorkflow(example)}
-                  >
-                    {create.isPending ? "Creating…" : "Create example"}
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
         {workflows.isPending ? (
           <LoadingState label="Loading workflows" />
         ) : workflows.isError ? (
@@ -199,43 +211,123 @@ function WorkflowsIndex() {
             onRetry={() => void workflows.refetch()}
           />
         ) : workflows.data.items.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-10 text-center text-sm text-muted-foreground">
-            Atlas has no workflow definitions yet.
-          </div>
-        ) : (
+          // No workflows yet: the operator's (empty) list still leads, then the starters are
+          // shown prominently as the way forward.
           <>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {workflows.data.items.map((w) => (
-                <Link
-                  key={w.id}
-                  to="/workflows/$id"
-                  params={{ id: w.id }}
-                  className="group flex flex-col rounded-lg border border-border bg-card p-5 transition hover:border-primary/40"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-base font-bold">{w.name}</div>
-                      <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                        {w.description || "No description."}
+            <section className="mb-8" aria-labelledby="your-workflows-heading">
+              <h2
+                id="your-workflows-heading"
+                className="mb-3 text-sm font-bold uppercase tracking-wider"
+              >
+                Your workflows
+              </h2>
+              <EmptyHint>
+                <Workflow
+                  className="mx-auto mb-3 size-6 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <p className="font-medium text-foreground">No workflow definitions in Atlas yet</p>
+                <p className="mt-1">
+                  Create a blank workflow, or start from one of the templates below.
+                </p>
+                <div className="mt-4 flex justify-center">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={create.isPending}
+                    onClick={() => createWorkflow()}
+                  >
+                    {pendingCreateId === NEW_WORKFLOW_ID ? (
+                      <Loader2
+                        className="mr-1.5 size-3.5 animate-spin motion-reduce:animate-none"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Plus className="mr-1.5 size-3.5" aria-hidden="true" />
+                    )}
+                    {pendingCreateId === NEW_WORKFLOW_ID ? "Creating…" : "New workflow"}
+                  </Button>
+                </div>
+              </EmptyHint>
+            </section>
+            <section aria-labelledby="starter-workflows-heading">
+              <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2
+                    id="starter-workflows-heading"
+                    className="text-sm font-bold uppercase tracking-wider"
+                  >
+                    Starter workflows
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Four Atlas-native examples you can create and customize.
+                  </p>
+                </div>
+                <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Ready to use
+                </span>
+              </div>
+              {starterGrid}
+            </section>
+          </>
+        ) : (
+          // Return visits lead with the operator's own list; starters collapse into a disclosure.
+          <>
+            <section className="mb-8" aria-labelledby="your-workflows-heading">
+              <h2
+                id="your-workflows-heading"
+                className="mb-3 text-sm font-bold uppercase tracking-wider"
+              >
+                Your workflows
+              </h2>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {workflows.data.items.map((w) => (
+                  <Link
+                    key={w.id}
+                    to="/workflows/$id"
+                    params={{ id: w.id }}
+                    className="group flex flex-col rounded-lg border border-border bg-card p-5 transition hover:border-primary/40"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-base font-bold">{w.name}</div>
+                        <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                          {w.description || "No description."}
+                        </div>
                       </div>
+                      <StatusPill tone={w.status.tone}>{w.status.label}</StatusPill>
                     </div>
-                    <StatusPill tone={w.status.tone}>{w.status.label}</StatusPill>
-                  </div>
-                  <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                    <span>{w.nodeCount} nodes</span>
-                    <span>{w.edgeCount} edges</span>
-                    <span>v{w.version}</span>
-                    <span className="w-full">updated {w.updatedAt}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-            <WindowNotice
-              count={workflows.data.items.length}
-              limit={workflows.data.limit}
-              mayHaveMore={workflows.data.mayHaveMore}
-              noun="workflows"
-            />
+                    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      <span>{w.nodeCount} nodes</span>
+                      <span>{w.edgeCount} edges</span>
+                      <span>v{w.version}</span>
+                      <span className="w-full">updated {w.updatedAt}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+              <WindowNotice
+                count={workflows.data.items.length}
+                limit={workflows.data.limit}
+                mayHaveMore={workflows.data.mayHaveMore}
+                noun="workflows"
+              />
+            </section>
+            <details className="group rounded-lg border border-border bg-card/40">
+              <summary className="flex cursor-pointer items-center gap-2 rounded-lg px-4 py-3 text-sm font-bold uppercase tracking-wider transition-colors hover:bg-highlight/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                <ChevronRight
+                  className="size-4 text-muted-foreground transition-transform group-open:rotate-90"
+                  aria-hidden="true"
+                />
+                Start from a template
+              </summary>
+              <div className="border-t border-border p-4">
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Four Atlas-native examples you can create and customize.
+                </p>
+                {starterGrid}
+              </div>
+            </details>
           </>
         )}
       </div>

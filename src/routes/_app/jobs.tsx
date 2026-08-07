@@ -1,7 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi, Link } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
-import { X } from "lucide-react";
+import { RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DataTable, FilterChip, PageHeader, StatusPill } from "@/components/atlas/page";
@@ -30,6 +30,17 @@ import { jobQuery, jobsQuery, runQuery, runsQuery, workflowsQuery } from "@/lib/
 const appRoute = getRouteApi("/_app");
 const WORKFLOW_PICKER_LIMIT = 100;
 const WORKFLOW_LOOKUP_LIMIT = 100;
+
+/**
+ * How often to refetch while a job is still in flight. Polling is gated on state: it only runs
+ * while a loaded/opened job is non-terminal (queued/running/cancel_requested) and stops once
+ * everything visible has reached a terminal state, so a settled window sits quiet.
+ */
+const JOBS_POLL_MS = 5000;
+
+/** A wall-clock stamp is a machine value, so it renders in the mono voice. */
+const formatClock = (ts: number) =>
+  ts ? new Date(ts).toLocaleTimeString([], { hour12: false }) : "—";
 
 /** Matches the height and focus ring of `Input`, which has no `select` counterpart. */
 const SELECT_CLASS =
@@ -270,8 +281,16 @@ function CancelJobControl({ job }: { job: JobDetailView }) {
  * element that opened it.
  */
 function JobDetailPane({ jobId, onClose }: { jobId: string; onClose: () => void }) {
-  const job = useQuery(jobQuery(jobId));
+  const job = useQuery({
+    ...jobQuery(jobId),
+    // Poll only while this job is still live; a terminal job needs no further fetches.
+    refetchInterval: (query) => {
+      const label = query.state.data?.state.label;
+      return label && !TERMINAL_JOB_STATES.has(label) ? JOBS_POLL_MS : false;
+    },
+  });
   const paneRef = useRef<HTMLElement | null>(null);
+  const jobLive = job.data ? !TERMINAL_JOB_STATES.has(job.data.state.label) : false;
 
   useEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -309,7 +328,13 @@ function JobDetailPane({ jobId, onClose }: { jobId: string; onClose: () => void 
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6 text-sm">
+      <div
+        className="flex-1 overflow-y-auto p-6 text-sm"
+        // Announce the loading→loaded transition to assistive tech without stealing focus from
+        // the pane; aria-busy flips off when the result lands.
+        aria-live="polite"
+        aria-busy={job.isPending}
+      >
         {job.isPending ? (
           <LoadingState label="Loading job" />
         ) : job.isError ? (
@@ -319,13 +344,24 @@ function JobDetailPane({ jobId, onClose }: { jobId: string; onClose: () => void 
           />
         ) : (
           <div className="space-y-5">
-            <div className="flex items-center gap-2">
-              <StatusPill tone={job.data.state.tone}>{job.data.state.label}</StatusPill>
-              {job.data.cancelRequested ? (
-                <span className="font-mono text-[10px] uppercase tracking-widest text-accent">
-                  cancel requested
-                </span>
-              ) : null}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <StatusPill tone={job.data.state.tone}>{job.data.state.label}</StatusPill>
+                {job.data.cancelRequested ? (
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-accent">
+                    cancel requested
+                  </span>
+                ) : null}
+              </div>
+              <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                {jobLive ? (
+                  <span
+                    className="size-1.5 rounded-full bg-primary animate-pulse motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                ) : null}
+                {jobLive ? "Live · " : ""}As of {formatClock(job.dataUpdatedAt)}
+              </span>
             </div>
 
             <CancelJobControl job={job.data} />
@@ -369,7 +405,7 @@ function JobDetailPane({ jobId, onClose }: { jobId: string; onClose: () => void 
               </div>
               {job.data.assistantText ? (
                 // Bounded height: a long completion must not grow the pane without limit.
-                <pre className="max-h-64 overflow-auto rounded border border-border bg-background/60 p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-foreground/90">
+                <pre className="max-h-64 overflow-auto rounded border border-border bg-background/60 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-foreground/90">
                   {job.data.assistantText}
                 </pre>
               ) : (
@@ -395,7 +431,15 @@ function JobsPage() {
   const workflowLookupNeeded = groupByWorkflow || workflow !== undefined;
   const workflowLookupLimit = Math.min(limit, WORKFLOW_LOOKUP_LIMIT);
 
-  const jobs = useQuery(jobsQuery({ limit }));
+  const jobs = useQuery({
+    ...jobsQuery({ limit }),
+    // Keep the list fresh only while some loaded job is still in flight; a fully-terminal
+    // window stops polling. Key and fetch fn come untouched from jobsQuery.
+    refetchInterval: (query) => {
+      const items = query.state.data?.items ?? [];
+      return items.some((j) => !TERMINAL_JOB_STATES.has(j.state.label)) ? JOBS_POLL_MS : false;
+    },
+  });
   const workflows = useQuery(workflowsQuery({ limit: WORKFLOW_PICKER_LIMIT }));
   const workflowRuns = useQuery({
     ...runsQuery({ limit: workflowLookupLimit, workflowDefinitionId: workflow }),
@@ -449,6 +493,7 @@ function JobsPage() {
         : state
           ? `No ${state} jobs in the loaded window of ${jobs.data?.limit ?? limit}.`
           : "Atlas has recorded no jobs.";
+  const listLive = (jobs.data?.items ?? []).some((j) => !TERMINAL_JOB_STATES.has(j.state.label));
   const toggleSelectedJob = (jobId: string) =>
     void navigate({
       search: (prev) => ({ ...prev, job: selectedJobId === jobId ? undefined : jobId }),
@@ -457,7 +502,25 @@ function JobsPage() {
     {
       key: "id",
       header: "Job",
-      render: (j: JobView) => <span className="font-mono text-xs text-primary">{j.id}</span>,
+      // The whole row is the click target, so the ID stays neutral; cyan (with a left rail + tint,
+      // never colour alone) is reserved for the row whose detail pane is open in the URL. A true
+      // full-row highlight would need a shared DataTable `activeRowKey`/`rowClassName` prop; this
+      // marks the row via the one cell render this page controls.
+      render: (j: JobView) => {
+        const selected = j.id === selectedJobId;
+        return (
+          <span
+            aria-current={selected ? "true" : undefined}
+            className={`-my-3 -ml-4 flex items-center border-l-2 py-3 pl-4 font-mono text-xs ${
+              selected
+                ? "border-primary bg-primary/5 text-primary"
+                : "border-transparent text-foreground"
+            }`}
+          >
+            {j.id}
+          </span>
+        );
+      },
     },
     {
       key: "prompt",
@@ -508,6 +571,36 @@ function JobsPage() {
       <PageHeader
         title="Jobs"
         subtitle="Every worker execution Atlas has recorded — routed manually or by a workflow."
+        actions={
+          jobs.data ? (
+            <div className="flex items-center gap-2">
+              {listLive ? (
+                <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-primary">
+                  <span
+                    className="size-1.5 rounded-full bg-primary animate-pulse motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                  Live
+                </span>
+              ) : null}
+              <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                As of {formatClock(jobs.dataUpdatedAt)}
+              </span>
+              <button
+                type="button"
+                onClick={() => void jobs.refetch()}
+                disabled={jobs.isFetching}
+                className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground transition hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`size-3 ${jobs.isFetching ? "animate-spin motion-reduce:animate-none" : ""}`}
+                  aria-hidden="true"
+                />
+                Refresh
+              </button>
+            </div>
+          ) : undefined
+        }
         meta={
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-2">

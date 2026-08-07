@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi } from "@tanstack/react-router";
-import { Copy, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, Copy, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
 import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
 import { useReturnFocus } from "@/hooks/use-return-focus";
@@ -28,7 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { isClientAtlasError, type ApiTokenView, type UserAdminView } from "@/lib/atlas-mappers";
-import { toClientAtlasError } from "@/lib/atlas-mappers";
+import { roleLabel, toClientAtlasError } from "@/lib/atlas-mappers";
 import {
   AtlasMutationError,
   useCreateUser,
@@ -39,13 +39,34 @@ import {
   useUpdateUser,
 } from "@/lib/atlas-mutations";
 import { apiTokensQuery, usersQuery } from "@/lib/atlas-queries";
-import { ATLAS_ROLES, ATLAS_USER_STATUSES } from "@/lib/atlas-types";
+import { ATLAS_ROLES, ATLAS_USER_STATUSES, type AtlasRole } from "@/lib/atlas-types";
 
 const appRoute = getRouteApi("/_app");
 
 /** Matches the height and focus ring of `Input`, which has no `select` counterpart. */
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+
+/**
+ * One-line privilege hint per Atlas role, shown under the role picker. UX only — Atlas is the
+ * authority on what each role can actually do; this just explains the choice at edit time.
+ */
+const ROLE_HINTS: Record<AtlasRole, string> = {
+  admin: "Full control, including managing users and API tokens.",
+  operator: "Run and supervise jobs, workflows, and approvals.",
+  viewer: "Read-only access to runs, workflows, and resources.",
+  auditor: "Read-only access to audit and usage records.",
+};
+
+/** Amber advisory note (icon + text, never colour alone) for warnings that Atlas still enforces. */
+function WarningNote({ children }: { children: ReactNode }) {
+  return (
+    <p className="flex items-start gap-1.5 text-xs text-accent">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      <span>{children}</span>
+    </p>
+  );
+}
 
 export const Route = createFileRoute("/_app/users")({
   component: UsersPage,
@@ -73,10 +94,13 @@ function UsersPage() {
 
   const [createUserOpen, setCreateUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserAdminView | null>(null);
+  const editUserFocus = useReturnFocus();
   const [deleteUser, setDeleteUser] = useState<UserAdminView | null>(null);
   const deleteUserFocus = useReturnFocus();
   const [mintOpen, setMintOpen] = useState(false);
+  const mintFocus = useReturnFocus();
   const [renameToken, setRenameToken] = useState<ApiTokenView | null>(null);
+  const renameTokenFocus = useReturnFocus();
   const [revokeToken, setRevokeToken] = useState<ApiTokenView | null>(null);
   const revokeTokenFocus = useReturnFocus();
 
@@ -118,6 +142,15 @@ function UsersPage() {
       </>
     );
   }
+
+  // Advisory only: warn before removing the last account that can still administer Atlas. Atlas
+  // is the authority — it may know of admins this loaded list doesn't — so this only surfaces the
+  // risk, it never blocks the mutation. "Effective" admin = role admin AND status active.
+  const effectiveAdminCount = users.data.filter(
+    (user) => user.role === "admin" && user.status.label === "active",
+  ).length;
+  const isLastAdmin = (user: UserAdminView) =>
+    user.role === "admin" && user.status.label === "active" && effectiveAdminCount === 1;
 
   return (
     <>
@@ -194,7 +227,10 @@ function UsersPage() {
                       size="sm"
                       variant="ghost"
                       aria-label={`Edit ${user.username}`}
-                      onClick={() => setEditUser(user)}
+                      onClick={(event) => {
+                        editUserFocus.capture(event.currentTarget);
+                        setEditUser(user);
+                      }}
                     >
                       <Pencil className="size-3.5" aria-hidden="true" />
                     </Button>
@@ -221,7 +257,14 @@ function UsersPage() {
             <h2 className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               API tokens
             </h2>
-            <Button size="sm" variant="outline" onClick={() => setMintOpen(true)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={(event) => {
+                mintFocus.capture(event.currentTarget);
+                setMintOpen(true);
+              }}
+            >
               <KeyRound className="size-3.5" /> Mint token
             </Button>
           </div>
@@ -300,7 +343,10 @@ function UsersPage() {
                       size="sm"
                       variant="ghost"
                       aria-label={`Rename token ${token.name}`}
-                      onClick={() => setRenameToken(token)}
+                      onClick={(event) => {
+                        renameTokenFocus.capture(event.currentTarget);
+                        setRenameToken(token);
+                      }}
                     >
                       <Pencil className="size-3.5" aria-hidden="true" />
                     </Button>
@@ -339,22 +385,41 @@ function UsersPage() {
           mode="edit"
           user={editUser}
           isSelf={editUser.username === currentUsername}
-          onClose={() => setEditUser(null)}
+          isLastAdmin={isLastAdmin(editUser)}
+          onClose={() => {
+            setEditUser(null);
+            editUserFocus.restore();
+          }}
         />
       ) : null}
       {deleteUser ? (
         <DeleteUserDialog
           user={deleteUser}
           isSelf={deleteUser.username === currentUsername}
+          isLastAdmin={isLastAdmin(deleteUser)}
           onClose={() => {
             setDeleteUser(null);
             deleteUserFocus.restore();
           }}
         />
       ) : null}
-      {mintOpen ? <MintTokenDialog users={users.data} onClose={() => setMintOpen(false)} /> : null}
+      {mintOpen ? (
+        <MintTokenDialog
+          users={users.data}
+          onClose={() => {
+            setMintOpen(false);
+            mintFocus.restore();
+          }}
+        />
+      ) : null}
       {renameToken ? (
-        <RenameTokenDialog token={renameToken} onClose={() => setRenameToken(null)} />
+        <RenameTokenDialog
+          token={renameToken}
+          onClose={() => {
+            setRenameToken(null);
+            renameTokenFocus.restore();
+          }}
+        />
       ) : null}
       {revokeToken ? (
         <RevokeTokenDialog
@@ -389,11 +454,13 @@ function UserFormDialog({
   mode,
   user,
   isSelf = false,
+  isLastAdmin = false,
   onClose,
 }: {
   mode: "create" | "edit";
   user?: UserAdminView;
   isSelf?: boolean;
+  isLastAdmin?: boolean;
   onClose: () => void;
 }) {
   const create = useCreateUser();
@@ -474,13 +541,17 @@ function UserFormDialog({
                 className={`${SELECT_CLASS} mt-1`}
                 value={role}
                 onChange={(event) => setRole(event.target.value)}
+                aria-describedby="user-role-hint"
               >
                 {ATLAS_ROLES.map((option) => (
                   <option key={option} value={option}>
-                    {option}
+                    {roleLabel(option)}
                   </option>
                 ))}
               </select>
+              <p id="user-role-hint" className="mt-1 text-xs text-muted-foreground">
+                {ROLE_HINTS[role as AtlasRole] ?? "Atlas defines this role's privileges."}
+              </p>
             </div>
             <div>
               <Label htmlFor="user-status">Status</Label>
@@ -499,10 +570,16 @@ function UserFormDialog({
             </div>
           </div>
           {isSelf && (role !== "admin" || status !== "active") ? (
-            <p className="text-xs text-accent">
+            <WarningNote>
               This is your own account: demoting or disabling it takes effect on your next request
               and can lock you out of this page.
-            </p>
+            </WarningNote>
+          ) : null}
+          {isLastAdmin && (role !== "admin" || status !== "active") ? (
+            <WarningNote>
+              This is the last active admin. Demoting or disabling it can leave Atlas with no
+              administrator. Atlas still enforces this — it may refuse the change.
+            </WarningNote>
           ) : null}
           <MutationErrorText error={active.isError ? active.error : null} />
           <DialogFooter>
@@ -522,10 +599,12 @@ function UserFormDialog({
 function DeleteUserDialog({
   user,
   isSelf,
+  isLastAdmin,
   onClose,
 }: {
   user: UserAdminView;
   isSelf: boolean;
+  isLastAdmin: boolean;
   onClose: () => void;
 }) {
   const remove = useDeleteUser();
@@ -551,6 +630,12 @@ function DeleteUserDialog({
               : ""}
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {isLastAdmin ? (
+          <WarningNote>
+            This is the last active admin. Deleting it can leave Atlas with no administrator. Atlas
+            still enforces this — it may refuse the deletion.
+          </WarningNote>
+        ) : null}
         <MutationErrorText error={remove.isError ? remove.error : null} />
         <AlertDialogFooter>
           <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
@@ -665,11 +750,15 @@ function MintTokenDialog({ users, onClose }: { users: UserAdminView[]; onClose: 
                 {copied === "copied" ? "Copied" : "Copy"}
               </Button>
             </div>
-            {copied === "failed" ? (
-              <p className="text-xs text-accent">
-                This browser refused clipboard access. Select the token text and copy it by hand.
-              </p>
-            ) : null}
+            <div aria-live="polite">
+              {copied === "copied" ? (
+                <p className="text-xs text-muted-foreground">Token copied to the clipboard.</p>
+              ) : copied === "failed" ? (
+                <p className="text-xs text-accent">
+                  This browser refused clipboard access. Select the token text and copy it by hand.
+                </p>
+              ) : null}
+            </div>
             <DialogFooter>
               <Button onClick={onClose}>Done — discard the value</Button>
             </DialogFooter>

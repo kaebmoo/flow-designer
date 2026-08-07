@@ -59,3 +59,20 @@ export const NODE_PRESENTATION: Record<NodeKind, NodePresentation> = {
 
 /** Palette order: the two that do work, then the two that control flow. */
 export const PALETTE_ORDER: readonly NodeKind[] = ["worker", "manager", "join", "human_gate"];
+
+/**
+ * The mono type ramp for the canvas and its inspectors.
+ *
+ * The editor's small technical text sits below the body scale in three deliberate steps rather
+ * than a scatter of ad-hoc `text-[Npx]` literals. Each rung has one job, and all three match
+ * DESIGN's mono hierarchy (9 / 10 / 11px). New canvas text should pick a rung here instead of
+ * inventing another size.
+ */
+export const MONO_RAMP = {
+  /** 9px — the densest chips, read at canvas zoom (the `start` badge). */
+  chip: "text-[9px]",
+  /** 10px — section labels, node metadata, and the run-state token. */
+  meta: "text-[10px]",
+  /** 11px — helper prose sitting under a control or node. */
+  helper: "text-[11px]",
+} as const;

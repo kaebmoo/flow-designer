@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
-import { Download } from "lucide-react";
+import { AlertTriangle, Download } from "lucide-react";
 
 import { DateRangeForm } from "@/components/atlas/date-range";
-import { FilterChip, PageHeader } from "@/components/atlas/page";
+import { DataTable, FilterChip, PageHeader } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import { Button } from "@/components/ui/button";
 import { parseDateBoundary } from "@/lib/atlas-dates";
@@ -53,13 +53,27 @@ function AuditPage() {
         subtitle="Atlas's immutable record of operator and system actions."
         actions={
           audit.isSuccess ? (
-            <Button asChild size="sm" variant="outline">
-              {/* A plain same-origin link: the session cookie authenticates it, and the
-                  server attaches the Atlas bearer. No token ever appears in this URL. */}
-              <a href={exportHref} download>
-                <Download className="size-4" /> Export CSV
-              </a>
-            </Button>
+            <div className="flex flex-col items-end gap-1">
+              <Button asChild size="sm" variant="outline">
+                {/* A plain same-origin link: the session cookie authenticates it, and the
+                    server attaches the Atlas bearer. No token ever appears in this URL. */}
+                <a href={exportHref} download>
+                  <Download className="size-4" /> Export CSV
+                </a>
+              </Button>
+              {/* Export honesty: the CSV is only this window/filters, never the whole record.
+                  When the window is full, say so with an amber + icon warning (never colour alone). */}
+              {audit.data.mayHaveMore ? (
+                <p className="flex items-center gap-1 font-mono text-[10px] text-accent">
+                  <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
+                  Export covers only this window — older entries exist and are excluded.
+                </p>
+              ) : (
+                <p className="font-mono text-[10px] text-muted-foreground">
+                  Export covers only the current window and filters.
+                </p>
+              )}
+            </div>
           ) : null
         }
         meta={
@@ -105,31 +119,51 @@ function AuditPage() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto rounded-lg border border-border bg-card p-4 font-mono text-[11px] leading-relaxed">
-              {audit.data.items.map((entry) => (
-                <div key={entry.id} className="flex gap-4 whitespace-nowrap py-0.5">
-                  <span className="shrink-0 text-primary">{entry.createdAt}</span>
-                  <span
-                    className="w-40 shrink-0 truncate text-muted-foreground"
-                    title={entry.actor}
-                  >
-                    [{entry.actor}]
-                  </span>
-                  <span className="w-44 shrink-0 uppercase tracking-widest text-foreground">
-                    {entry.action}
-                  </span>
-                  <span className="shrink-0 text-muted-foreground">
-                    → {entry.resourceType}/{entry.resourceId}
-                  </span>
-                  {entry.detail ? (
-                    <span className="truncate text-muted-foreground/70" title={entry.detail}>
-                      {entry.detail}
-                    </span>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-            <p className="mt-4 text-xs text-muted-foreground">
+            {/* Semantic table: real <th scope="col"> headers and keyboard-operable rows for free.
+                Machine values stay JetBrains Mono at the text-[10px] ramp; timestamps are neutral,
+                not cyan — cyan is rationed to live/primary/selected. Actor/resource/detail wrap
+                so the full value is visible and accessible, not hidden behind a title tooltip. */}
+            <DataTable
+              rows={audit.data.items}
+              rowKey={(entry) => entry.id}
+              columns={[
+                {
+                  key: "createdAt",
+                  header: "Time",
+                  className: "whitespace-nowrap font-mono text-[10px] text-muted-foreground",
+                },
+                {
+                  key: "actor",
+                  header: "Actor",
+                  className: "break-words font-mono text-[10px] text-foreground",
+                },
+                {
+                  key: "action",
+                  header: "Action",
+                  className:
+                    "whitespace-nowrap font-mono text-[10px] uppercase tracking-widest text-foreground",
+                },
+                {
+                  key: "resource",
+                  header: "Resource",
+                  className: "break-words font-mono text-[10px] text-muted-foreground",
+                  render: (entry) => `${entry.resourceType}/${entry.resourceId}`,
+                },
+                {
+                  key: "detail",
+                  header: "Detail",
+                  className: "break-words font-mono text-[10px] text-muted-foreground",
+                  render: (entry) =>
+                    entry.detail ? (
+                      entry.detail
+                    ) : (
+                      <span className="text-muted-foreground/50">—</span>
+                    ),
+                },
+              ]}
+            />
+            {/* Announced so filter/window/date changes reach screen-reader users, not just sighted. */}
+            <p role="status" aria-live="polite" className="mt-4 text-xs text-muted-foreground">
               Showing the {audit.data.items.length} newest entries
               {from || to ? " in the selected range" : ""} (window of {audit.data.limit}, newest
               first).{" "}

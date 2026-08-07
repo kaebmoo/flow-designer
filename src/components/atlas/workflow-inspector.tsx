@@ -13,6 +13,7 @@
  */
 
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,7 @@ import {
   describeCondition,
   edgeIsInCycle,
   hasLoopGuard,
+  isConnectionAllowed,
   isIdentifier,
   type ConditionType,
   type GraphCondition,
@@ -51,6 +53,35 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       </h3>
       <div className="space-y-3">{children}</div>
     </section>
+  );
+}
+
+/**
+ * A collapsible section, for the fields an operator rarely needs (advanced routing, allow-lists).
+ *
+ * Native `<details>` so it works without a mouse and is announced correctly by a screen reader —
+ * the field bindings inside are unchanged, only their visibility defaults to closed.
+ */
+function DetailsSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="group border-b border-border last:border-b-0" open={defaultOpen}>
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-4 py-4 font-mono text-[10px] uppercase tracking-widest text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none">
+        <ChevronRight
+          className="size-3 shrink-0 transition-transform group-open:rotate-90"
+          aria-hidden="true"
+        />
+        {title}
+      </summary>
+      <div className="space-y-3 px-4 pb-4">{children}</div>
+    </details>
   );
 }
 
@@ -146,6 +177,8 @@ export interface NodeInspectorProps {
   onRename: (nextId: string) => { ok: boolean; reason?: string };
   onSetStart: () => void;
   onDelete: () => void;
+  /** Creates an edge from this node to `targetId`, the keyboard-friendly alternative to dragging. */
+  onConnect: (targetId: string) => void;
   deleteDisabled?: boolean;
 }
 
@@ -157,6 +190,7 @@ export function NodeInspector({
   onRename,
   onSetStart,
   onDelete,
+  onConnect,
   deleteDisabled = false,
 }: NodeInspectorProps) {
   const presentation = NODE_PRESENTATION[node.type];
@@ -187,6 +221,12 @@ export function NodeInspector({
   };
 
   const isAgent = node.type === "worker" || node.type === "manager";
+
+  // The nodes this one may legally connect to, using the same rule the drag path enforces
+  // (no self-loops, no duplicate edges). This is the keyboard route to building the graph.
+  const connectTargets = graph.nodes.filter((candidate) =>
+    isConnectionAllowed(graph, node.id, candidate.id),
+  );
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -239,6 +279,34 @@ export function NodeInspector({
         </div>
       </Section>
 
+      <Section title="Connections">
+        <Field
+          label="Connect to"
+          hint="Adds an edge from this node. Choosing a target creates the edge and opens it — no drag needed. Dragging from the node's right handle still works."
+        >
+          {connectTargets.length > 0 ? (
+            <Choose
+              value=""
+              options={[
+                { value: "", label: "Choose a target node…" },
+                ...connectTargets.map((candidate) => ({
+                  value: candidate.id,
+                  label: candidate.id,
+                })),
+              ]}
+              onChange={(target) => {
+                if (target) onConnect(target);
+              }}
+            />
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              No available targets — this node already connects to every other node, or there is
+              nowhere left to connect.
+            </p>
+          )}
+        </Field>
+      </Section>
+
       {issues.length > 0 ? (
         <Section title="Problems">
           <ul className="space-y-1.5">
@@ -252,166 +320,180 @@ export function NodeInspector({
       ) : null}
 
       {isAgent ? (
-        <Section title="Prompt and routing">
-          <Field
-            label="Prompt"
-            hint="Atlas substitutes {input.x}, {artifact.key}, {run.x}, {node.x}, and {job.x}."
-          >
-            <Textarea
-              value={node.prompt ?? ""}
-              rows={5}
-              onChange={(event) => onChange({ ...node, prompt: event.target.value })}
-              className="font-mono text-xs"
-            />
-          </Field>
-
-          {node.type === "manager" ? (
-            <p className="rounded-md border border-border bg-secondary/30 px-3 py-2 text-[11px] text-muted-foreground">
-              A manager always declares{" "}
-              <code className="font-mono">schema: manager_decision_v1</code> — Atlas requires it,
-              and every edge leaving this node must use the <code>manager_selected</code> condition
-              naming that edge&apos;s own target.
-            </p>
-          ) : null}
-
-          <Field
-            label="Worker id"
-            hint="Optional. Atlas checks this against its own worker table when you validate."
-          >
-            <Input
-              value={node.worker_id ?? ""}
-              spellCheck={false}
-              onChange={(event) =>
-                onChange({ ...node, worker_id: event.target.value || undefined })
-              }
-              className="font-mono text-xs"
-            />
-          </Field>
-
-          <Field label="Workspace id" hint="Optional. Must belong to the worker above.">
-            <Input
-              value={node.workspace_id ?? ""}
-              spellCheck={false}
-              onChange={(event) =>
-                onChange({ ...node, workspace_id: event.target.value || undefined })
-              }
-              className="font-mono text-xs"
-            />
-          </Field>
-
-          <Field label="Role" hint="Routes to any worker with this role or tag when no id is set.">
-            <Input
-              value={node.role ?? ""}
-              onChange={(event) => onChange({ ...node, role: event.target.value || undefined })}
-              className="text-xs"
-            />
-          </Field>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Model">
-              <Input
-                value={node.model ?? ""}
-                onChange={(event) => onChange({ ...node, model: event.target.value || undefined })}
-                className="text-xs"
+        <>
+          <Section title="Prompt">
+            <Field
+              label="Prompt"
+              hint="Atlas substitutes {input.x}, {artifact.key}, {run.x}, {node.x}, and {job.x}."
+            >
+              <Textarea
+                value={node.prompt ?? ""}
+                rows={5}
+                onChange={(event) => onChange({ ...node, prompt: event.target.value })}
+                className="font-mono text-xs"
               />
             </Field>
-            <Field label="Workspace company" hint="Routing hint used when no workspace id is set.">
+
+            {node.type === "manager" ? (
+              <p className="rounded-md border border-border bg-secondary/30 px-3 py-2 text-[11px] text-muted-foreground">
+                A manager always declares{" "}
+                <code className="font-mono">schema: manager_decision_v1</code> — Atlas requires it,
+                and every edge leaving this node must use the <code>manager_selected</code>{" "}
+                condition naming that edge&apos;s own target.
+              </p>
+            ) : null}
+          </Section>
+
+          <DetailsSection title="Routing (advanced)">
+            <Field
+              label="Worker id"
+              hint="Optional. Atlas checks this against its own worker table when you validate."
+            >
               <Input
-                value={node.company ?? ""}
+                value={node.worker_id ?? ""}
+                spellCheck={false}
                 onChange={(event) =>
-                  onChange({ ...node, company: event.target.value || undefined })
+                  onChange({ ...node, worker_id: event.target.value || undefined })
                 }
-                className="text-xs"
+                className="font-mono text-xs"
               />
             </Field>
-          </div>
 
-          <Field label="Tags" hint="Comma separated.">
-            <Input
-              value={listToText(node.tags)}
-              onChange={(event) => {
-                const tags = textToList(event.target.value);
-                onChange({ ...node, tags: tags.length > 0 ? tags : undefined });
-              }}
-              className="text-xs"
-            />
-          </Field>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Execution">
-              <Choose
-                value={node.execution ?? "stream"}
-                options={EXECUTION_MODES.map((mode) => ({ value: mode, label: mode }))}
-                onChange={(execution) => onChange({ ...node, execution })}
-              />
-            </Field>
-            <Field label="Budget units" hint="Whole number, 1 or more.">
+            <Field label="Workspace id" hint="Optional. Must belong to the worker above.">
               <Input
-                inputMode="numeric"
-                value={node.budget_units === undefined ? "" : String(node.budget_units)}
+                value={node.workspace_id ?? ""}
+                spellCheck={false}
                 onChange={(event) =>
-                  onChange({ ...node, budget_units: optionalNumber(event.target.value) })
+                  onChange({ ...node, workspace_id: event.target.value || undefined })
                 }
+                className="font-mono text-xs"
+              />
+            </Field>
+
+            <Field
+              label="Role"
+              hint="Routes to any worker with this role or tag when no id is set."
+            >
+              <Input
+                value={node.role ?? ""}
+                onChange={(event) => onChange({ ...node, role: event.target.value || undefined })}
                 className="text-xs"
               />
             </Field>
-          </div>
 
-          {node.type === "worker" ? (
-            <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Model">
+                <Input
+                  value={node.model ?? ""}
+                  onChange={(event) =>
+                    onChange({ ...node, model: event.target.value || undefined })
+                  }
+                  className="text-xs"
+                />
+              </Field>
               <Field
-                label="Output artifact key"
-                hint="A worker produces exactly one artifact. Other nodes reference it by this key."
+                label="Workspace company"
+                hint="Routing hint used when no workspace id is set."
               >
                 <Input
-                  value={node.outputs?.[0] ?? ""}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    const key = event.target.value.trim();
-                    onChange({ ...node, outputs: key === "" ? undefined : [key] });
-                  }}
-                  className="font-mono text-xs"
-                />
-              </Field>
-              {/*
-                A separate control, never a side effect of setting the key. Atlas acts on this
-                flag: `atlas/workflows.py:1669` does an unguarded `json.loads` of the worker's
-                reply when it is `json`, so flipping it on behind the user's back turns a worker
-                that answers in prose into a run-time failure they were never warned about.
-              */}
-              <Field
-                label="Output format"
-                hint="Atlas parses the worker's reply as JSON when this is json, and stores it as text otherwise."
-              >
-                <Choose
-                  value={node.output_format ?? "text"}
-                  options={[
-                    { value: "text" as const, label: "text" },
-                    { value: "json" as const, label: "json" },
-                  ]}
-                  onChange={(format) =>
-                    onChange({ ...node, output_format: format === "json" ? "json" : undefined })
+                  value={node.company ?? ""}
+                  onChange={(event) =>
+                    onChange({ ...node, company: event.target.value || undefined })
                   }
+                  className="text-xs"
                 />
               </Field>
-            </>
-          ) : null}
+            </div>
 
-          <Field
-            label="Collect files"
-            hint="Comma-separated relative glob patterns collected after the job. No absolute paths, no '..'."
-          >
-            <Input
-              value={listToText(node.collect_files)}
-              spellCheck={false}
-              onChange={(event) => {
-                const files = textToList(event.target.value);
-                onChange({ ...node, collect_files: files.length > 0 ? files : undefined });
-              }}
-              className="font-mono text-xs"
-            />
-          </Field>
-        </Section>
+            <Field label="Tags" hint="Comma separated.">
+              <Input
+                value={listToText(node.tags)}
+                onChange={(event) => {
+                  const tags = textToList(event.target.value);
+                  onChange({ ...node, tags: tags.length > 0 ? tags : undefined });
+                }}
+                className="text-xs"
+              />
+            </Field>
+          </DetailsSection>
+
+          <Section title="Execution & budget">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Execution">
+                <Choose
+                  value={node.execution ?? "stream"}
+                  options={EXECUTION_MODES.map((mode) => ({ value: mode, label: mode }))}
+                  onChange={(execution) => onChange({ ...node, execution })}
+                />
+              </Field>
+              <Field label="Budget units" hint="Whole number, 1 or more.">
+                <Input
+                  inputMode="numeric"
+                  value={node.budget_units === undefined ? "" : String(node.budget_units)}
+                  onChange={(event) =>
+                    onChange({ ...node, budget_units: optionalNumber(event.target.value) })
+                  }
+                  className="text-xs"
+                />
+              </Field>
+            </div>
+
+            {node.type === "worker" ? (
+              <>
+                <Field
+                  label="Output artifact key"
+                  hint="A worker produces exactly one artifact. Other nodes reference it by this key."
+                >
+                  <Input
+                    value={node.outputs?.[0] ?? ""}
+                    spellCheck={false}
+                    onChange={(event) => {
+                      const key = event.target.value.trim();
+                      onChange({ ...node, outputs: key === "" ? undefined : [key] });
+                    }}
+                    className="font-mono text-xs"
+                  />
+                </Field>
+                {/*
+                  A separate control, never a side effect of setting the key. Atlas acts on this
+                  flag: `atlas/workflows.py:1669` does an unguarded `json.loads` of the worker's
+                  reply when it is `json`, so flipping it on behind the user's back turns a worker
+                  that answers in prose into a run-time failure they were never warned about.
+                */}
+                <Field
+                  label="Output format"
+                  hint="Atlas parses the worker's reply as JSON when this is json, and stores it as text otherwise."
+                >
+                  <Choose
+                    value={node.output_format ?? "text"}
+                    options={[
+                      { value: "text" as const, label: "text" },
+                      { value: "json" as const, label: "json" },
+                    ]}
+                    onChange={(format) =>
+                      onChange({ ...node, output_format: format === "json" ? "json" : undefined })
+                    }
+                  />
+                </Field>
+              </>
+            ) : null}
+
+            <Field
+              label="Collect files"
+              hint="Comma-separated relative glob patterns collected after the job. No absolute paths, no '..'."
+            >
+              <Input
+                value={listToText(node.collect_files)}
+                spellCheck={false}
+                onChange={(event) => {
+                  const files = textToList(event.target.value);
+                  onChange({ ...node, collect_files: files.length > 0 ? files : undefined });
+                }}
+                className="font-mono text-xs"
+              />
+            </Field>
+          </Section>
+        </>
       ) : null}
 
       {node.type === "join" ? (
@@ -1075,7 +1157,7 @@ export function PolicyPanel({
         </div>
       </Section>
 
-      <Section title="Allow lists">
+      <DetailsSection title="Allow lists">
         <p className="text-[11px] text-muted-foreground">
           Comma-separated Atlas ids. When set, every node must resolve inside them — Atlas checks
           that when you validate against the server.
@@ -1102,7 +1184,7 @@ export function PolicyPanel({
             className="font-mono text-xs"
           />
         </Field>
-      </Section>
+      </DetailsSection>
     </div>
   );
 }

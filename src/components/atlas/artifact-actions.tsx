@@ -48,15 +48,20 @@ export function ArtifactContentActions({
 
   if (artifact.downloadable) {
     return (
-      <Button
-        size="sm"
-        variant="outline"
-        aria-label={artifactActionLabel("Download", artifact)}
-        disabled={downloading}
-        onClick={() => onDownload(artifact)}
-      >
-        {downloading ? "Downloading..." : "Download"}
-      </Button>
+      <>
+        <Button
+          size="sm"
+          variant="outline"
+          aria-label={artifactActionLabel("Download", artifact)}
+          disabled={downloading}
+          onClick={() => onDownload(artifact)}
+        >
+          {downloading ? "Downloading..." : "Download"}
+        </Button>
+        <span aria-live="polite" className="sr-only">
+          {downloading ? `Downloading ${artifact.key}` : ""}
+        </span>
+      </>
     );
   }
 
@@ -153,7 +158,7 @@ function ArtifactPreviewDialog({
           </div>
         ) : data === undefined ? null : data.preview === null ? (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            This file artifact is available through Download instead of inline preview.
+            This artifact has no inline content.
           </p>
         ) : (
           <div className="min-h-0">

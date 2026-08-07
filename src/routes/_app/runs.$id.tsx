@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ArtifactContentActions, ArtifactDownloadError } from "@/components/atlas/artifact-actions";
@@ -91,6 +92,15 @@ const PAGE_STEP = 25;
 // Local presentation helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Documented mono type ramp for this page (DESIGN.md sets mono at 9–10px).
+ *   - `text-[9px]`  : sub-labels inside a field/chip (the smallest rung)
+ *   - `text-[10px]` : the default machine token — ids, headings, status chips
+ *   - `text-[11px]` : dense payload/log body where a value must stay readable at length
+ *                     (event payload, artifact preview, delivery error). One deliberate
+ *                     step up from the token size, never larger.
+ */
+
 const BUTTON_BASE =
   "inline-flex items-center justify-center rounded border px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest transition disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -113,10 +123,29 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SectionHeading({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
+/**
+ * A section title. `emphasis` lifts action-critical sections (Run control, Approvals, Recovery)
+ * one weight/tone step above the reference tables so an operator can tell "here is something to
+ * act on" from "here is a record to read" without reading either.
+ */
+function SectionHeading({
+  children,
+  aside,
+  emphasis = false,
+}: {
+  children: ReactNode;
+  aside?: ReactNode;
+  emphasis?: boolean;
+}) {
   return (
     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-      <h2 className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+      <h2
+        className={
+          emphasis
+            ? "font-mono text-[11px] font-semibold uppercase tracking-widest text-foreground"
+            : "font-mono text-[10px] uppercase tracking-widest text-muted-foreground"
+        }
+      >
         {children}
       </h2>
       {aside}
@@ -397,7 +426,7 @@ function RunControls({ run }: { run: RunView }) {
 
   return (
     <section className="mb-8 rounded-lg border border-border bg-card px-4 py-4">
-      <SectionHeading>Run control</SectionHeading>
+      <SectionHeading emphasis>Run control</SectionHeading>
       <div className="flex flex-wrap items-center gap-2">
         <ActionButton
           label="Pause"
@@ -517,10 +546,17 @@ function RecoveryPanel({ run }: { run: RunView }) {
 
   return (
     <section className="mb-8 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-4">
-      <SectionHeading>
+      <SectionHeading emphasis>
         Recovery ({recovery.interrupted.length} interrupted{" "}
         {recovery.interrupted.length === 1 ? "node" : "nodes"})
       </SectionHeading>
+      {active ? (
+        <p className="mb-2 text-sm leading-relaxed text-foreground">
+          Atlas set this run to <span className="font-mono">recovery_required</span> — the control
+          plane stopped while node work was still in flight, so the run needs you to authorize
+          continuing before it will move again.
+        </p>
+      ) : null}
       {recovery.reason ? (
         <p className="text-sm leading-relaxed text-foreground">{recovery.reason}</p>
       ) : null}
@@ -539,7 +575,12 @@ function RecoveryPanel({ run }: { run: RunView }) {
         </p>
       ) : null}
 
-      <div className="mt-4">
+      <p className="mt-4 mb-2 text-xs leading-relaxed text-muted-foreground">
+        A node marked <span className="font-mono">callback-pending</span> still has a job that may
+        be running on a remote worker right now; its result can land after the interruption, so
+        authorizing a retry can duplicate it.
+      </p>
+      <div>
         <DataTable
           rows={recovery.interrupted}
           rowKey={(node) => node.nodeKey}
@@ -617,12 +658,21 @@ function ApprovalActions({ approval, runState }: { approval: ApprovalView; runSt
       <div className="flex flex-wrap justify-end gap-2">
         {approval.choices.length > 0 ? (
           approval.choices.map((choice) => (
-            <ActionButton
+            <ConfirmAction
               key={choice.id}
               label={choice.label}
               tone="primary"
               pending={decide.isPending}
-              onClick={() =>
+              title={`Take the "${choice.label}" branch?`}
+              confirmLabel={`Choose "${choice.label}"`}
+              description={
+                <p>
+                  Atlas records <span className="font-mono">{choice.label}</span> as the decision at{" "}
+                  <span className="font-mono">{approval.nodeKey}</span> and continues the run down
+                  that branch. A gate can only be decided once, and the run advances immediately.
+                </p>
+              }
+              onConfirm={() =>
                 decide.mutate({
                   approvalId: approval.id,
                   decision: "choose",
@@ -632,11 +682,20 @@ function ApprovalActions({ approval, runState }: { approval: ApprovalView; runSt
             />
           ))
         ) : (
-          <ActionButton
+          <ConfirmAction
             label="Approve"
             tone="primary"
             pending={decide.isPending}
-            onClick={() => decide.mutate({ approvalId: approval.id, decision: "approve" })}
+            title="Approve this gate and continue?"
+            confirmLabel="Approve and continue"
+            description={
+              <p>
+                Atlas records the approval at <span className="font-mono">{approval.nodeKey}</span>{" "}
+                and continues the run past the gate. A gate can only be decided once, and the run
+                advances immediately.
+              </p>
+            }
+            onConfirm={() => decide.mutate({ approvalId: approval.id, decision: "approve" })}
           />
         )}
         <ConfirmAction
@@ -662,6 +721,77 @@ function ApprovalActions({ approval, runState }: { approval: ApprovalView; runSt
       </div>
       <InlineError error={decide.error} />
     </div>
+  );
+}
+
+/**
+ * The one thing an operator most needs to do on a parked run, lifted out of section ~11 to the
+ * top of the page.
+ *
+ * When the run is `waiting_for_human` it will not move until a gate is decided, so the decision
+ * controls are rendered here — above the graph — instead of only far down in the Approvals
+ * table. It reuses {@link ApprovalActions}, so this is the same authoritative control (and the
+ * same Atlas guard), not a shortcut that bypasses it. Renders nothing unless the run is actually
+ * parked at a pending gate.
+ */
+function PendingApprovalCard({
+  approvals,
+  runState,
+}: {
+  approvals: ApprovalView[];
+  runState: string;
+}) {
+  const pending = approvals.filter((approval) => approval.state.label === "pending");
+  if (runState !== "waiting_for_human" || pending.length === 0) return null;
+
+  return (
+    <section
+      aria-labelledby="pending-approval-heading"
+      className="mb-8 rounded-lg border-2 border-accent/50 bg-accent/10 px-4 py-4"
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <ShieldCheck aria-hidden className="size-4 shrink-0 text-accent" />
+        <h2
+          id="pending-approval-heading"
+          className="font-mono text-[11px] font-semibold uppercase tracking-widest text-accent"
+        >
+          Waiting for a human decision
+        </h2>
+      </div>
+      <p className="mb-4 text-sm leading-relaxed text-foreground">
+        This run is paused at{" "}
+        {pending.length === 1 ? "a human gate" : `${pending.length} human gates`} and will not
+        continue until {pending.length === 1 ? "it is" : "each is"} decided below.
+      </p>
+      <ul className="space-y-3">
+        {pending.map((approval) => (
+          <li
+            key={approval.id}
+            className="flex flex-wrap items-start justify-between gap-3 rounded border border-accent/30 bg-card px-3 py-3"
+          >
+            <div className="min-w-0">
+              <span className="font-mono text-xs text-foreground">{approval.nodeKey}</span>
+              {approval.label ? (
+                <span className="mt-0.5 block text-sm text-foreground">{approval.label}</span>
+              ) : null}
+              {approval.reason ? (
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {approval.reason}
+                </span>
+              ) : null}
+            </div>
+            <ApprovalActions approval={approval} runState={runState} />
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-xs text-muted-foreground">
+        The full record for every gate on this run is in the{" "}
+        <a href="#approvals" className="text-primary underline underline-offset-2">
+          Approvals
+        </a>{" "}
+        section below.
+      </p>
+    </section>
   );
 }
 
@@ -758,8 +888,9 @@ function RunInterfaceSection({ detail }: { detail: RunDetailView }) {
         >
           <p className="mb-2 text-foreground">
             Started against workflow version{" "}
-            <span className="font-mono">{snapshot.workflowVersion ?? "unknown"}</span>, interface
-            schema_version <span className="font-mono">{snapshot.value.schema_version}</span>.
+            <span className="font-mono">{snapshot.workflowVersion ?? "unknown"}</span>, interface{" "}
+            <span className="font-mono">schema_version</span> (the format version of this contract){" "}
+            <span className="font-mono">{snapshot.value.schema_version}</span>.
           </p>
           <details>
             <summary className="cursor-pointer text-muted-foreground">
@@ -773,7 +904,7 @@ function RunInterfaceSection({ detail }: { detail: RunDetailView }) {
                 <ul className="space-y-1">
                   {snapshot.value.outputs.map((output) => (
                     <li key={output.key} className="text-xs">
-                      <span className="font-mono text-primary">{output.key}</span>
+                      <span className="font-mono text-foreground">{output.key}</span>
                       <span className="text-muted-foreground">
                         {" "}
                         — kind {output.kind}
@@ -834,11 +965,12 @@ function ArtifactsSection({
             header: "Key",
             render: (artifact) => (
               <span className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-xs text-primary">{artifact.key}</span>
+                <span className="font-mono text-xs text-foreground">{artifact.key}</span>
                 {declaredOutputs?.keys.has(artifact.key) ? (
                   <span
                     data-testid={`declared-output-${artifact.key}`}
                     title="This run's interface_snapshot declares this key as a public output. Possible, not guaranteed on every run."
+                    aria-label="Declared output: this run's interface declares this key as a public output — possible, not guaranteed on every run."
                     className="rounded-full border border-success/40 bg-success/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-success"
                   >
                     declared{artifact.key === declaredOutputs.primary ? " · primary" : ""}
@@ -847,6 +979,7 @@ function ArtifactsSection({
                   <span
                     data-testid={`observed-output-${artifact.key}`}
                     title="This graph declares this key on a worker node. Observed, not guaranteed."
+                    aria-label="Observed output: this run's graph declares this key on a worker node — observed, not guaranteed."
                     className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground"
                   >
                     observed
@@ -944,6 +1077,11 @@ function DeliveriesSection({ run }: { run: RunView }) {
       >
         Webhook delivery attempts
       </SectionHeading>
+
+      <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+        A webhook delivery is the HTTP callback Atlas sends to your reply address when the run
+        finishes, so another system learns the result without polling for it.
+      </p>
 
       <BlockedReasons
         reasons={deliverBlocked ? [{ label: "Send webhook now", reason: deliverBlocked }] : []}
@@ -1159,7 +1297,7 @@ function EventsSection({ runId }: { runId: string }) {
                 key: "type",
                 header: "Event",
                 render: (event) => (
-                  <span className="font-mono text-xs text-primary">{event.type}</span>
+                  <span className="font-mono text-xs text-foreground">{event.type}</span>
                 ),
               },
               {
@@ -1249,6 +1387,9 @@ function RunDetail() {
   /** Atlas's own record of where the run is, and the only source of node highlighting here. */
   const currentNodes = new Set(run.currentNodes);
 
+  /** Whether any gate is still awaiting a decision — drives the Approvals section's amber lift. */
+  const hasPendingGate = approvals.some((approval) => approval.state.label === "pending");
+
   /**
    * Output keys this run's own graph snapshot declares.
    *
@@ -1319,6 +1460,7 @@ function RunDetail() {
 
         <RecoveryPanel run={run} />
         <RunControls run={run} />
+        <PendingApprovalCard approvals={approvals} runState={run.state.label} />
 
         <section className="mb-8">
           <SectionHeading>Run graph</SectionHeading>
@@ -1370,7 +1512,7 @@ function RunDetail() {
                 header: "Node",
                 render: (n) => (
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs text-primary">{n.nodeKey}</span>
+                    <span className="font-mono text-xs text-foreground">{n.nodeKey}</span>
                     {/* Atlas's `current_nodes`, not a client-side guess about progress. */}
                     {currentNodes.has(n.nodeKey) ? (
                       <StatusPill tone="primary">current</StatusPill>
@@ -1422,8 +1564,15 @@ function RunDetail() {
           />
         </section>
 
-        <section className="mb-8">
-          <SectionHeading>Approvals ({approvals.length})</SectionHeading>
+        <section
+          id="approvals"
+          className={
+            hasPendingGate
+              ? "mb-8 rounded-lg border-2 border-accent/50 bg-accent/[0.06] px-4 py-4 scroll-mt-6"
+              : "mb-8 scroll-mt-6"
+          }
+        >
+          <SectionHeading emphasis>Approvals ({approvals.length})</SectionHeading>
           <DataTable
             rows={approvals}
             rowKey={(a) => a.id}
@@ -1478,6 +1627,10 @@ function RunDetail() {
 
         <section className="mb-8">
           <SectionHeading>Artifacts</SectionHeading>
+          <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+            Artifacts are the files and values this run produced — a node&apos;s output, a generated
+            document, a collected result.
+          </p>
           <ArtifactsSection
             runId={run.id}
             observedKeys={observedOutputKeys}

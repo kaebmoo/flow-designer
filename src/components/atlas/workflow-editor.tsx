@@ -32,7 +32,17 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useBlocker } from "@tanstack/react-router";
-import { AlertTriangle, Check, Play, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Play,
+  Plus,
+  Redo2,
+  RotateCcw,
+  Save,
+  Trash2,
+  Undo2,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -105,6 +115,17 @@ type Selection =
   | { kind: "policy" }
   | { kind: "interface" }
   | null;
+
+/** One point in the undo/redo history: everything the editor can put back. */
+interface EditorSnapshot {
+  graph: WorkflowGraph;
+  policy: WorkflowPolicy;
+  layout: WorkflowLayout;
+  name: string;
+  description: string;
+  defaultReply: WorkflowDefaultReply;
+  interfaceDraft: InterfaceDraftState;
+}
 
 /** A readable id for a new node: `worker_1`, `worker_2`, … */
 function nextNodeId(graph: WorkflowGraph, kind: NodeKind): string {
@@ -288,6 +309,34 @@ function EditorSurface({
   const [pendingNodeDeletion, setPendingNodeDeletion] = useState<string | null>(null);
   const { fitView, setViewport } = useReactFlow();
 
+  /**
+   * In-memory undo/redo over the editor's own state — the semantic graph, its policy, the browser
+   * layout, and the name/description/reply/interface draft.
+   *
+   * It is deliberately not persisted and it changes nothing about what a save sends: undo simply
+   * puts the editor back in a state it was already in, and `dirty` (a byte comparison against the
+   * Atlas baseline) recomputes from there. Snapshots are taken at discrete structural commits
+   * (add, connect, delete, rename, auto-arrange); per-keystroke field edits are left to the
+   * browser's native text-field undo rather than flooding this stack.
+   */
+  const HISTORY_LIMIT = 50;
+  const snapshotRef = useRef<EditorSnapshot>(undefined as unknown as EditorSnapshot);
+  const historyRef = useRef<{ past: EditorSnapshot[]; future: EditorSnapshot[] }>({
+    past: [],
+    future: [],
+  });
+  const [historyTick, setHistoryTick] = useState(0);
+  const pushHistory = useCallback(() => {
+    const history = historyRef.current;
+    history.past.push(snapshotRef.current);
+    if (history.past.length > HISTORY_LIMIT) history.past.shift();
+    history.future = [];
+    setHistoryTick((tick) => tick + 1);
+  }, []);
+  // Mirrors the live editable state so `pushHistory`/undo/redo can capture it without threading
+  // every value through their closures. Reassigned on every render, so it is always current.
+  snapshotRef.current = { graph, policy, layout, name, description, defaultReply, interfaceDraft };
+
   const interfaceContract = useMemo(
     () =>
       observeWorkflowContract(graph, {
@@ -460,6 +509,45 @@ function EditorSurface({
   const [fitRequest, setFitRequest] = useState(0);
   const fitSoon = useCallback(() => setFitRequest((request) => request + 1), []);
 
+  const applySnapshot = useCallback(
+    (snapshot: EditorSnapshot) => {
+      setGraph(snapshot.graph);
+      setPolicy(snapshot.policy);
+      setLayout(snapshot.layout);
+      // Layout is browser-only state; a restored layout is written through so it survives a reload
+      // exactly as an auto-arrange or a drag would.
+      writeLayout(layoutKeyId, graphVersion, snapshot.layout);
+      setName(snapshot.name);
+      setDescription(snapshot.description);
+      setDefaultReply(snapshot.defaultReply);
+      setInterfaceDraft(snapshot.interfaceDraft);
+      // The previous selection may point at a node or edge this snapshot does not contain.
+      setSelection(null);
+      fitSoon();
+    },
+    [layoutKeyId, graphVersion, fitSoon],
+  );
+
+  const undo = useCallback(() => {
+    const history = historyRef.current;
+    if (history.past.length === 0) return;
+    const previous = history.past.pop()!;
+    history.future.unshift(snapshotRef.current);
+    if (history.future.length > HISTORY_LIMIT) history.future.pop();
+    applySnapshot(previous);
+    setHistoryTick((tick) => tick + 1);
+  }, [applySnapshot]);
+
+  const redo = useCallback(() => {
+    const history = historyRef.current;
+    if (history.future.length === 0) return;
+    const next = history.future.shift()!;
+    history.past.push(snapshotRef.current);
+    if (history.past.length > HISTORY_LIMIT) history.past.shift();
+    applySnapshot(next);
+    setHistoryTick((tick) => tick + 1);
+  }, [applySnapshot]);
+
   useEffect(() => {
     const viewport = readViewport(layoutKeyId, graphVersion);
     setLayout(resolveLayout(initialGraphRef.current, readLayout(layoutKeyId, graphVersion)));
@@ -573,6 +661,29 @@ function EditorSurface({
       // measurement — dropping it is what leaves nodes invisible.
       setFlowNodes((previous) => applyNodeChanges(changes, previous));
 
+      // React Flow selects a node when a keyboard user focuses it (Tab) and presses Enter/Space,
+      // emitting a `select` change here. Without mirroring that into our own `selection` state the
+      // inspector never opens and the effect that derives `selected` from `selection` immediately
+      // reverts the highlight — so a keyboard user could never actually select a node. Mouse
+      // clicks emit the same change, so this covers both.
+      const selects = changes.filter(
+        (change): change is Extract<NodeChange<Node<CanvasNodeData>>, { type: "select" }> =>
+          change.type === "select",
+      );
+      if (selects.length > 0) {
+        const selected = selects.find((change) => change.selected);
+        if (selected) {
+          setSelection({ kind: "node", id: selected.id });
+        } else {
+          // Escape / deselect: only clear if the node being deselected is the one we are showing.
+          setSelection((previous) =>
+            previous?.kind === "node" && selects.some((change) => change.id === previous.id)
+              ? null
+              : previous,
+          );
+        }
+      }
+
       // A position change is *layout*, not graph: it updates local storage and never touches
       // the semantic model or the dirty state, which is why dragging a node does not make the
       // workflow claim unsaved changes.
@@ -597,6 +708,7 @@ function EditorSurface({
 
   const addNode = useCallback(
     (kind: NodeKind) => {
+      pushHistory();
       const id = nextNodeId(graph, kind);
       const next: WorkflowGraph = {
         // The first node becomes the start: a graph without one is invalid, and asking the user
@@ -611,13 +723,15 @@ function EditorSurface({
       // A node placed outside the current pane would otherwise appear not to have been added.
       fitSoon();
     },
-    [graph, layout, applyLayout, fitSoon],
+    [graph, layout, applyLayout, fitSoon, pushHistory],
   );
 
   const removeSelection = useCallback(() => {
     if (selection?.kind === "node") {
+      pushHistory();
       setGraph((previous) => removeNode(previous, selection.id));
     } else if (selection?.kind === "edge") {
+      pushHistory();
       setGraph((previous) => ({
         ...previous,
         edges: previous.edges.filter((_, index) => index !== selection.index),
@@ -628,7 +742,7 @@ function EditorSurface({
     // Clearing the selection is part of the delete, not a side effect: the scaffold left the
     // inspector pointed at a node that no longer existed.
     setSelection(null);
-  }, [selection]);
+  }, [selection, pushHistory]);
 
   const requestDeleteSelection = useCallback(() => {
     if (selection?.kind === "node") {
@@ -642,10 +756,11 @@ function EditorSurface({
 
   const confirmNodeDeletion = useCallback(() => {
     if (!pendingNodeDeletion) return;
+    pushHistory();
     setGraph((previous) => removeNode(previous, pendingNodeDeletion));
     setSelection(null);
     setPendingNodeDeletion(null);
-  }, [pendingNodeDeletion]);
+  }, [pendingNodeDeletion, pushHistory]);
 
   const pendingDeletionNode = pendingNodeDeletion
     ? graph.nodes.find((node) => node.id === pendingNodeDeletion)
@@ -670,6 +785,24 @@ function EditorSurface({
     [selection, requestDeleteSelection],
   );
 
+  /**
+   * Undo/redo, bound on the editor root so it works from the canvas, the palette, or the
+   * inspector — except inside a text field, where Cmd/Ctrl+Z must remain the browser's own
+   * character-level undo rather than reverting a whole structural change.
+   */
+  const onEditorKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const meta = event.metaKey || event.ctrlKey;
+      if (!meta || event.key.toLowerCase() !== "z") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable]")) return;
+      event.preventDefault();
+      if (event.shiftKey) redo();
+      else undo();
+    },
+    [undo, redo],
+  );
+
   const onConnect = useCallback(
     (connection: Connection) => {
       const { source, target } = connection;
@@ -684,11 +817,12 @@ function EditorSurface({
           : from?.type === "human_gate" && from.choices?.length
             ? { type: "human_selected", choice: from.choices[0]!.id }
             : { type: "always" };
+      pushHistory();
       const edges = [...graph.edges, { from: source, to: target, condition }];
       setGraph({ ...graph, edges });
       setSelection({ kind: "edge", index: edges.length - 1 });
     },
-    [graph],
+    [graph, pushHistory],
   );
 
   const updateNode = useCallback((next: GraphNode) => {
@@ -702,12 +836,13 @@ function EditorSurface({
     (fromId: string, toId: string): { ok: boolean; reason?: string } => {
       const result = renameNodeId(graph, fromId, toId);
       if (!result.ok) return { ok: false, reason: result.reason };
+      pushHistory();
       setGraph(result.graph);
       applyLayout(renameInLayout(layout, fromId, toId));
       setSelection({ kind: "node", id: toId });
       return { ok: true };
     },
-    [graph, layout, applyLayout],
+    [graph, layout, applyLayout, pushHistory],
   );
 
   const selectedNode =
@@ -716,8 +851,13 @@ function EditorSurface({
 
   const blocking = localIssues.length > 0 || !interfaceBuild.ok;
 
+  // `historyTick` is read so the button disabled states re-render when the history stacks change.
+  void historyTick;
+  const canUndo = historyRef.current.past.length > 0;
+  const canRedo = historyRef.current.future.length > 0;
+
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1" onKeyDown={onEditorKeyDown}>
       <AlertDialog open={navigationBlocker.status === "blocked"}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -935,13 +1075,38 @@ function EditorSurface({
               type="button"
               size="sm"
               variant="outline"
+              disabled={!canUndo}
+              aria-label="Undo"
+              title="Undo (⌘Z / Ctrl+Z)"
+              onClick={undo}
+            >
+              <Undo2 className="size-3.5" aria-hidden="true" />
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!canRedo}
+              aria-label="Redo"
+              title="Redo (⇧⌘Z / Ctrl+Shift+Z)"
+              onClick={redo}
+            >
+              <Redo2 className="size-3.5" aria-hidden="true" />
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
               onClick={() => {
+                pushHistory();
                 applyLayout(autoLayout(graph));
                 // Rearranging can make the graph wider than the pane, which would leave nodes
                 // off-screen with no indication that anything happened.
                 fitSoon();
               }}
-              title="Rearrange the canvas and fit it to the view. Layout is stored in this browser only."
+              title="Rearrange the canvas and fit it to the view. Layout is stored in this browser only. Undo with ⌘Z."
             >
               <RotateCcw className="mr-1.5 size-3.5" aria-hidden="true" />
               Auto-arrange
@@ -1065,12 +1230,17 @@ function EditorSurface({
           onKeyDown={onCanvasKeyDown}
           tabIndex={-1}
           role="application"
-          aria-label="Workflow canvas"
+          aria-label="Workflow canvas. Press Tab to move focus between nodes; Enter or Space selects the focused node and opens its inspector; arrow keys nudge a selected node; Delete or Backspace removes the current selection. Draw a connection by dragging from a node's right handle, or use Connect to in the node inspector. Undo with Command or Control Z."
         >
           <ReactFlow
             nodes={flowNodes}
             edges={flowEdges}
             nodeTypes={nodeTypes}
+            // Explicit, though it is also React Flow's default: nodes must stay tabbable so a
+            // keyboard user can Tab to one and press Enter/Space to select it (synced into our own
+            // `selection` in `onNodesChange`). Edges stay focusable too, for reaching a condition.
+            nodesFocusable
+            edgesFocusable
             onNodesChange={onNodesChange}
             onConnect={onConnect}
             isValidConnection={(connection) =>
@@ -1115,6 +1285,9 @@ function EditorSurface({
             onChange={updateNode}
             onRename={(nextId) => rename(selectedNode.id, nextId)}
             onSetStart={() => setGraph((previous) => ({ ...previous, start: selectedNode.id }))}
+            onConnect={(target) =>
+              onConnect({ source: selectedNode.id, target, sourceHandle: null, targetHandle: null })
+            }
             onDelete={requestDeleteSelection}
             deleteDisabled={selectedNode.id === graph.start}
           />
@@ -1174,6 +1347,7 @@ function EditorSurface({
               <button
                 type="button"
                 onClick={() => {
+                  pushHistory();
                   clearLayout(layoutKeyId, graphVersion);
                   applyLayout(autoLayout(graph));
                   fitSoon();

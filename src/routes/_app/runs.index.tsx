@@ -1,6 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
+import {
+  Ban,
+  CheckCircle2,
+  Clock,
+  LifeBuoy,
+  Loader2,
+  PauseCircle,
+  UserCheck,
+  XCircle,
+} from "lucide-react";
+import type { ReactNode } from "react";
 
 import { DataTable, FilterChip, PageHeader, StatusPill } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
@@ -32,6 +43,38 @@ const RUN_STATES = [
   "failed",
   "cancelled",
 ] as const;
+
+/**
+ * State → glyph. Several run states collapse to the same tone (`failed` and `recovery_required`
+ * are both `danger`; `paused` and `waiting_for_human` are both `warning`), so tone alone can't
+ * separate them at a glance. A distinct icon per state makes them scannable before the label is
+ * read — honouring the never-colour-alone rule with a second, pre-reading channel. States Atlas
+ * may emit that aren't mapped here fall back to `StatusPill`'s tone dot.
+ */
+const STATE_ICONS: Record<string, ReactNode> = {
+  running: <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" />,
+  queued: <Clock aria-hidden="true" />,
+  paused: <PauseCircle aria-hidden="true" />,
+  waiting_for_human: <UserCheck aria-hidden="true" />,
+  recovery_required: <LifeBuoy aria-hidden="true" />,
+  succeeded: <CheckCircle2 aria-hidden="true" />,
+  failed: <XCircle aria-hidden="true" />,
+  cancelled: <Ban aria-hidden="true" />,
+};
+
+/**
+ * Plain-language gloss for the states whose raw Atlas token is jargon to an external customer.
+ * Surfaced as hover help on the pill (and inline when that state is the active filter). The mono
+ * token stays the label — this only adds a human sentence, never replaces the real state.
+ */
+const STATE_GLOSS: Record<string, string> = {
+  waiting_for_human: "Paused at a human-decision gate, waiting for someone to approve or reject.",
+  recovery_required:
+    "Atlas restarted while a node was in flight; the run must be resumed to continue.",
+  paused: "Execution was paused and can be resumed.",
+  cancelled: "Stopped before it finished.",
+  queued: "Accepted and waiting to start.",
+};
 
 export const Route = createFileRoute("/_app/runs/")({
   validateSearch: (
@@ -130,9 +173,21 @@ function RunsIndex() {
           />
         ) : (
           <>
+            {state ? (
+              // The caveat lives ABOVE the table so an empty filtered result never reads as
+              // "no such runs exist" — it's a browser-side filter over one loaded window, not a
+              // query across all of Atlas. A plain-language gloss follows for jargon states.
+              <p className="mb-3 max-w-3xl text-xs text-muted-foreground">
+                Showing <span className="font-mono">{state}</span> runs filtered in your browser
+                from the loaded window of {runs.data.limit} — Atlas offers no state filter on this
+                endpoint, so widen the window to search further back.
+                {STATE_GLOSS[state] ? ` ${STATE_GLOSS[state]}` : ""}
+              </p>
+            ) : null}
             <DataTable
               rows={rows}
               rowKey={(r) => r.id}
+              onRowClick={(r) => void navigate({ to: "/runs/$id", params: { id: r.id } })}
               empty={
                 state
                   ? `No ${state} runs in the loaded window of ${runs.data.limit}.`
@@ -146,10 +201,26 @@ function RunsIndex() {
                     <Link
                       to="/runs/$id"
                       params={{ id: r.id }}
+                      // Row click already navigates here; stop the bubble so the link doesn't
+                      // double-fire the row handler.
+                      onClick={(e) => e.stopPropagation()}
                       className="font-mono text-xs text-primary hover:underline"
                     >
                       {r.id}
                     </Link>
+                  ),
+                },
+                {
+                  key: "state",
+                  header: "State",
+                  render: (r) => (
+                    // title carries a plain-language gloss for jargon states without displacing
+                    // the mono state token; the icon separates same-tone states pre-reading.
+                    <span title={STATE_GLOSS[r.state.label]}>
+                      <StatusPill tone={r.state.tone} icon={STATE_ICONS[r.state.label]}>
+                        {r.state.label}
+                      </StatusPill>
+                    </span>
                   ),
                 },
                 {
@@ -160,6 +231,9 @@ function RunsIndex() {
                       <Link
                         to="/workflows/$id"
                         params={{ id: r.workflowDefinitionId }}
+                        // This link targets a different route than the row; stop the bubble so the
+                        // row's run-navigation doesn't override it.
+                        onClick={(e) => e.stopPropagation()}
                         className="hover:text-primary"
                       >
                         {r.name}
@@ -188,12 +262,6 @@ function RunsIndex() {
                     <span className="font-mono text-xs">{formatDurationMs(r.durationMs)}</span>
                   ),
                 },
-                {
-                  key: "state",
-                  header: "State",
-                  className: "text-right",
-                  render: (r) => <StatusPill tone={r.state.tone}>{r.state.label}</StatusPill>,
-                },
               ]}
             />
             <WindowNotice
@@ -202,12 +270,6 @@ function RunsIndex() {
               mayHaveMore={runs.data.mayHaveMore}
               noun="runs"
             />
-            {state ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                The state filter is applied to that window in the browser — Atlas offers no state
-                filter on this endpoint, so widen the window to search further back.
-              </p>
-            ) : null}
           </>
         )}
       </div>

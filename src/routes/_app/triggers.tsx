@@ -1,10 +1,21 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
-import { Check, Copy, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  Copy,
+  Loader2,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+} from "lucide-react";
 
-import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { DataTable, EmptyHint, PageHeader, StatusPill } from "@/components/atlas/page";
+import { Button } from "@/components/ui/button";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import { WindowNotice } from "@/components/atlas/window";
 import {
@@ -85,6 +96,28 @@ const SELECT_CLASS =
 const ICON_BUTTON_CLASS =
   "inline-flex size-7 items-center justify-center rounded border border-border text-muted-foreground transition hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:text-muted-foreground";
 
+/**
+ * Fire is a real, non-idempotent run, so its control reads as the primary/start action rather
+ * than sharing the neutral chrome of Edit and Delete. The always-on primary tint (a small,
+ * single-icon footprint that keeps within the One Signal budget) separates it pre-reading.
+ */
+const FIRE_BUTTON_CLASS =
+  "inline-flex size-7 items-center justify-center rounded border border-primary/40 bg-primary/10 text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-primary/10";
+
+/**
+ * Human labels for the type dropdown. The table already shows `TriggerView.typeLabel`; the form
+ * only sees raw type tokens, so this mirrors the mapper's copy for the picker (kept local because
+ * the mapper's map is not exported and this file may only edit itself).
+ */
+const TRIGGER_TYPE_LABELS: Record<string, string> = {
+  manual: "Manual",
+  schedule: "Schedule",
+  webhook: "Webhook",
+  workflow_run_completed: "Workflow run completed",
+  artifact_created: "Artifact created",
+  worker_status_changed: "Worker status changed",
+};
+
 interface Notice {
   tone: "success" | "error";
   title: string;
@@ -105,6 +138,7 @@ function noticeFromMutationError(error: AtlasMutationError): Notice {
 
 function NoticeBanner({ notice, onDismiss }: { notice: Notice; onDismiss: () => void }) {
   const isError = notice.tone === "error";
+  const ToneIcon = isError ? AlertTriangle : CheckCircle2;
   return (
     <div
       role={isError ? "alert" : "status"}
@@ -114,6 +148,13 @@ function NoticeBanner({ notice, onDismiss }: { notice: Notice; onDismiss: () => 
           : "border-[var(--color-success)]/40 bg-[var(--color-success)]/10"
       }`}
     >
+      {/* Tone is carried by an icon as well as colour, never colour alone. */}
+      <ToneIcon
+        aria-hidden="true"
+        className={`mt-0.5 size-4 shrink-0 ${
+          isError ? "text-destructive" : "text-[var(--color-success)]"
+        }`}
+      />
       <div className="min-w-0 flex-1 text-xs leading-relaxed text-foreground">
         <span className="font-semibold">{notice.title}.</span> {notice.description}
       </div>
@@ -153,6 +194,12 @@ function TriggersPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ trigger: TriggerView | null } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<TriggerView | null>(null);
+  // Fire is confirmed before it runs, and its result is shown inline on the fired row rather than
+  // only in the top banner — the row may be scrolled far below that banner when it is pressed.
+  const [pendingFire, setPendingFire] = useState<TriggerView | null>(null);
+  const [fireOutcome, setFireOutcome] = useState<{ triggerId: string; notice: Notice } | null>(
+    null,
+  );
 
   const setEnabled = useSetTriggerEnabled();
   const fire = useFireTrigger();
@@ -237,13 +284,9 @@ function TriggersPage() {
           </div>
         }
         actions={
-          <button
-            type="button"
-            onClick={() => setEditing({ trigger: null })}
-            className="inline-flex items-center gap-2 rounded bg-primary px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-primary-foreground transition hover:opacity-90"
-          >
-            <Plus className="size-4" /> New trigger
-          </button>
+          <Button type="button" onClick={() => setEditing({ trigger: null })}>
+            <Plus /> New trigger
+          </Button>
         }
       />
 
@@ -257,17 +300,25 @@ function TriggersPage() {
             error={toClientAtlasError(triggers.error)}
             onRetry={() => void triggers.refetch()}
           />
+        ) : rows.length === 0 ? (
+          <EmptyHint>
+            <p>
+              {workflow
+                ? "Atlas has no triggers for this workflow."
+                : "Atlas has no workflow triggers yet."}
+            </p>
+            <div className="mt-4 flex justify-center">
+              <Button type="button" size="sm" onClick={() => setEditing({ trigger: null })}>
+                <Plus /> New trigger
+              </Button>
+            </div>
+          </EmptyHint>
         ) : (
           <>
             <div className="overflow-x-auto">
               <DataTable
                 rows={rows}
                 rowKey={(t) => t.id}
-                empty={
-                  workflow
-                    ? "Atlas has no triggers for this workflow."
-                    : "Atlas has no workflow triggers yet."
-                }
                 columns={[
                   {
                     key: "name",
@@ -400,65 +451,91 @@ function TriggersPage() {
                     className: "text-right",
                     render: (t) => {
                       const fireable = MANUALLY_FIREABLE_TRIGGER_TYPES.includes(t.type);
+                      // This specific row is the one Atlas is firing right now.
+                      const firing = fire.isPending && fire.variables?.triggerId === t.id;
+                      const outcome = fireOutcome?.triggerId === t.id ? fireOutcome.notice : null;
                       return (
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/*
-                            Every fire button goes down while one is in flight, not just this
-                            row's. Atlas has no idempotency key on `/fire`, so a second click
-                            anywhere in the table is a second run.
-                          */}
-                          <button
-                            type="button"
-                            disabled={!fireable || fire.isPending}
-                            title={
-                              fireable
-                                ? `Fire "${t.name}" now`
-                                : `Atlas fires ${t.typeLabel.toLowerCase()} triggers from its own events; they cannot be fired by hand.`
-                            }
-                            onClick={() => {
-                              setNotice(null);
-                              fire.mutate(
-                                { triggerId: t.id },
-                                {
-                                  onSuccess: () =>
-                                    setNotice({
-                                      tone: "success",
-                                      title: "Fire accepted",
-                                      description: `Atlas accepted the fire request for "${t.name}". Its last-event column shows whether the run actually started.`,
-                                    }),
-                                  onError: (error) => setNotice(noticeFromMutationError(error)),
-                                },
-                              );
-                            }}
-                            className={ICON_BUTTON_CLASS}
-                          >
-                            <Play className="size-3" />
-                            <span className="sr-only">Fire</span>
-                          </button>
-                          <button
-                            type="button"
-                            title={`Edit "${t.name}"`}
-                            onClick={() => {
-                              setNotice(null);
-                              setEditing({ trigger: t });
-                            }}
-                            className={ICON_BUTTON_CLASS}
-                          >
-                            <Pencil className="size-3" />
-                            <span className="sr-only">Edit</span>
-                          </button>
-                          <button
-                            type="button"
-                            title={`Delete "${t.name}"`}
-                            onClick={() => {
-                              setNotice(null);
-                              setPendingDelete(t);
-                            }}
-                            className={`${ICON_BUTTON_CLASS} hover:border-destructive/50 hover:text-destructive`}
-                          >
-                            <Trash2 className="size-3" />
-                            <span className="sr-only">Delete</span>
-                          </button>
+                        <div className="flex flex-col items-end gap-1.5">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/*
+                              Every fire button goes down while one is in flight, not just this
+                              row's. Atlas has no idempotency key on `/fire`, so a second click
+                              anywhere in the table is a second run. The confirmation dialog is the
+                              guard before that irreversible request.
+                            */}
+                            <button
+                              type="button"
+                              disabled={!fireable || fire.isPending}
+                              title={
+                                fireable
+                                  ? `Fire "${t.name}" now`
+                                  : `Atlas fires ${t.typeLabel.toLowerCase()} triggers from its own events; they cannot be fired by hand.`
+                              }
+                              onClick={() => {
+                                setNotice(null);
+                                setFireOutcome(null);
+                                setPendingFire(t);
+                              }}
+                              className={FIRE_BUTTON_CLASS}
+                            >
+                              {firing ? (
+                                <Loader2 className="size-3 animate-spin" />
+                              ) : (
+                                <Play className="size-3" />
+                              )}
+                              <span className="sr-only">{firing ? "Firing" : "Fire"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              title={`Edit "${t.name}"`}
+                              onClick={() => {
+                                setNotice(null);
+                                setEditing({ trigger: t });
+                              }}
+                              className={ICON_BUTTON_CLASS}
+                            >
+                              <Pencil className="size-3" />
+                              <span className="sr-only">Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              title={`Delete "${t.name}"`}
+                              onClick={() => {
+                                setNotice(null);
+                                setPendingDelete(t);
+                              }}
+                              className={`${ICON_BUTTON_CLASS} hover:border-destructive/50 hover:text-destructive`}
+                            >
+                              <Trash2 className="size-3" />
+                              <span className="sr-only">Delete</span>
+                            </button>
+                          </div>
+                          {outcome ? (
+                            <div
+                              role={outcome.tone === "error" ? "alert" : "status"}
+                              className={`flex max-w-[18rem] items-start gap-1.5 text-left text-[10px] leading-relaxed ${
+                                outcome.tone === "error"
+                                  ? "text-destructive"
+                                  : "text-[var(--color-success)]"
+                              }`}
+                            >
+                              {outcome.tone === "error" ? (
+                                <AlertTriangle
+                                  aria-hidden="true"
+                                  className="mt-0.5 size-3 shrink-0"
+                                />
+                              ) : (
+                                <CheckCircle2
+                                  aria-hidden="true"
+                                  className="mt-0.5 size-3 shrink-0"
+                                />
+                              )}
+                              <span>
+                                <span className="font-semibold">{outcome.title}.</span>{" "}
+                                {outcome.description}
+                              </span>
+                            </div>
+                          ) : null}
                         </div>
                       );
                     },
@@ -538,6 +615,63 @@ function TriggersPage() {
               }}
             >
               {remove.isPending ? "Deleting…" : "Delete trigger"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingFire !== null}
+        onOpenChange={(open) => {
+          // Same rule as delete: no dismissal mid-flight, or Escape would drop the target while
+          // Atlas is still deciding and hide the result.
+          if (open || fire.isPending) return;
+          setPendingFire(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fire this trigger now?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This starts a real run of &ldquo;{pendingFire?.name}&rdquo;. Atlas has no idempotency
+              key on the fire endpoint, so each confirmation is a separate run — there is no undo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={fire.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={fire.isPending}
+              onClick={(event) => {
+                // Firing is async; keep the dialog open until Atlas answers so a failure is seen.
+                event.preventDefault();
+                const target = pendingFire;
+                if (!target) return;
+                fire.mutate(
+                  { triggerId: target.id },
+                  {
+                    onSuccess: () => {
+                      setPendingFire(null);
+                      setFireOutcome({
+                        triggerId: target.id,
+                        notice: {
+                          tone: "success",
+                          title: "Fire accepted",
+                          description: `Atlas accepted the fire request for "${target.name}". The last-event column shows whether the run actually started.`,
+                        },
+                      });
+                    },
+                    onError: (error) => {
+                      setPendingFire(null);
+                      setFireOutcome({
+                        triggerId: target.id,
+                        notice: noticeFromMutationError(error),
+                      });
+                    },
+                  },
+                );
+              }}
+            >
+              {fire.isPending ? "Firing…" : "Fire trigger"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -705,6 +839,7 @@ function IdSelect({
   anyLabel,
   options,
   unavailableNote,
+  invalid,
 }: {
   id: string;
   value: string;
@@ -712,6 +847,7 @@ function IdSelect({
   anyLabel: string;
   options: Array<{ id: string; label: string }>;
   unavailableNote?: string;
+  invalid?: boolean;
 }) {
   const known = options.some((option) => option.id === value);
   return (
@@ -721,6 +857,7 @@ function IdSelect({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className={SELECT_CLASS}
+        aria-invalid={invalid || undefined}
       >
         <option value="" className="bg-card text-foreground">
           {anyLabel}
@@ -759,6 +896,7 @@ function TriggerFormDialog({
   const isCreate = trigger === null;
   const [draft, setDraft] = useState<TriggerDraft>(() => initialDraft(trigger));
   const [showProblems, setShowProblems] = useState(false);
+  const summaryRef = useRef<HTMLDivElement>(null);
 
   const create = useCreateTrigger();
   const update = useUpdateTrigger();
@@ -777,6 +915,21 @@ function TriggerFormDialog({
 
   const problems = localProblems(draft, isCreate);
 
+  // Field-level validity, surfaced as aria-invalid only once the user has tried to submit.
+  const intervalMinutes = Number(draft.intervalMinutes);
+  const nameInvalid = showProblems && draft.name.trim().length === 0;
+  const workflowInvalid = showProblems && isCreate && draft.workflowDefinitionId === "";
+  const intervalInvalid =
+    showProblems &&
+    draft.type === "schedule" &&
+    draft.scheduleMode === "interval" &&
+    (!Number.isFinite(intervalMinutes) || intervalMinutes < MIN_INTERVAL_MINUTES);
+  const dailyInvalid =
+    showProblems &&
+    draft.type === "schedule" &&
+    draft.scheduleMode === "daily" &&
+    !DAILY_TIME_PATTERN.test(draft.dailyTime);
+
   function patch(next: Partial<TriggerDraft>) {
     setDraft((current) => ({ ...current, ...next }));
   }
@@ -785,6 +938,9 @@ function TriggerFormDialog({
     event.preventDefault();
     if (problems.length > 0) {
       setShowProblems(true);
+      // Move focus to the (role="alert") summary so a keyboard/screen-reader user is taken to the
+      // reason the submit did nothing. rAF waits for the summary to render on the first failure.
+      requestAnimationFrame(() => summaryRef.current?.focus());
       return;
     }
     const config = buildTriggerConfig(draft, trigger);
@@ -853,6 +1009,7 @@ function TriggerFormDialog({
               onChange={(event) => patch({ name: event.target.value })}
               placeholder="Nightly digest"
               autoComplete="off"
+              aria-invalid={nameInvalid || undefined}
             />
           </Field>
 
@@ -872,6 +1029,7 @@ function TriggerFormDialog({
                 onChange={(next) => patch({ workflowDefinitionId: next })}
                 anyLabel="Choose a workflow…"
                 options={workflowChoices}
+                invalid={workflowInvalid}
                 unavailableNote={
                   workflowsUnavailable
                     ? "Atlas did not return the workflow list, so there is nothing to pick from. Reload the page and try again."
@@ -882,7 +1040,7 @@ function TriggerFormDialog({
           ) : (
             <Field label="Workflow to start">
               <div className="rounded-md border border-border bg-secondary/20 px-3 py-2">
-                <div className="font-mono text-xs text-foreground">
+                <div className="font-mono text-[10px] text-foreground">
                   {workflows.find((w) => w.id === trigger.workflowDefinitionId)?.name ??
                     trigger.workflowDefinitionId}
                 </div>
@@ -897,18 +1055,22 @@ function TriggerFormDialog({
           )}
 
           <Field label="Type" htmlFor="trigger-type">
+            {/* The human label is the option text; the raw Atlas token stays as a mono hint. */}
             <select
               id="trigger-type"
               value={draft.type}
               onChange={(event) => patch({ type: event.target.value })}
-              className={`${SELECT_CLASS} font-mono`}
+              className={SELECT_CLASS}
             >
               {typeOptions.map((type) => (
                 <option key={type} value={type} className="bg-card text-foreground">
-                  {type}
+                  {TRIGGER_TYPE_LABELS[type] ?? type}
                 </option>
               ))}
             </select>
+            <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              {draft.type}
+            </p>
           </Field>
 
           <TriggerConfigFields
@@ -919,6 +1081,8 @@ function TriggerFormDialog({
             workerChoices={workerChoices}
             workersUnavailable={workers.isError}
             triggerId={trigger?.id ?? null}
+            intervalInvalid={intervalInvalid}
+            dailyInvalid={dailyInvalid}
           />
 
           <div className="flex items-center justify-between rounded-md border border-border px-3 py-2">
@@ -938,42 +1102,51 @@ function TriggerFormDialog({
           </div>
 
           {showProblems && problems.length > 0 ? (
-            <ul className="space-y-1 rounded-md border border-accent/40 bg-accent/10 px-4 py-3 text-xs leading-relaxed text-foreground">
-              {problems.map((problem) => (
-                <li key={problem}>{problem}</li>
-              ))}
-            </ul>
+            <div
+              ref={summaryRef}
+              role="alert"
+              tabIndex={-1}
+              className="rounded-md border border-accent/40 bg-accent/10 px-4 py-3 text-xs leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <div className="mb-1 flex items-center gap-1.5 font-semibold">
+                <AlertTriangle aria-hidden="true" className="size-3.5 text-accent" />
+                {`Fix ${problems.length === 1 ? "this" : `these ${problems.length}`} before saving:`}
+              </div>
+              <ul className="ml-5 list-disc space-y-1">
+                {problems.map((problem) => (
+                  <li key={problem}>{problem}</li>
+                ))}
+              </ul>
+            </div>
           ) : null}
 
           {failure ? (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-xs leading-relaxed text-foreground">
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-xs leading-relaxed text-foreground"
+            >
+              <AlertTriangle
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-destructive"
+              />
               {(() => {
                 const notice = noticeFromMutationError(failure);
                 return (
-                  <>
+                  <span>
                     <span className="font-semibold">{notice.title}.</span> {notice.description}
-                  </>
+                  </span>
                 );
               })()}
             </div>
           ) : null}
 
           <DialogFooter>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={pending}
-              className="rounded-md border border-border px-4 py-2 text-sm text-foreground transition hover:bg-secondary disabled:opacity-50"
-            >
+            <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={pending}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-            >
+            </Button>
+            <Button type="submit" disabled={pending}>
               {pending ? "Saving…" : isCreate ? "Create trigger" : "Save trigger"}
-            </button>
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -989,6 +1162,8 @@ function TriggerConfigFields({
   workerChoices,
   workersUnavailable,
   triggerId,
+  intervalInvalid,
+  dailyInvalid,
 }: {
   draft: TriggerDraft;
   patch: (next: Partial<TriggerDraft>) => void;
@@ -997,6 +1172,8 @@ function TriggerConfigFields({
   workerChoices: Array<{ id: string; label: string }>;
   workersUnavailable: boolean;
   triggerId: string | null;
+  intervalInvalid: boolean;
+  dailyInvalid: boolean;
 }) {
   const workflowNote = workflowsUnavailable
     ? "Atlas did not return the workflow list, so only the current value is offered."
@@ -1048,6 +1225,7 @@ function TriggerConfigFields({
                 step="any"
                 value={draft.intervalMinutes}
                 onChange={(event) => patch({ intervalMinutes: event.target.value })}
+                aria-invalid={intervalInvalid || undefined}
               />
             </Field>
           ) : (
@@ -1064,6 +1242,7 @@ function TriggerConfigFields({
                 type="time"
                 value={draft.dailyTime}
                 onChange={(event) => patch({ dailyTime: event.target.value })}
+                aria-invalid={dailyInvalid || undefined}
               />
             </Field>
           )}
@@ -1218,7 +1397,7 @@ function TriggerConfigFields({
             A webhook trigger has no configuration in Atlas — no path, no secret, no auth mode.
             Anything that can authenticate against the Atlas API fires it by POSTing here:
           </p>
-          <code className="block break-all rounded border border-border bg-secondary/20 px-3 py-2 font-mono text-xs text-foreground">
+          <code className="block break-all rounded border border-border bg-secondary/20 px-3 py-2 font-mono text-[10px] leading-relaxed text-foreground">
             POST {triggerId === null ? "/api/workflow-triggers/{id}/fire" : firePath(triggerId)}
           </code>
           {triggerId === null ? (

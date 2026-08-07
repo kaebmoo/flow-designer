@@ -1,9 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, getRouteApi } from "@tanstack/react-router";
-import { AlertTriangle, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { createFileRoute, getRouteApi, Link } from "@tanstack/react-router";
+import {
+  AlertTriangle,
+  Check,
+  FolderTree,
+  Loader2,
+  Pencil,
+  Plus,
+  Server,
+  Trash2,
+} from "lucide-react";
+import { cloneElement, useEffect, useId, useState } from "react";
 
-import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { DataTable, EmptyHint, PageHeader, StatusPill } from "@/components/atlas/page";
 import { useReturnFocus } from "@/hooks/use-return-focus";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import {
@@ -86,22 +95,31 @@ function MutationAlert({ error }: { error: AtlasMutationError | null }) {
 }
 
 /**
- * Carries a control's explanation on a wrapper rather than on the control.
+ * Carries a control's explanation to assistive tech instead of a native `title`.
  *
  * `buttonVariants` sets `disabled:pointer-events-none` (`src/components/ui/button.tsx`), so a
- * disabled button never receives a hover and a `title` on it can never be rendered. The wrapper
- * still receives the pointer, which is the only way these reasons reach the screen.
+ * disabled button never receives a hover and a `title` on it can never be rendered — and a
+ * `title` is invisible to keyboard and screen-reader users regardless. Instead the reason is
+ * rendered as a screen-reader-only node and wired to the control with `aria-describedby`, so it
+ * is announced (disabled buttons stay in the accessibility tree) rather than hidden in a tooltip.
  */
 function ControlReason({
   reason,
   children,
 }: {
   reason: string | undefined;
-  children: React.ReactNode;
+  children: React.ReactElement<{ "aria-describedby"?: string }>;
 }) {
+  const hintId = useId();
+  if (!reason) {
+    return <span className="inline-flex">{children}</span>;
+  }
   return (
-    <span className="inline-flex" title={reason}>
-      {children}
+    <span className="inline-flex">
+      {cloneElement(children, { "aria-describedby": hintId })}
+      <span id={hintId} className="sr-only">
+        {reason}
+      </span>
     </span>
   );
 }
@@ -128,6 +146,15 @@ function WorkspacesPage() {
   const [pendingDelete, setPendingDelete] = useState<WorkspaceView | null>(null);
   const deleteFocus = useReturnFocus();
 
+  // A silent success leaves the operator guessing whether the write landed. This holds a brief
+  // inline confirmation after the form closes on success, then clears itself.
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+  useEffect(() => {
+    if (!confirmation) return;
+    const timer = setTimeout(() => setConfirmation(null), 4000);
+    return () => clearTimeout(timer);
+  }, [confirmation]);
+
   // A failed background refetch flips a query that already holds data to status `error`, so
   // whether a worker can be chosen is decided by the data itself, never by the status.
   const workerList = workers.data;
@@ -150,12 +177,21 @@ function WorkspacesPage() {
     <>
       <PageHeader
         title="Workspaces"
-        subtitle="Project directories exposed by each worker. The workspace_key resolves on the worker machine."
+        subtitle="Project directories exposed by each worker."
         meta={
           <div className="space-y-1">
+            <span className="block text-[11px] text-muted-foreground">
+              The <span className="font-mono">workspace_key</span> resolves on the worker machine.
+            </span>
             {workspaces.data ? (
               <span className="block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                 {workspaces.data.length} workspace{workspaces.data.length === 1 ? "" : "s"} mapped
+              </span>
+            ) : null}
+            {confirmation ? (
+              <span role="status" className="flex items-center gap-1.5 text-[11px] text-success">
+                <Check className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {confirmation}
               </span>
             ) : null}
             {canManage ? null : (
@@ -166,8 +202,11 @@ function WorkspacesPage() {
             )}
             {canManage && noWorkers ? (
               <span className="block text-[11px] text-muted-foreground">
-                Atlas has no workers, and a workspace must belong to one. Register a worker on the
-                Fleet page first.
+                Atlas has no workers, and a workspace must belong to one.{" "}
+                <Link to="/fleet" className="text-primary hover:underline">
+                  Register a worker on the Fleet page
+                </Link>{" "}
+                first.
               </span>
             ) : null}
           </div>
@@ -197,13 +236,35 @@ function WorkspacesPage() {
           <DataTable
             rows={workspaces.data}
             rowKey={(w) => w.id}
-            empty="Atlas has no workspaces mapped to a worker."
+            empty={
+              <EmptyHint>
+                <div className="flex flex-col items-center gap-3">
+                  <FolderTree className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
+                  <p>No workspaces are mapped to a worker yet.</p>
+                  {addReason === null ? (
+                    <Button size="sm" onClick={() => setForm({ workspace: null })}>
+                      <Plus aria-hidden="true" />
+                      Map workspace
+                    </Button>
+                  ) : noWorkers ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link to="/fleet">
+                        <Server aria-hidden="true" />
+                        Register a worker on the Fleet page
+                      </Link>
+                    </Button>
+                  ) : (
+                    <p className="text-[11px]">{addReason}</p>
+                  )}
+                </div>
+              </EmptyHint>
+            }
             columns={[
               {
                 key: "workspaceKey",
                 header: "Workspace Key",
                 render: (w) => (
-                  <span className="font-mono text-sm text-primary">{w.workspaceKey}</span>
+                  <span className="font-mono text-sm text-foreground">{w.workspaceKey}</span>
                 ),
               },
               {
@@ -303,6 +364,7 @@ function WorkspacesPage() {
           workers={workerList}
           workersStale={workers.isError}
           existing={workspaces.data ?? []}
+          onSaved={setConfirmation}
           onClose={() => setForm(null)}
         />
       ) : null}
@@ -333,6 +395,7 @@ function WorkspaceFormDialog({
   workers,
   workersStale,
   existing,
+  onSaved,
   onClose,
 }: {
   workspace: WorkspaceView | null;
@@ -340,6 +403,8 @@ function WorkspaceFormDialog({
   /** The worker list is still the one this dialog opened with, but Atlas refused to refresh it. */
   workersStale: boolean;
   existing: WorkspaceView[];
+  /** Reports the write that landed so the page can confirm it after this dialog closes. */
+  onSaved: (message: string) => void;
   onClose: () => void;
 }) {
   const upsert = useUpsertWorkspace();
@@ -375,21 +440,35 @@ function WorkspaceFormDialog({
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (missing !== null) return;
+    const savedKey = workspaceKey.trim();
     upsert.mutate(
       {
         workspaceId: workspace?.id,
         workerId,
-        workspaceKey: workspaceKey.trim(),
+        workspaceKey: savedKey,
         workspaceDir: workspaceDir.trim(),
         company: company.trim(),
         tags: parseTags(tags),
       },
-      { onSuccess: onClose },
+      {
+        onSuccess: () => {
+          onSaved(workspace ? `Saved ${savedKey}` : `Mapped ${savedKey}`);
+          onClose();
+        },
+      },
     );
   }
 
   return (
-    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+    // No dismissal while the request is in flight: Escape or an overlay click would unmount the
+    // dialog mid-mutation and hide Atlas's refusal, exactly as the delete dialog guards against.
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (open || upsert.isPending) return;
+        onClose();
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <form onSubmit={submit}>
           <DialogHeader>
@@ -430,7 +509,7 @@ function WorkspaceFormDialog({
                   {workers.map((w) => (
                     <SelectItem key={w.id} value={w.id}>
                       {w.name}
-                      <span className="ml-2 font-mono text-[11px] text-muted-foreground">
+                      <span className="ml-2 font-mono text-[10px] text-muted-foreground">
                         {w.baseUrl}
                       </span>
                     </SelectItem>
@@ -513,7 +592,11 @@ function WorkspaceFormDialog({
               <p className="text-[11px] leading-relaxed text-muted-foreground">Comma separated.</p>
             </div>
 
-            {missing ? <p className="text-[11px] text-muted-foreground">{missing}</p> : null}
+            {missing ? (
+              <p id="workspace-missing-hint" className="text-xs font-medium text-foreground">
+                {missing}
+              </p>
+            ) : null}
             <MutationAlert error={upsert.error} />
           </div>
 
@@ -521,7 +604,11 @@ function WorkspaceFormDialog({
             <Button type="button" variant="outline" onClick={onClose} disabled={upsert.isPending}>
               Cancel
             </Button>
-            <Button type="submit" disabled={missing !== null || upsert.isPending}>
+            <Button
+              type="submit"
+              disabled={missing !== null || upsert.isPending}
+              aria-describedby={missing ? "workspace-missing-hint" : undefined}
+            >
               {upsert.isPending ? <Loader2 className="animate-spin" aria-hidden="true" /> : null}
               {collision
                 ? "Overwrite existing mapping"

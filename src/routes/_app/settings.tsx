@@ -41,10 +41,10 @@ function SettingsPage() {
           />
         ) : (
           <div className="max-w-2xl space-y-6">
-            <section className="rounded-lg border border-border bg-card">
-              <header className="border-b border-border px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            <section className="rounded-xl border border-border bg-card">
+              <h2 className="border-b border-border px-6 py-4 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
                 Atlas instance · read-only, from GET /api/metrics
-              </header>
+              </h2>
               <dl className="divide-y divide-border">
                 <Row label="Atlas version" value={metrics.data.atlasVersion} />
                 <Row label="Schema version" value={String(metrics.data.schemaVersion)} />
@@ -52,7 +52,7 @@ function SettingsPage() {
               </dl>
             </section>
 
-            <section className="rounded-lg border border-border bg-card p-5 text-sm leading-relaxed text-muted-foreground">
+            <section className="rounded-xl border border-border bg-card p-6 text-sm leading-relaxed text-foreground">
               <h2 className="mb-2 font-semibold text-foreground">
                 Why there is nothing to configure here
               </h2>
@@ -62,11 +62,14 @@ function SettingsPage() {
                 <code className="font-mono text-xs">ATLAS_DB</code>,{" "}
                 <code className="font-mono text-xs">ATLAS_CORS_ORIGINS</code>,{" "}
                 <code className="font-mono text-xs">ATLAS_OUTBOUND_ALLOWLIST</code>, …) read at
-                process start. It exposes no authenticated endpoint to read or change them, so this
-                UI cannot offer instance naming, TLS, integrations, retention policies, or fleet
-                defaults without inventing them. If Atlas gains a safe settings API, this page is
-                where it lands. Deployment configuration for this frontend is documented in{" "}
-                <code className="font-mono text-xs">docs/CONFIGURATION.md</code>.
+                process start.{" "}
+                <span className="text-muted-foreground">
+                  It exposes no authenticated endpoint to read or change them, so this UI cannot
+                  offer instance naming, TLS, integrations, retention policies, or fleet defaults
+                  without inventing them. If Atlas gains a safe settings API, this page is where it
+                  lands. Deployment configuration for this frontend is documented in{" "}
+                  <code className="font-mono text-xs">docs/CONFIGURATION.md</code>.
+                </span>
               </p>
             </section>
           </div>
@@ -78,7 +81,7 @@ function SettingsPage() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between px-5 py-3">
+    <div className="flex items-center justify-between px-6 py-4">
       <dt className="text-sm">{label}</dt>
       <dd className="font-mono text-xs text-muted-foreground">{value}</dd>
     </div>

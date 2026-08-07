@@ -1,11 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Clock, Loader2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
 import { getIdentityFn, loginFn } from "@/lib/auth.functions";
-import { formatLoginRateLimitMessage } from "@/lib/auth-retry";
 import type { ClientAtlasError } from "@/lib/atlas-mappers";
 
 export const Route = createFileRoute("/auth")({
@@ -123,13 +122,16 @@ function AuthPage() {
   // A 401 from the login endpoint means bad credentials, not an expired session, so it is
   // rendered inline on the form rather than as a sign-out.
   const rateLimited = error?.kind === "rate_limited";
+  // The rate-limit message is deliberately stable — no live second count. The countdown lives
+  // only on the disabled button (visual). If the seconds appeared here, this aria-live region
+  // would queue one screen-reader announcement per tick for the whole lockout.
   const message =
     error === null
       ? null
       : error.kind === "unauthorized"
         ? "Incorrect username or password."
         : rateLimited
-          ? formatLoginRateLimitMessage(retrySeconds)
+          ? "Login is temporarily rate limited. Please wait before trying again."
           : error.kind === "network" || error.kind === "timeout"
             ? "Atlas is unreachable right now. Try again in a moment."
             : error.message;
@@ -138,12 +140,12 @@ function AuthPage() {
     <div className="atlas-grid flex min-h-screen items-center justify-center bg-background px-4 py-12">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <p className="font-mono text-[0.7rem] uppercase tracking-[0.2em] text-primary">
-            Atlas Control
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
+            Flow Designer
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">Sign in</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Authenticate against the Atlas control plane.
+            Sign in to view and operate your workflows.
           </p>
         </div>
 
@@ -165,10 +167,7 @@ function AuthPage() {
         >
           <div className="space-y-4">
             <div className="space-y-2">
-              <label
-                htmlFor="username"
-                className="font-mono text-[0.7rem] uppercase tracking-widest text-muted-foreground"
-              >
+              <label htmlFor="username" className="text-xs font-semibold text-muted-foreground">
                 Username
               </label>
               <input
@@ -186,10 +185,7 @@ function AuthPage() {
             </div>
 
             <div className="space-y-2">
-              <label
-                htmlFor="password"
-                className="font-mono text-[0.7rem] uppercase tracking-widest text-muted-foreground"
-              >
+              <label htmlFor="password" className="text-xs font-semibold text-muted-foreground">
                 Password
               </label>
               <input
@@ -207,14 +203,22 @@ function AuthPage() {
           </div>
 
           {message !== null ? (
-            <p
+            <div
               id="auth-error"
               role={rateLimited ? "status" : "alert"}
               aria-live={rateLimited ? "polite" : undefined}
-              className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              className="mt-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-foreground"
             >
-              {message}
-            </p>
+              {rateLimited ? (
+                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+              ) : (
+                <AlertTriangle
+                  className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+                  aria-hidden="true"
+                />
+              )}
+              <span>{message}</span>
+            </div>
           ) : null}
 
           <button
@@ -235,9 +239,14 @@ function AuthPage() {
           </button>
         </form>
 
-        <p className="mt-6 text-center font-mono text-[0.7rem] uppercase tracking-widest text-muted-foreground">
-          Atlas is the authority for every permission
-        </p>
+        <div className="mt-6 space-y-2 text-center">
+          <p className="text-xs text-muted-foreground">
+            Trouble signing in? Contact your Atlas administrator.
+          </p>
+          <p className="text-xs text-muted-foreground/70">
+            Access is managed by the Atlas Control Plane.
+          </p>
+        </div>
       </div>
     </div>
   );

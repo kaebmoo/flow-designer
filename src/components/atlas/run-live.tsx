@@ -78,12 +78,12 @@ function LiveLogRow({ event }: { event: JobStreamEvent }) {
       <span className="w-12 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground">
         {event.seq}
       </span>
-      <span className="w-28 shrink-0 truncate font-mono text-[10px] uppercase tracking-wider text-primary">
+      <span className="w-28 shrink-0 truncate font-mono text-[10px] uppercase tracking-wider text-foreground">
         {event.type}
         {!event.known ? (
           <span className="text-warning" title="Event type this client does not recognise.">
             {" "}
-            ?
+            ?<span className="sr-only"> (unrecognised event type)</span>
           </span>
         ) : null}
       </span>

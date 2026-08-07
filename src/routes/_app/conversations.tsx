@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { AlertTriangle, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { DataTable, PageHeader } from "@/components/atlas/page";
+import { DataTable, EmptyHint, PageHeader, StatusPill } from "@/components/atlas/page";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
+import { WindowNotice } from "@/components/atlas/window";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -100,19 +101,28 @@ function ConversationsPage() {
                   className="mt-1"
                 />
               </div>
-              <p className="pb-2 text-xs text-muted-foreground">
-                Filters only the {rows.length} conversations loaded below — Atlas offers no
-                server-side search.
-              </p>
+              <div className="flex flex-wrap items-center gap-3 pb-2">
+                <p aria-live="polite" className="text-xs text-muted-foreground">
+                  {filter.trim()
+                    ? `${filtered.length} of ${rows.length} loaded match`
+                    : `${rows.length} loaded`}{" "}
+                  — Atlas offers no server-side search.
+                </p>
+                {conversations.data.mayHaveMore ? (
+                  <StatusPill tone="warning" icon={<AlertTriangle aria-hidden="true" />}>
+                    Window full
+                  </StatusPill>
+                ) : null}
+              </div>
             </div>
 
             {rows.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
+              <EmptyHint>
                 Atlas has no conversations yet.
                 {canCreate
                   ? " Create one to group related jobs under a shared conversation id."
                   : " They appear here once created by an operator or by job submission."}
-              </div>
+              </EmptyHint>
             ) : (
               <DataTable
                 rows={filtered}
@@ -123,28 +133,50 @@ function ConversationsPage() {
                     key: "id",
                     header: "Conversation",
                     render: (row: ConversationView) => (
-                      <span className="font-mono text-xs text-primary">{row.id}</span>
+                      <span className="block max-w-[16rem] truncate font-mono text-[10px] text-primary">
+                        {row.id}
+                      </span>
                     ),
                   },
-                  { key: "title", header: "Title" },
+                  {
+                    key: "title",
+                    header: "Title",
+                    render: (row: ConversationView) => (
+                      <span className="block max-w-[18rem] truncate" title={row.title}>
+                        {row.title}
+                      </span>
+                    ),
+                  },
                   {
                     key: "workspaceKey",
                     header: "Workspace key",
                     render: (row: ConversationView) => (
-                      <span className="font-mono text-xs">{row.workspaceKey || "—"}</span>
+                      <span
+                        className="block max-w-[12rem] truncate font-mono text-[10px]"
+                        title={row.workspaceKey || undefined}
+                      >
+                        {row.workspaceKey || "—"}
+                      </span>
                     ),
                   },
                   {
                     key: "company",
                     header: "Company",
-                    render: (row: ConversationView) => row.company || "—",
+                    render: (row: ConversationView) => (
+                      <span
+                        className="block max-w-[12rem] truncate"
+                        title={row.company || undefined}
+                      >
+                        {row.company || "—"}
+                      </span>
+                    ),
                   },
                   {
                     key: "updatedAt",
                     header: "Updated",
                     className: "text-right",
                     render: (row: ConversationView) => (
-                      <span className="font-mono text-xs text-muted-foreground">
+                      <span className="font-mono text-[10px] text-muted-foreground">
                         {row.updatedAt}
                       </span>
                     ),
@@ -153,14 +185,17 @@ function ConversationsPage() {
               />
             )}
 
-            <p className="mt-4 text-xs text-muted-foreground">
-              Atlas returns only the 100 most recently updated conversations.{" "}
-              {conversations.data.mayHaveMore
-                ? "This window is full, so older conversations exist that the API cannot list."
-                : "There is no paging, search, or per-conversation detail endpoint."}{" "}
-              Conversations cannot be edited or deleted — Atlas has no such operation. Worker
-              session bindings are internal to Atlas and not readable through the API, so this page
-              cannot show whether a conversation currently has one.
+            <WindowNotice
+              count={rows.length}
+              limit={conversations.data.limit}
+              mayHaveMore={conversations.data.mayHaveMore}
+              noun="conversations"
+            />
+            <p className="mt-2 text-xs text-muted-foreground">
+              Atlas offers no paging, search, or per-conversation detail endpoint. Conversations
+              cannot be edited or deleted — Atlas has no such operation. Worker session bindings are
+              internal to Atlas and not readable through the API, so this page cannot show whether a
+              conversation currently has one.
             </p>
           </>
         )}

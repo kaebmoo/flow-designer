@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi } from "@tanstack/react-router";
-import { AlertTriangle, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, Loader2, Pencil, Plus, RefreshCw, ServerOff, Trash2 } from "lucide-react";
+import { cloneElement, useId, useState } from "react";
 
-import { DataTable, PageHeader, StatusPill } from "@/components/atlas/page";
+import { DataTable, EmptyHint, PageHeader, StatusPill } from "@/components/atlas/page";
 import { useReturnFocus } from "@/hooks/use-return-focus";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import {
@@ -108,22 +108,32 @@ function MutationAlert({ error }: { error: AtlasMutationError | null }) {
 }
 
 /**
- * Carries a control's explanation on a wrapper rather than on the control.
+ * Carries a control's explanation to every user, not just a mouse.
  *
  * `buttonVariants` sets `disabled:pointer-events-none` (`src/components/ui/button.tsx`), so a
  * disabled button never receives a hover and a `title` on it can never be rendered. The wrapper
- * still receives the pointer, which is the only way these reasons reach the screen.
+ * still receives the pointer, so `title` keeps the reason available on hover — but a `title` is
+ * invisible to keyboard and screen-reader users. So the reason is also rendered as an sr-only
+ * node and wired to the control with `aria-describedby`, which stays in the accessibility tree
+ * (and is read in a screen reader's browse mode) even when the control is disabled.
  */
 function ControlReason({
   reason,
   children,
 }: {
   reason: string | undefined;
-  children: React.ReactNode;
+  children: React.ReactElement<{ "aria-describedby"?: string }>;
 }) {
+  const reasonId = useId();
+  if (!reason) {
+    return <span className="inline-flex">{children}</span>;
+  }
   return (
     <span className="inline-flex" title={reason}>
-      {children}
+      {cloneElement(children, { "aria-describedby": reasonId })}
+      <span id={reasonId} className="sr-only">
+        {reason}
+      </span>
     </span>
   );
 }
@@ -154,6 +164,9 @@ function FleetPage() {
   const [form, setForm] = useState<{ worker: WorkerView | null } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<WorkerView | null>(null);
   const deleteFocus = useReturnFocus();
+  // The form dialog is conditionally mounted like the delete one, so it needs the same
+  // capture-on-open / restore-on-close to keep focus off <body> when it closes.
+  const formFocus = useReturnFocus();
 
   const pollWorker = usePollWorker();
   const pollAll = usePollAllWorkers();
@@ -213,7 +226,14 @@ function FleetPage() {
                   : `Registering a worker requires the Atlas admin role — yours is ${roleLabel}.`
               }
             >
-              <Button size="sm" disabled={!canManage} onClick={() => setForm({ worker: null })}>
+              <Button
+                size="sm"
+                disabled={!canManage}
+                onClick={(event) => {
+                  formFocus.capture(event.currentTarget);
+                  setForm({ worker: null });
+                }}
+              >
                 <Plus aria-hidden="true" />
                 Add worker
               </Button>
@@ -253,148 +273,193 @@ function FleetPage() {
             error={toClientAtlasError(workers.error)}
             onRetry={() => void workers.refetch()}
           />
+        ) : workers.data.length === 0 ? (
+          <EmptyHint>
+            <div className="mx-auto flex max-w-sm flex-col items-center gap-3">
+              <ServerOff className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-foreground">No workers registered</p>
+                <p className="text-sm text-muted-foreground">
+                  Atlas has no thClaws workers to route to yet.
+                </p>
+              </div>
+              {canManage ? (
+                <Button
+                  size="sm"
+                  onClick={(event) => {
+                    formFocus.capture(event.currentTarget);
+                    setForm({ worker: null });
+                  }}
+                >
+                  <Plus aria-hidden="true" />
+                  Add worker
+                </Button>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Ask an admin to register a worker.
+                </p>
+              )}
+            </div>
+          </EmptyHint>
         ) : (
-          <DataTable
-            rows={workers.data}
-            rowKey={(w) => w.id}
-            empty="Atlas has no workers registered."
-            columns={[
-              {
-                key: "name",
-                header: "Worker",
-                render: (w) => (
-                  <div>
-                    <div className="text-sm font-medium">{w.name}</div>
-                    <div className="font-mono text-[11px] text-muted-foreground">{w.baseUrl}</div>
-                  </div>
-                ),
-              },
-              {
-                key: "role",
-                header: "Role",
-                render: (w) => <span className="font-mono text-xs">{w.role || "—"}</span>,
-              },
-              {
-                key: "tags",
-                header: "Tags",
-                render: (w) =>
-                  w.tags.length === 0 ? (
-                    <span className="font-mono text-xs text-muted-foreground">—</span>
-                  ) : (
-                    <div className="flex flex-wrap gap-1">
-                      {w.tags.map((t) => (
-                        <span
-                          key={t}
-                          className="rounded border border-border bg-secondary/40 px-1.5 py-0.5 font-mono text-[10px]"
-                        >
-                          {t}
-                        </span>
-                      ))}
+          // 8 columns overflow a narrow viewport; this makes the table area scroll horizontally
+          // instead of clipping its right-hand columns.
+          <div className="overflow-x-auto">
+            <DataTable
+              rows={workers.data}
+              rowKey={(w) => w.id}
+              columns={[
+                {
+                  key: "name",
+                  header: "Worker",
+                  render: (w) => (
+                    <div>
+                      <div className="text-sm font-medium">{w.name}</div>
+                      <div className="font-mono text-[10px] text-muted-foreground">{w.baseUrl}</div>
                     </div>
                   ),
-              },
-              {
-                key: "agentVersion",
-                header: "Agent",
-                render: (w) => (
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {/* Null until Atlas has polled the worker at least once. */}
-                    {w.agentVersion ?? "not polled"}
-                  </span>
-                ),
-              },
-              {
-                key: "lastError",
-                header: "Last Error",
-                render: (w) =>
-                  w.lastError ? (
-                    <span className="line-clamp-1 font-mono text-[11px] text-destructive">
-                      {w.lastError}
+                },
+                {
+                  key: "role",
+                  header: "Role",
+                  render: (w) => <span className="font-mono text-xs">{w.role || "—"}</span>,
+                },
+                {
+                  key: "tags",
+                  header: "Tags",
+                  render: (w) =>
+                    w.tags.length === 0 ? (
+                      <span className="font-mono text-xs text-muted-foreground">—</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {w.tags.map((t) => (
+                          <span
+                            key={t}
+                            className="rounded border border-border bg-secondary/40 px-1.5 py-0.5 font-mono text-[10px]"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    ),
+                },
+                {
+                  key: "agentVersion",
+                  header: "Agent",
+                  render: (w) => (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {/* Null until Atlas has polled the worker at least once. */}
+                      {w.agentVersion ?? "not polled"}
                     </span>
-                  ) : (
-                    <span className="font-mono text-xs text-muted-foreground">—</span>
                   ),
-              },
-              {
-                key: "status",
-                header: "Status",
-                render: (w) => <StatusPill tone={w.status.tone}>{w.status.label}</StatusPill>,
-              },
-              {
-                key: "lastSeenAt",
-                header: "Last Seen",
-                render: (w) => (
-                  <span className="font-mono text-xs text-muted-foreground">{w.lastSeenAt}</span>
-                ),
-              },
-              {
-                key: "actions",
-                header: "Actions",
-                className: "text-right",
-                render: (w) => (
-                  <div className="flex justify-end gap-1">
-                    <ControlReason
-                      reason={
-                        pollReason ??
-                        "Atlas dials this worker now. It waits for the machine to answer."
-                      }
-                    >
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canPoll || pollBusy}
-                        onClick={() => pollWorker.mutate({ workerId: w.id })}
+                },
+                {
+                  key: "lastError",
+                  header: "Last Error",
+                  render: (w) =>
+                    w.lastError ? (
+                      // Collapsed to one line by default; the full error is one click / Enter /
+                      // Space away, and <details> announces its expanded state to screen readers.
+                      // The red is paired with an icon so colour is never the only error signal.
+                      <details className="group max-w-xs text-destructive">
+                        <summary className="flex cursor-pointer list-none items-start gap-1.5 [&::-webkit-details-marker]:hidden">
+                          <AlertTriangle
+                            className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                            aria-hidden="true"
+                          />
+                          <span className="line-clamp-1 break-words font-mono text-[10px] group-open:line-clamp-none">
+                            {w.lastError}
+                          </span>
+                        </summary>
+                      </details>
+                    ) : (
+                      <span className="font-mono text-xs text-muted-foreground">—</span>
+                    ),
+                },
+                {
+                  key: "status",
+                  header: "Status",
+                  render: (w) => <StatusPill tone={w.status.tone}>{w.status.label}</StatusPill>,
+                },
+                {
+                  key: "lastSeenAt",
+                  header: "Last Seen",
+                  render: (w) => (
+                    <span className="font-mono text-xs text-muted-foreground">{w.lastSeenAt}</span>
+                  ),
+                },
+                {
+                  key: "actions",
+                  header: "Actions",
+                  className: "text-right",
+                  render: (w) => (
+                    <div className="flex justify-end gap-1">
+                      <ControlReason
+                        reason={
+                          pollReason ??
+                          "Atlas dials this worker now. It waits for the machine to answer."
+                        }
                       >
-                        {pollingWorkerId === w.id ? (
-                          <Loader2 className="animate-spin" aria-hidden="true" />
-                        ) : (
-                          <RefreshCw aria-hidden="true" />
-                        )}
-                        <span className="sr-only">Poll {w.name}</span>
-                      </Button>
-                    </ControlReason>
-                    <ControlReason
-                      reason={
-                        canManage
-                          ? `Edit ${w.name}`
-                          : `Editing a worker requires the Atlas admin role — yours is ${roleLabel}.`
-                      }
-                    >
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canManage}
-                        onClick={() => setForm({ worker: w })}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canPoll || pollBusy}
+                          onClick={() => pollWorker.mutate({ workerId: w.id })}
+                        >
+                          {pollingWorkerId === w.id ? (
+                            <Loader2 className="animate-spin" aria-hidden="true" />
+                          ) : (
+                            <RefreshCw aria-hidden="true" />
+                          )}
+                          <span className="sr-only">Poll {w.name}</span>
+                        </Button>
+                      </ControlReason>
+                      <ControlReason
+                        reason={
+                          canManage
+                            ? `Edit ${w.name}`
+                            : `Editing a worker requires the Atlas admin role — yours is ${roleLabel}.`
+                        }
                       >
-                        <Pencil aria-hidden="true" />
-                        <span className="sr-only">Edit {w.name}</span>
-                      </Button>
-                    </ControlReason>
-                    <ControlReason
-                      reason={
-                        canManage
-                          ? `Delete ${w.name}`
-                          : `Deleting a worker requires the Atlas admin role — yours is ${roleLabel}.`
-                      }
-                    >
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!canManage}
-                        onClick={(event) => {
-                          deleteFocus.capture(event.currentTarget);
-                          setPendingDelete(w);
-                        }}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canManage}
+                          onClick={(event) => {
+                            formFocus.capture(event.currentTarget);
+                            setForm({ worker: w });
+                          }}
+                        >
+                          <Pencil aria-hidden="true" />
+                          <span className="sr-only">Edit {w.name}</span>
+                        </Button>
+                      </ControlReason>
+                      <ControlReason
+                        reason={
+                          canManage
+                            ? `Delete ${w.name}`
+                            : `Deleting a worker requires the Atlas admin role — yours is ${roleLabel}.`
+                        }
                       >
-                        <Trash2 className="text-destructive" aria-hidden="true" />
-                        <span className="sr-only">Delete {w.name}</span>
-                      </Button>
-                    </ControlReason>
-                  </div>
-                ),
-              },
-            ]}
-          />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canManage}
+                          onClick={(event) => {
+                            deleteFocus.capture(event.currentTarget);
+                            setPendingDelete(w);
+                          }}
+                        >
+                          <Trash2 className="text-destructive" aria-hidden="true" />
+                          <span className="sr-only">Delete {w.name}</span>
+                        </Button>
+                      </ControlReason>
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          </div>
         )}
       </div>
 
@@ -403,7 +468,10 @@ function FleetPage() {
           key={form.worker?.id ?? "new-worker"}
           worker={form.worker}
           existing={workers.data ?? []}
-          onClose={() => setForm(null)}
+          onClose={() => {
+            setForm(null);
+            formFocus.restore();
+          }}
         />
       ) : null}
 
@@ -694,7 +762,7 @@ function DeleteWorkerDialog({
                 {cascade.items.length} workspace{cascade.items.length === 1 ? "" : "s"} will be
                 deleted with it:
               </p>
-              <ul className="mt-1.5 space-y-0.5 font-mono text-[11px]">
+              <ul className="mt-1.5 space-y-0.5 font-mono text-[10px]">
                 {cascade.items.map((w) => (
                   <li key={w.id}>
                     {w.workspaceKey} <span className="opacity-70">— {w.workspaceDir}</span>
