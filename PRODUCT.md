@@ -16,12 +16,12 @@ Two audiences share the same web UI:
   workflow runs, approve/pause/resume/cancel/replay execution, edit workflow
   definitions on a canvas, and monitor artifacts, deliveries, triggers, usage,
   and audit.
-- **External customers / tenants**: log into the *same* UI to observe and
+- **External customers / tenants**: log into the _same_ UI to observe and
   operate their own slice — their runs, workflows, artifacts, deliveries. This
   means the UI is not a purely internal admin console; screens must be safe and
   legible for a customer, not just an operator who already knows the system.
 
-Distinct from both is the **application developer** building *on top of* a
+Distinct from both is the **application developer** building _on top of_ a
 workflow via Atlas's API + integration guides — they are served by
 documentation, not this UI.
 
@@ -39,8 +39,8 @@ enforced source of truth.
 ## Positioning
 
 The single defining constraint: **Atlas is the only source of truth and the
-only authorization authority.** Flow Designer deliberately owns *no* domain
-database, *no* second auth system, *no* workflow executor, and *no* frontend
+only authorization authority.** Flow Designer deliberately owns _no_ domain
+database, _no_ second auth system, _no_ workflow executor, and _no_ frontend
 RBAC. Its differentiator is a disciplined, transparent client that preserves
 Atlas IDs/states/error semantics faithfully and never hides, works around, or
 duplicates Atlas persistence — including surfacing Atlas's real limitations
@@ -74,9 +74,10 @@ it does not.
   users; plus CSV export routes (usage, audit) and streaming/content proxy
   routes.
 - Deliberately **out of scope in the UI today** (API-only in Atlas): ad-hoc job
-  composition, run file uploads, and solution-pack import/export beyond the
-  shipped pack export/import UI. Do not invent UI for what Atlas exposes only via
-  API without confirming scope.
+  composition, and solution-pack import/export beyond the shipped pack
+  export/import UI. Do not invent UI for what Atlas exposes only via API without
+  confirming scope. (Run file uploads left this list when the run detail gained
+  its **Upload input file** control alongside held test runs.)
 - Frontend responsibilities are bounded to presentation, navigation, query
   caching (TanStack Query), form state, safe optimistic UI, and typed transport
   adapters. Domain state must never be persisted or duplicated client-side;
@@ -93,7 +94,7 @@ it does not.
 
 **Open — nothing is binding yet.** The current working name in the UI is "Flow
 Designer" and appears in user-facing copy, but the user has confirmed name and
-visual identity are *both still provisional* (the package is generically named
+visual identity are _both still provisional_ (the package is generically named
 `tanstack_start_ts`). No committed logo, palette, or typography constraint
 exists. Any future visual identity is free to be established; treat the current
 look as incumbent evidence, not a binding commitment.

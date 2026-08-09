@@ -469,38 +469,56 @@ test.describe("workflow editor", () => {
      * pin a worker that exists, and have it removed from Atlas while the draft still names it.
      * A throwaway worker is used because Atlas refuses to delete one that has job history.
      */
+    const atlasHeaders = { authorization: `Bearer ${seed.adminToken}`, connection: "close" };
     const registered = await request.post(`${seed.atlasOrigin}/api/workers`, {
-      headers: { authorization: `Bearer ${seed.adminToken}`, connection: "close" },
+      headers: atlasHeaders,
       data: { name: "doomed-worker", base_url: "http://127.0.0.1:9/doomed", role: "builder" },
     });
     expect(registered.status()).toBe(201);
     const workerId = ((await registered.json()) as { worker: { id: string } }).worker.id;
 
-    await createWorkflow(page);
-    await canvas(page).locator('[data-node-kind="worker"]').click({ force: true });
-    await page.getByText("Routing (advanced)", { exact: true }).click();
+    let deleted = false;
+    const deleteWorker = async () => {
+      const response = await request.delete(`${seed.atlasOrigin}/api/workers/${workerId}`, {
+        headers: atlasHeaders,
+      });
+      deleted = response.ok();
+      return response;
+    };
 
-    // Targeted by id, not by label: a `<select>`'s option text lands inside its wrapping
-    // `<label>`, so a label lookup here would match on whatever happens to be in the list.
-    const workerField = page.locator("#node-worker-id");
-    await expect(workerField.locator(`option[value="${workerId}"]`)).toHaveCount(1);
-    await workerField.selectOption(workerId);
+    try {
+      await createWorkflow(page);
+      await canvas(page).locator('[data-node-kind="worker"]').click({ force: true });
+      await page.getByText("Routing (advanced)", { exact: true }).click();
 
-    const removed = await request.delete(`${seed.atlasOrigin}/api/workers/${workerId}`, {
-      headers: { authorization: `Bearer ${seed.adminToken}`, connection: "close" },
-    });
-    expect(removed.ok()).toBeTruthy();
+      // Targeted by id, not by label: a `<select>`'s option text lands inside its wrapping
+      // `<label>`, so a label lookup here would match on whatever happens to be in the list.
+      const workerField = page.locator("#node-worker-id");
+      await expect(workerField.locator(`option[value="${workerId}"]`)).toHaveCount(1);
+      await workerField.selectOption(workerId);
 
-    await page.getByRole("button", { name: "Save" }).click();
+      expect((await deleteWorker()).ok()).toBeTruthy();
 
-    // Atlas resolves worker ids against its own table on every write, so this is refused — and
-    // its one-sentence message is anchored back to the node, not left as a bare banner.
-    await expect(page.getByRole("alert")).toContainText(/unknown worker_id/);
-    await expect(page.getByRole("button", { name: /worker_1: .*unknown worker_id/ })).toBeVisible();
-    await expect(dirtyState(page)).toHaveText("Unsaved changes");
-    // The id Atlas has forgotten is still the draft's, offered for correction rather than
-    // silently dropped — dropping it would rewrite the graph behind the operator's back.
-    await expect(workerField).toHaveValue(workerId);
+      await page.getByRole("button", { name: "Save" }).click();
+
+      // Atlas resolves worker ids against its own table on every write, so this is refused — and
+      // its one-sentence message is anchored back to the node, not left as a bare banner.
+      await expect(page.getByRole("alert")).toContainText(/unknown worker_id/);
+      await expect(
+        page.getByRole("button", { name: /worker_1: .*unknown worker_id/ }),
+      ).toBeVisible();
+      await expect(dirtyState(page)).toHaveText("Unsaved changes");
+      // The id Atlas has forgotten is still the draft's, offered for correction rather than
+      // silently dropped — dropping it would rewrite the graph behind the operator's back.
+      await expect(workerField).toHaveValue(workerId);
+    } finally {
+      // Best effort, and deliberately unasserted: the delete that this test is *about* is
+      // asserted above. This one only stops a failure before it from leaving a second worker
+      // on the instance, which would resurface much later as `reads.spec.ts` finding two
+      // workers where the fleet page promises "1 worker registered" — one root cause, two red
+      // tests, in different files.
+      if (!deleted) await deleteWorker().catch(() => undefined);
+    }
   });
 
   test("Atlas confirms a graph whose references it can resolve", async ({ page }) => {

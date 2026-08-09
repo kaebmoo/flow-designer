@@ -52,6 +52,8 @@ async function ready(page: Page) {
 const dirtyState = (page: Page) => page.getByTestId("workflow-dirty-state");
 const dialog = (page: Page) => page.getByRole("dialog");
 const testRunButton = (page: Page) => page.getByRole("button", { name: "Test run", exact: true });
+const clickTestRun = async (page: Page) =>
+  testRunButton(page).evaluate((button) => (button as HTMLButtonElement).click());
 
 let workflowCounter = 0;
 
@@ -210,7 +212,7 @@ test.describe("workflow interface authoring", () => {
     expect(workflow.interface).toBeNull();
 
     // Test Run falls back to Observed.
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await page.getByRole("tab", { name: "Integration" }).click();
     await expect(page.getByTestId("observed-badge")).toContainText(
       "Observed · not enforced by Atlas",
@@ -300,7 +302,7 @@ test.describe("declared Test Run mode", () => {
       },
     });
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     await expect(page.getByTestId("test-run-input")).toHaveValue(/Sample Applicant/);
     await page.getByRole("tab", { name: "Integration" }).click();
@@ -330,7 +332,7 @@ test.describe("declared Test Run mode", () => {
       interface: { schema_version: 1, input_schema: PERMIT_INPUT_SCHEMA },
     });
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     await page.getByTestId("test-run-input").fill('{"applicant_name":"x"}'); // missing "detail"
     await expect(page.getByTestId("test-run-problem")).toContainText("detail");
@@ -345,7 +347,7 @@ test.describe("declared Test Run mode", () => {
       interface: { schema_version: 1, input_schema: PERMIT_INPUT_SCHEMA },
     });
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     const nested = JSON.stringify({
       applicant_name: "Nested Test",
@@ -363,7 +365,7 @@ test.describe("declared Test Run mode", () => {
       interface: { schema_version: 1, input_schema: PERMIT_INPUT_SCHEMA },
     });
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     // The one declared-mode input that passes the local mirror but fails Atlas: the 1 MiB
     // effective-input cap is deliberately advisory client-side (a size *warning*, never a
@@ -402,7 +404,7 @@ test.describe("declared Test Run mode", () => {
       interface: { schema_version: 1, input_schema: PERMIT_INPUT_SCHEMA },
     });
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await page.getByTestId("test-run-input").fill('{"applicant_name":"x","detail":{"floors":1}}');
 
     // Bump the version underneath the open dialog, exactly like editor.spec.ts's own conflict
@@ -438,7 +440,7 @@ test.describe("declared Test Run mode", () => {
       interface: { schema_version: 1, input_schema: PERMIT_INPUT_SCHEMA },
     });
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     const marker = "MARKER-DECLARED-MUST-NOT-SURVIVE";
     await page
@@ -487,7 +489,7 @@ test.describe("legacy observed mode after manager-prompt-parity", () => {
       edges: [{ from: "decide", to: "b", condition: { type: "manager_selected", target: "b" } }],
     });
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await page.getByTestId("test-run-input").fill("{}");
 
     const problem = page.getByTestId("test-run-problem");
@@ -515,7 +517,7 @@ test.describe("legacy observed mode after manager-prompt-parity", () => {
       ],
     });
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await page.getByTestId("test-run-input").fill("{}");
 
     const warnings = page.getByTestId("test-run-warnings");

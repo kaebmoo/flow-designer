@@ -486,8 +486,14 @@ duration, state กรองด้วย chip สถานะ (`all`, `running`,
   ใดแบบหนึ่ง artifact ที่ถูกเขียนขึ้นระหว่างเปิดหน้าอยู่จะขึ้นมาเอง — ตารางจะ
   refresh เมื่อ live event บอกว่ามีการเปลี่ยนแปลง และอีกครั้งเมื่อ run เข้าสู่
   สถานะสุดท้าย ผลลัพธ์ของ test run จึงไม่ต้อง reload หน้า
-  **ตรงนี้ไม่มีช่องอัปโหลด** — การแนบไฟล์เข้า run (เช่น สัญญาให้ human gate
-  ตรวจ) ต้องผ่าน API เท่านั้น (`POST /api/workflow-runs/{id}/files`)
+  **Upload input file** แนบไฟล์เข้า run เป็น artifact ชนิด `file_ref` โดยใช้ key
+  `upload_<ชื่อไฟล์>` ซึ่ง edge จะส่งต่อให้ worker ผ่าน
+  `push_files: ["upload_*"]` วิธีที่ถูกต้องคือสั่ง run แบบ held (paused) จาก
+  กล่อง Test run แล้วแนบไฟล์ตรงนี้ให้ครบก่อนกด Resume — ลำดับนี้ไม่มีทางแข่ง
+  กับการ dispatch ของ node แรก และปุ่มจะถูกปิดพร้อมบอกเหตุผลเมื่อ run จบแล้ว
+  การแนบชื่อไฟล์เดิมซ้ำจะ**แทนที่**ของเดิม ส่วนชื่อไฟล์ที่ต่างออกไปจะถูก
+  **เพิ่มเข้าไปอีกไฟล์** เพราะ Atlas ไม่มีคำสั่งลบ artifact ขนาดไฟล์ต่อไฟล์
+  ถูกจำกัดด้วย `ATLAS_MAX_UPLOAD_BYTES` (ดู `docs/CONFIGURATION.md`)
 - **Webhook delivery attempts** ของ run นี้ มีปุ่ม **Send webhook now** และ
   ปุ่ม **Retry webhook** บนแถวที่เป็น `failed`/`blocked` (ดูหน้า Deliveries
   เต็ม ๆ ที่ §11)

@@ -60,6 +60,7 @@ export default tseslint.config(
       "src/routes/api.jobs.$id.events.ts",
       "src/routes/api.exports.audit-csv.ts",
       "src/routes/api.exports.usage-csv.ts",
+      "src/routes/api.workflow-runs.$id.files.ts",
     ],
     rules: {
       "no-restricted-imports": [

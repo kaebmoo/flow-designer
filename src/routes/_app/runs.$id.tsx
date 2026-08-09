@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ArtifactContentActions, ArtifactDownloadError } from "@/components/atlas/artifact-actions";
@@ -38,6 +38,7 @@ import {
   useRunAction,
 } from "@/lib/atlas-mutations";
 import { deliveriesQuery, runArtifactsQuery, runEventsQuery, runQuery } from "@/lib/atlas-queries";
+import { chooseRunFileKey, type ExistingRunFile } from "@/lib/run-file-keys";
 import { ATLAS_LIMIT_OPTIONS } from "@/lib/atlas-search";
 import {
   appendRunEventPage,
@@ -932,12 +933,162 @@ function RunInterfaceSection({ detail }: { detail: RunDetailView }) {
  * output is findable at a glance, and every other row is still listed: an artifact this UI did
  * not predict is exactly the one worth noticing, so nothing is filtered.
  */
+/**
+ * Attach input files to this run as `file_ref` artifacts.
+ *
+ * Bytes travel through this origin's transport route (`/api/workflow-runs/{id}/files`), never
+ * to Atlas directly — the browser holds no bearer. Uploads are sequential on purpose: Atlas
+ * writes each file atomically, and one clear per-file error beats a burst of parallel
+ * failures. The intended flow for inputs is a run started held (born `paused`): attach
+ * everything here, then Resume — uploads can never race the first node's dispatch.
+ */
+/** Used when the refusal carries no usable text of its own. */
+const UPLOAD_FALLBACK_ERROR = "The file could not be uploaded.";
+
+function InputFilesUploader({
+  runId,
+  runState,
+  existingFiles,
+  onUploaded,
+}: {
+  runId: string;
+  runState: string;
+  /**
+   * The artifacts the run already carries, by key and stored filename. Both matter: the key
+   * says what is taken, and the filename is the only thing that separates "the operator is
+   * replacing this file" from "two different files whose names sanitise alike".
+   */
+  existingFiles: readonly ExistingRunFile[];
+  onUploaded: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // What the last batch actually attached. A silent refresh is not an answer: after a partial
+  // failure the table grows by two rows while the alert names only the third file, and nothing
+  // on the page says whether the first two are on the run or not.
+  const [attached, setAttached] = useState(0);
+
+  const terminal = runState === "succeeded" || runState === "failed" || runState === "cancelled";
+  const blockedReason = terminal
+    ? `This run is "${runState}" — files attached now can no longer reach a node.`
+    : null;
+
+  async function uploadFiles(files: FileList) {
+    setUploading(true);
+    setUploadError(null);
+    setAttached(0);
+    // Grows as the batch goes: two files picked together collide with each other just as
+    // readily as with something already on the run.
+    const known: ExistingRunFile[] = [...existingFiles];
+    let landed = 0;
+    try {
+      for (const file of Array.from(files)) {
+        const { key, replaces } = chooseRunFileKey(file.name, known);
+        if (!replaces) known.push({ key, filename: file.name });
+        const response = await fetch(
+          `/api/workflow-runs/${encodeURIComponent(runId)}/files?key=${encodeURIComponent(key)}`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": file.type || "application/octet-stream",
+              // Percent-encoded: fetch() throws on any header byte above U+00FF, so a Thai
+              // filename sent raw never leaves the browser. The transport route decodes.
+              "x-filename": encodeURIComponent(file.name),
+            },
+            body: file,
+          },
+        );
+        if (!response.ok) {
+          // The transport route answers `text/plain` — that is the house shape for these
+          // routes (`transport-error.server.ts`, shared with the CSV exports and the event
+          // stream). Reading it as JSON discarded every refusal Atlas or the route wrote and
+          // showed the generic fallback instead. Length-capped because an intermediary (a
+          // proxy error page) can answer here too, and that is not operator copy.
+          const body = (await response.text().catch(() => "")).trim();
+          const message = body.length > 0 && body.length <= 300 ? body : UPLOAD_FALLBACK_ERROR;
+          throw new Error(`${file.name}: ${message}`);
+        }
+        landed += 1;
+      }
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : UPLOAD_FALLBACK_ERROR);
+    } finally {
+      // Refreshed on any file that landed, not only on a clean batch. Uploads are sequential,
+      // so a failure on the third file leaves the first two genuinely attached to the run —
+      // and leaving them off the table until a reload is how an operator re-attaches a file
+      // Atlas already holds.
+      if (landed > 0) onUploaded();
+      setAttached(landed);
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  return (
+    <div className="mb-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(event) => {
+            if (event.target.files && event.target.files.length > 0) {
+              void uploadFiles(event.target.files);
+            }
+          }}
+        />
+        <ActionButton
+          label={uploading ? "Uploading" : "Upload input file"}
+          blocked={blockedReason}
+          pending={uploading}
+          onClick={() => inputRef.current?.click()}
+        />
+        <span className="text-xs text-muted-foreground">
+          Stored as a <span className="font-mono">file_ref</span> artifact keyed{" "}
+          <span className="font-mono">upload_&lt;name&gt;</span>. A worker receives it through an
+          edge with <span className="font-mono">push_files: [&quot;upload_*&quot;]</span>. Start the
+          run held (paused), attach files here, then Resume — that order can never race the first
+          node. Re-attaching the same filename replaces what is there; a different filename is
+          always added alongside, because Atlas cannot remove an artifact once it exists.
+        </span>
+      </div>
+
+      {/* The reason lives in the page, not in the disabled button's `title`: `BUTTON_BASE`
+          fades a disabled button but a tooltip is unreachable by keyboard and screen reader
+          either way. This is the same primitive Run control uses for the same reason. */}
+      <BlockedReasons
+        reasons={blockedReason ? [{ label: "Upload input file", reason: blockedReason }] : []}
+      />
+
+      {/* Announced, and paired with an icon — the tone is never the only signal. */}
+      {attached === 0 ? null : (
+        <p role="status" className="mt-2 flex items-start gap-1.5 text-xs text-success">
+          <Check className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {attached === 1
+            ? "1 file attached to this run."
+            : `${attached} files attached to this run.`}
+        </p>
+      )}
+      {uploadError === null ? null : (
+        <p role="alert" className="mt-2 flex items-start gap-1.5 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {uploadError}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ArtifactsSection({
   runId,
+  runState,
   observedKeys,
   declaredOutputs,
 }: {
   runId: string;
+  runState: string;
   observedKeys: Set<string>;
   /** From the run's `interface_snapshot`; `null` when this run has no declared contract. */
   declaredOutputs: { keys: Set<string>; primary: string | null } | null;
@@ -955,6 +1106,13 @@ function ArtifactsSection({
 
   return (
     <>
+      <InputFilesUploader
+        runId={runId}
+        runState={runState}
+        // The whole list, not the paged `rows`: a key collides whether or not its row is shown.
+        existingFiles={artifacts.data.map(({ key, filename }) => ({ key, filename }))}
+        onUploaded={() => void artifacts.refetch()}
+      />
       <DataTable
         rows={rows}
         rowKey={(artifact) => artifact.id}
@@ -1633,6 +1791,7 @@ function RunDetail() {
           </p>
           <ArtifactsSection
             runId={run.id}
+            runState={run.state.label}
             observedKeys={observedOutputKeys}
             declaredOutputs={declaredOutputs}
           />

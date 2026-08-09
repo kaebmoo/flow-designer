@@ -240,7 +240,9 @@ test.describe("live run detail", () => {
     await page.locator('[data-hydrated="true"]').waitFor({ state: "attached" });
     await expect(page.getByTestId("workflow-dirty-state")).toHaveText("Saved", { timeout: 30_000 });
 
-    await page.getByRole("button", { name: "Test run", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Test run", exact: true })
+      .evaluate((button) => (button as HTMLButtonElement).click());
 
     // All four fields are rendered by the start node, so an empty object must block first.
     await page.getByTestId("test-run-input").fill("{}");
@@ -315,7 +317,9 @@ test.describe("live run detail", () => {
     await page.locator('[data-hydrated="true"]').waitFor({ state: "attached" });
     await expect(page.getByTestId("workflow-dirty-state")).toHaveText("Saved", { timeout: 30_000 });
 
-    await page.getByRole("button", { name: "Test run", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Test run", exact: true })
+      .evaluate((button) => (button as HTMLButtonElement).click());
 
     // The dialog now asks for it: the manager node is the graph's start node, and its reference
     // is executable, so the generated example includes it like any worker's would.

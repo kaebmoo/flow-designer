@@ -1017,6 +1017,12 @@ export async function atlasStartWorkflowRun(
     workflowDefinitionId: string;
     input?: Record<string, unknown>;
     expectedWorkflowVersion?: number;
+    /**
+     * When true, Atlas creates the run born-paused (state `paused`, no execution) so input
+     * files can be attached race-free; an explicit `resume` starts it. Sent only when true —
+     * absent keeps the exact legacy start-immediately request shape.
+     */
+    hold?: boolean;
   },
   options: AtlasCallOptions = {},
 ): Promise<AtlasWorkflowRun> {
@@ -1030,6 +1036,7 @@ export async function atlasStartWorkflowRun(
       ...(params.expectedWorkflowVersion === undefined
         ? {}
         : { expected_workflow_version: params.expectedWorkflowVersion }),
+      ...(params.hold === true ? { hold: true } : {}),
     },
     ...options,
   });
@@ -1037,6 +1044,123 @@ export async function atlasStartWorkflowRun(
   return expectShape<{ run: AtlasWorkflowRun }>(payload, (value) =>
     isAtlasRowEnvelope(value, "run"),
   ).run;
+}
+
+/**
+ * `POST /api/workflow-runs/{run_id}/files?key=...` — upload one binary input file onto a run.
+ *
+ * Atlas reads the raw body by `Content-Length` (no multipart) and takes the display name from
+ * `X-Filename`; the stored artifact is `kind: "file_ref"` in the flat upload store. The `key`
+ * must match Atlas's `[A-Za-z_][A-Za-z0-9_.-]{0,127}` rule — validated here too so a bad key
+ * fails before any bytes travel. Atlas enforces its own `ATLAS_MAX_UPLOAD_BYTES` cap
+ * (10 MiB by default) and answers 400 beyond it.
+ *
+ * `body` may be a stream, so a large upload is relayed without this process ever holding the
+ * whole file. Two consequences are load-bearing:
+ *
+ * - `contentLength` is passed separately and always sent. Atlas is a `http.server` handler that
+ *   reads exactly `Content-Length` bytes and understands no chunked transfer-encoding at all —
+ *   letting undici frame a stream body as chunked would feed Atlas the chunk headers as file
+ *   bytes. It is also what Atlas checks its size cap against, before reading anything.
+ * - A stream is single-use, so this call must never be retried. It is a mutation, so the
+ *   retry helpers do not wrap it; keep it that way.
+ */
+const RUN_FILE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
+
+/** Handshake, Atlas's own write to disk, and its reply — everything that is not the bytes. */
+const UPLOAD_BASE_TIMEOUT_MS = 30_000;
+
+/**
+ * The throughput this call refuses to wait below: ~64 KiB/s.
+ *
+ * Deliberately far under any link an operator would upload from, because the number is a
+ * stall detector, not a service level. At the 32 MiB cap it allows about nine minutes.
+ */
+const UPLOAD_MIN_BYTES_PER_SECOND = 64 * 1024;
+
+function uploadTimeoutMs(contentLength: number): number {
+  const transfer = Math.ceil(Math.max(contentLength, 0) / UPLOAD_MIN_BYTES_PER_SECOND) * 1_000;
+  return UPLOAD_BASE_TIMEOUT_MS + transfer;
+}
+
+export async function atlasUploadRunFile(
+  token: string,
+  params: {
+    runId: string;
+    key: string;
+    filename: string;
+    contentType: string;
+    body: ReadableStream<Uint8Array> | ArrayBuffer;
+    contentLength: number;
+  },
+  options: AtlasCallOptions = {},
+): Promise<AtlasArtifact> {
+  if (!RUN_FILE_KEY_RE.test(params.key)) {
+    throw new AtlasError("validation", "file artifact key is invalid");
+  }
+  const { atlasApiOrigin } = getServerEnv();
+  // Sized to the file, not a flat wall clock. Atlas reads the entire body before it answers,
+  // so a large upload legitimately holds this call open for as long as the bytes take — a
+  // fixed 30 s aborted a perfectly legal 32 MiB file on any ordinary link, and the operator
+  // saw a timeout rather than the upload it actually was.
+  const timeoutMs = options.timeoutMs ?? uploadTimeoutMs(params.contentLength);
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${atlasApiOrigin}/api/workflow-runs/${encodeURIComponent(params.runId)}/files?key=${encodeURIComponent(params.key)}`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": params.contentType || "application/octet-stream",
+          "content-length": String(params.contentLength),
+          // Atlas sanitises this into the stored filename; it is display metadata, not a path.
+          // Percent-encoded because fetch() refuses any header byte above U+00FF — a Thai or
+          // emoji filename would otherwise throw before the request is even sent. Atlas
+          // unquotes it back to the real name on receipt.
+          "x-filename": encodeURIComponent(params.filename),
+        },
+        body: params.body,
+        // Required by undici whenever the body is a stream; harmless otherwise. Not in the
+        // DOM `RequestInit` type, hence the cast rather than a lie about the shape.
+        ...({ duplex: "half" } as RequestInit),
+        signal,
+        redirect: "error",
+      },
+    );
+  } catch (cause) {
+    if (timeoutSignal.aborted) {
+      throw new AtlasError("timeout", defaultMessageForKind("timeout"), { cause });
+    }
+    if (options.signal?.aborted) throw cause;
+    throw new AtlasError("network", defaultMessageForKind("network"), { cause });
+  }
+
+  if (!response.ok) {
+    const kind = atlasErrorKindForStatus(response.status);
+    let atlasMessage: string | undefined;
+    try {
+      atlasMessage = readAtlasErrorMessage(await response.json());
+    } catch {
+      atlasMessage = undefined;
+    }
+    throw new AtlasError(kind, atlasMessage ?? defaultMessageForKind(kind), {
+      status: response.status,
+      fromAtlas: atlasMessage !== undefined,
+    });
+  }
+
+  const payload: unknown = await response.json();
+  return expectShape<{ artifact: AtlasArtifact }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      isAtlasArtifact((value as Record<string, unknown>).artifact),
+  ).artifact;
 }
 
 /** The run lifecycle actions Atlas exposes under `POST /api/workflow-runs/{id}/{action}`. */

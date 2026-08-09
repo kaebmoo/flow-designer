@@ -205,6 +205,16 @@ function optionalPositiveInteger(data: unknown, key: string): number | undefined
   return parsed;
 }
 
+/** `undefined`/absent stays absent; anything present must be a real boolean. */
+function optionalBoolean(data: unknown, key: string): boolean | undefined {
+  const value = field(data, key);
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") {
+    throw new Error(`${key} must be a boolean.`);
+  }
+  return value;
+}
+
 function optionalWorkflowVersion(data: unknown, key = "expectedVersion"): number | undefined {
   const value = field(data, key);
   if (value === undefined || value === null || value === "") return undefined;
@@ -671,6 +681,8 @@ export const startRunFn = createServerFn({ method: "POST" })
     workflowDefinitionId: requiredId(data, "workflowDefinitionId"),
     input: plainObject(data, "input"),
     expectedWorkflowVersion: optionalWorkflowVersion(data, "expectedWorkflowVersion"),
+    // `hold: true` asks Atlas for a born-paused run (attach files, then resume starts it).
+    hold: optionalBoolean(data, "hold"),
   }))
   .handler(
     async ({ data }): Promise<AtlasResult<RunView>> =>
@@ -680,6 +692,7 @@ export const startRunFn = createServerFn({ method: "POST" })
             workflowDefinitionId: data.workflowDefinitionId,
             input: data.input,
             expectedWorkflowVersion: data.expectedWorkflowVersion,
+            hold: data.hold,
           }),
         ),
       ),

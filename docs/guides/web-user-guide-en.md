@@ -490,9 +490,15 @@ Opening a run shows, in order:
   guaranteed. An artifact written while the page is open appears on its own —
   the table refreshes when
   live events report a change and once more when the run reaches a terminal
-  state, so a test run's output needs no reload. **There is no upload control
-  here** — attaching a file to a run (e.g. a contract for a human gate) is
-  API-only (`POST /api/workflow-runs/{id}/files`).
+  state, so a test run's output needs no reload. **Upload input file** attaches
+  a file to the run as a `file_ref` artifact keyed `upload_<name>`, which an
+  edge hands to a worker through `push_files: ["upload_*"]`. Start the run held
+  (paused) from the Test run dialog, attach everything here, then Resume — that
+  order can never race the first node's dispatch, and the button is disabled
+  with a reason once the run is terminal. Re-attaching the same filename
+  replaces what is there; a different filename is added alongside it, because
+  Atlas has no operation that removes an artifact. A single file is capped by
+  `ATLAS_MAX_UPLOAD_BYTES` (see `docs/CONFIGURATION.md`).
 - **Webhook delivery attempts** for this run, with a **Send webhook now**
   button and a **Retry webhook** button on `failed`/`blocked` rows (see §11
   for the full Deliveries page).

@@ -89,7 +89,8 @@ export interface WorkflowTestRunDialogProps {
   pending: boolean;
   /** Atlas's own refusal, shown verbatim. Null when the last attempt did not fail. */
   error: { kind: string; message: string } | null;
-  onStart: (input: JsonObject) => void;
+  /** `hold: true` asks for a born-paused run — attach files on the run page, then Resume. */
+  onStart: (input: JsonObject, options: { hold: boolean }) => void;
 }
 
 /**
@@ -614,6 +615,9 @@ export function WorkflowTestRunDialog({
     return `${JSON.stringify(contract.skeleton ?? {}, null, 2)}\n`;
   }, [declaredInterface, contract.skeleton]);
   const [text, setText] = useState(initial);
+  // Held start is per-attempt intent, not a sticky preference: it re-arms as unchecked on
+  // every open so a held run is always an explicit choice for THIS attempt.
+  const [hold, setHold] = useState(false);
 
   // Reset on every open rather than on mount. The dialog stays mounted between openings, and
   // carrying the previous attempt's payload forward would be exactly the quiet persistence this
@@ -623,6 +627,7 @@ export function WorkflowTestRunDialog({
     // it in component state while the dialog is shut means a stray render, a React DevTools
     // inspection, or a later reopen can still surface it.
     setText(open ? initial : "");
+    setHold(false);
   }, [open, initial]);
 
   /**
@@ -873,6 +878,23 @@ export function WorkflowTestRunDialog({
           </TabsContent>
         </Tabs>
 
+        <div className="mt-2 flex items-start gap-2">
+          <input
+            id="test-run-hold"
+            type="checkbox"
+            className="mt-0.5"
+            checked={hold}
+            disabled={pending}
+            onChange={(event) => setHold(event.target.checked)}
+          />
+          <Label htmlFor="test-run-hold" className="text-xs font-normal leading-relaxed">
+            Start held (paused) — attach input files on the run page first, then press Resume there.
+            Uploads can never race the first node this way. Files land as{" "}
+            <span className="font-mono">upload_*</span> artifacts an edge can hand to a worker with{" "}
+            <span className="font-mono">push_files: [&quot;upload_*&quot;]</span>.
+          </Label>
+        </div>
+
         <DialogFooter>
           <Button
             type="button"
@@ -897,10 +919,10 @@ export function WorkflowTestRunDialog({
               const result = parseRunInput(text);
               if (!result.ok) return;
               submitting.current = true;
-              onStart(result.value);
+              onStart(result.value, { hold });
             }}
           >
-            {pending ? "Starting…" : "Start test run"}
+            {pending ? "Starting…" : hold ? "Create held run" : "Start test run"}
           </Button>
         </DialogFooter>
       </DialogContent>

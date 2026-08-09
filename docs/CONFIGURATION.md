@@ -57,6 +57,33 @@ The user opened Phase 1 with these decisions. Three deployment values were **del
 | `ATLAS_API_ORIGIN` (production) | **Deferred.** `.env.example` documents it as a TODO. Required before any deploy.                                                            |
 | Production secret store         | **Deferred.** No code depends on the choice — every variable is read from the process environment regardless of what supplies it.           |
 
+### Run-file uploads
+
+`ATLAS_MAX_UPLOAD_BYTES` (optional) bounds a single file posted to
+`POST /api/workflow-runs/{id}/files`. It is **Atlas's own variable name on purpose**, so one
+shared environment configures both sides; flow-designer reads it at request time and falls back
+to `33554432` (32 MiB) when it is unset or unusable. It is not part of `ServerEnv` and never
+fails startup — a deployment that gets it wrong loses a policy bound, not its ability to serve.
+
+**Note that flow-designer's fallback is deliberately higher than Atlas's own 10 MiB default**,
+because real input documents exceed 10 MiB. Atlas is still the authority, so raising it here
+alone changes nothing: set it on the Atlas host too, or Atlas answers 400 first. The bytes are
+relayed as a stream and never buffered in flow-designer, so this number is a policy choice and
+not a memory budget.
+
+Atlas remains the authority: it re-checks the size against its own configuration and, when the
+two disagree, its refusal is what the operator sees. Set the value on both hosts, and mirror it
+at any reverse proxy in front of either (`client_max_body_size`).
+
+Three different size limits sit on this path and are easy to confuse — only the first governs
+one upload:
+
+| Limit                                           | Owner   | Default            | Applies to                                                      |
+| ----------------------------------------------- | ------- | ------------------ | --------------------------------------------------------------- |
+| `ATLAS_MAX_UPLOAD_BYTES`                        | Atlas   | 10 MiB             | one file posted onto a run                                      |
+| `ATLAS_SYNC_MAX_BYTES` / `ATLAS_SYNC_MAX_FILES` | Atlas   | 64 MiB / 100 files | the whole `push_files` batch handed to a worker                 |
+| `MAX_INPUT_TOTAL_BYTES` / `MAX_INPUT_FILES`     | thClaws | 64 MiB / 100 files | `POST /v1/inputs`, the ceiling Atlas's batch caps are pinned to |
+
 Two implementation details worth recording, both discovered by reading the installed source rather than assuming:
 
 - **`sessionHeader: false` is mandatory.** `useSession` otherwise accepts a sealed session from an `x-fd_session-session` **request header in preference to the cookie**, which would let a caller supply a session out-of-band. The httpOnly cookie is now the only accepted carrier.

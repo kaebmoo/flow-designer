@@ -13,6 +13,20 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   dialogs: the `wrk_`/`wsp_` id a workflow node actually routes on is now shown
   in full, in monospace, behind a keyboard-operable copy control that names what
   it copies and announces the result to assistive tech.
+- Added run input-file uploads: an "Upload input file" control on the run
+  detail's Artifacts section stores files as `upload_*` `file_ref` artifacts
+  through a same-origin transport route (`POST /api/workflow-runs/{id}/files`),
+  keeping the Atlas bearer server-side. Bytes are relayed as a stream and never
+  buffered, the per-file cap is `ATLAS_MAX_UPLOAD_BYTES` (32 MiB by default, and
+  Atlas re-checks it), and the request timeout is sized from the file rather
+  than fixed. Re-attaching the same filename replaces what is there; a different
+  filename whose sanitised key would collide takes a fresh key instead of
+  shadowing it, because Atlas has no operation that removes an artifact.
+- Added held test runs: a "Start held (paused)" option in the Test Run dialog
+  creates the run born-paused via Atlas's `hold: true`, so files can be attached
+  on the run page before pressing Resume — uploads can never race the first
+  node's dispatch.
+
 - Added workflow controls on the jobs page so operators can act on workflows from
   job context.
 - Added the Atlas-backed global artifacts ledger with kind and run filters, run

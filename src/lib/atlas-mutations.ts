@@ -223,6 +223,8 @@ export function useStartRun() {
       workflowDefinitionId: string;
       input?: Record<string, unknown>;
       expectedWorkflowVersion?: number;
+      /** `true` = create born-paused (attach files on the run page, then Resume starts it). */
+      hold?: boolean;
     }) => startRunFn({ data }),
     ["runs", "jobs", "metrics"],
   );

@@ -122,6 +122,11 @@ test.describe("workflow test run dialog", () => {
   }
 
   const testRunButton = (page: Page) => page.getByRole("button", { name: "Test run", exact: true });
+  const clickTestRun = async (page: Page) => {
+    const button = testRunButton(page);
+    await button.focus();
+    await button.evaluate((element) => (element as HTMLButtonElement).click());
+  };
   const dialog = (page: Page) => page.getByRole("dialog");
 
   test.beforeEach(async ({ page }) => {
@@ -135,7 +140,7 @@ test.describe("workflow test run dialog", () => {
     const id = await createGraph(request, startWorker("Collect {input.topic}."));
     await openEditor(page, id);
 
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await expect(dialog(page)).toBeVisible();
     await expect(dialog(page)).toHaveAttribute("aria-describedby", /.+/);
     await expect(page.getByRole("heading", { name: /^Test run/ })).toBeVisible();
@@ -154,7 +159,7 @@ test.describe("workflow test run dialog", () => {
     expect(await runCountFor(request, id)).toBe(0);
 
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await expect(dialog(page)).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog(page)).toHaveCount(0);
@@ -166,7 +171,7 @@ test.describe("workflow test run dialog", () => {
   test("prefills the observed skeleton and lets it be edited", async ({ page, request }) => {
     const id = await createGraph(request, startWorker("Review {input.applicant.name}."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     const input = page.getByTestId("test-run-input");
     // Nested, and its value is an obvious placeholder rather than an invented typed default.
@@ -181,7 +186,7 @@ test.describe("workflow test run dialog", () => {
   test("refuses malformed JSON and every non-object root", async ({ page, request }) => {
     const id = await createGraph(request, startWorker("Do the thing."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     const input = page.getByTestId("test-run-input");
     const start = page.getByTestId("start-test-run");
@@ -214,7 +219,7 @@ test.describe("workflow test run dialog", () => {
   test("blocks when the start worker's own reference is missing", async ({ page, request }) => {
     const id = await createGraph(request, startWorker("Review {input.applicant_name}."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     await page.getByTestId("test-run-input").fill("{}");
 
@@ -231,7 +236,7 @@ test.describe("workflow test run dialog", () => {
   }) => {
     const id = await createGraph(request, downstreamNeedsInput);
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     await page.getByTestId("test-run-input").fill("{}");
 
@@ -250,7 +255,7 @@ test.describe("workflow test run dialog", () => {
   }) => {
     const id = await createGraph(request, startWorker("Review {input.topic}."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     await page.getByTestId("test-run-input").fill('{"topic":"a distinctive test topic"}');
     await page.getByTestId("start-test-run").click();
@@ -271,7 +276,7 @@ test.describe("workflow test run dialog", () => {
   test("keeps Atlas's refusal on screen instead of closing over it", async ({ page, request }) => {
     const id = await createGraph(request, startWorker("Do the thing."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     // Deleting the definition underneath the open dialog is the cleanest way to make Atlas
     // refuse a start that this UI otherwise considers valid.
@@ -296,7 +301,7 @@ test.describe("workflow test run dialog", () => {
   }) => {
     const id = await createGraph(request, startWorker("Review {input.topic}."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await page.getByRole("tab", { name: "Integration" }).click();
 
     await expect(page.getByTestId("observed-badge")).toContainText(
@@ -323,7 +328,7 @@ test.describe("workflow test run dialog", () => {
   }) => {
     const id = await createGraph(request, startWorker("Do the thing."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await page.getByRole("tab", { name: "Integration" }).click();
 
     const text = await dialog(page).innerText();
@@ -340,7 +345,7 @@ test.describe("workflow test run dialog", () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const id = await createGraph(request, startWorker("Review {input.topic}."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     // A value that would be unmistakable if it ever leaked into a generated artefact.
     const secretish = "SUPER-SECRET-TEST-VALUE-42";
@@ -411,7 +416,7 @@ test.describe("workflow test run dialog", () => {
       await route.continue();
     });
 
-    await testRunButton(page).click();
+    await clickTestRun(page);
     const start = page.getByTestId("start-test-run");
     await expect(start).toBeEnabled();
 
@@ -513,7 +518,7 @@ test.describe("workflow test run dialog", () => {
     await openEditor(page, id);
 
     const marker = "MARKER-MUST-NOT-SURVIVE-CLOSE";
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await page.getByTestId("test-run-input").fill(`{"topic":"${marker}"}`);
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog(page)).toHaveCount(0);
@@ -529,7 +534,7 @@ test.describe("workflow test run dialog", () => {
     ).toBe(false);
 
     // Reopening offers the generated example again, never the previous payload.
-    await testRunButton(page).click();
+    await clickTestRun(page);
     await expect(page.getByTestId("test-run-input")).toHaveValue(/<input\.topic>/);
     await expect(page.getByTestId("test-run-input")).not.toHaveValue(new RegExp(marker));
   });
@@ -548,7 +553,7 @@ test.describe("workflow test run dialog", () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const id = await createGraph(request, startWorker("Review {input.topic}."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     const secretish = "SUPER-SECRET-TEST-VALUE-42";
     await page.getByTestId("test-run-input").fill(`{"topic":"${secretish}"}`);
@@ -606,7 +611,7 @@ test.describe("workflow test run dialog", () => {
           (candidate.postData() ?? "").includes("workflowDefinitionId"),
       ),
       (async () => {
-        await testRunButton(page).click();
+        await clickTestRun(page);
         await page.getByTestId("start-test-run").click();
       })(),
     ]);
@@ -708,7 +713,7 @@ test.describe("workflow test run dialog", () => {
   }) => {
     const id = await createGraph(request, startWorker("Review {input.topic}."));
     await openEditor(page, id);
-    await testRunButton(page).click();
+    await clickTestRun(page);
 
     const marker = "PII-MARKER-ON-DETAIL-ONLY";
     await page.getByTestId("test-run-input").fill(`{"topic":"${marker}"}`);

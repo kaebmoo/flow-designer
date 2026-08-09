@@ -496,7 +496,7 @@ function WorkflowEditorRoute() {
           error={
             startRun.error ? { kind: startRun.error.kind, message: startRun.error.message } : null
           }
-          onStart={(input) =>
+          onStart={(input, options) =>
             startRun.mutate(
               {
                 workflowDefinitionId: id,
@@ -504,6 +504,9 @@ function WorkflowEditorRoute() {
                 // Sent only in declared mode: Atlas compares it against the same definition row
                 // it loads to start the run and answers 409 with no run created on a mismatch.
                 expectedWorkflowVersion: declaredInterface ? workflow.version : undefined,
+                // Held start: Atlas creates the run born-paused; the run page is where files
+                // are attached and Resume is pressed.
+                hold: options.hold ? true : undefined,
               },
               {
                 // Atlas answers with the real run row, so the id in this URL is Atlas's — not a

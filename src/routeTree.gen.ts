@@ -30,6 +30,7 @@ import { Route as ApiExportsUsageCsvRouteImport } from './routes/api.exports.usa
 import { Route as ApiExportsAuditCsvRouteImport } from './routes/api.exports.audit-csv'
 import { Route as AppWorkflowsIdRouteImport } from './routes/_app/workflows.$id'
 import { Route as AppRunsIdRouteImport } from './routes/_app/runs.$id'
+import { Route as ApiWorkflowRunsIdFilesRouteImport } from './routes/api.workflow-runs.$id.files'
 import { Route as ApiJobsIdEventsRouteImport } from './routes/api.jobs.$id.events'
 import { Route as ApiArtifactsIdContentRouteImport } from './routes/api.artifacts.$id.content'
 
@@ -137,6 +138,11 @@ const AppRunsIdRoute = AppRunsIdRouteImport.update({
   path: '/runs/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiWorkflowRunsIdFilesRoute = ApiWorkflowRunsIdFilesRouteImport.update({
+  id: '/api/workflow-runs/$id/files',
+  path: '/api/workflow-runs/$id/files',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiJobsIdEventsRoute = ApiJobsIdEventsRouteImport.update({
   id: '/api/jobs/$id/events',
   path: '/api/jobs/$id/events',
@@ -171,6 +177,7 @@ export interface FileRoutesByFullPath {
   '/workflows/': typeof AppWorkflowsIndexRoute
   '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
   '/api/jobs/$id/events': typeof ApiJobsIdEventsRoute
+  '/api/workflow-runs/$id/files': typeof ApiWorkflowRunsIdFilesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -195,6 +202,7 @@ export interface FileRoutesByTo {
   '/workflows': typeof AppWorkflowsIndexRoute
   '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
   '/api/jobs/$id/events': typeof ApiJobsIdEventsRoute
+  '/api/workflow-runs/$id/files': typeof ApiWorkflowRunsIdFilesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -221,6 +229,7 @@ export interface FileRoutesById {
   '/_app/workflows/': typeof AppWorkflowsIndexRoute
   '/api/artifacts/$id/content': typeof ApiArtifactsIdContentRoute
   '/api/jobs/$id/events': typeof ApiJobsIdEventsRoute
+  '/api/workflow-runs/$id/files': typeof ApiWorkflowRunsIdFilesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -247,6 +256,7 @@ export interface FileRouteTypes {
     | '/workflows/'
     | '/api/artifacts/$id/content'
     | '/api/jobs/$id/events'
+    | '/api/workflow-runs/$id/files'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/workflows'
     | '/api/artifacts/$id/content'
     | '/api/jobs/$id/events'
+    | '/api/workflow-runs/$id/files'
   id:
     | '__root__'
     | '/'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/_app/workflows/'
     | '/api/artifacts/$id/content'
     | '/api/jobs/$id/events'
+    | '/api/workflow-runs/$id/files'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -306,6 +318,7 @@ export interface RootRouteChildren {
   ApiExportsUsageCsvRoute: typeof ApiExportsUsageCsvRoute
   ApiArtifactsIdContentRoute: typeof ApiArtifactsIdContentRoute
   ApiJobsIdEventsRoute: typeof ApiJobsIdEventsRoute
+  ApiWorkflowRunsIdFilesRoute: typeof ApiWorkflowRunsIdFilesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -457,6 +470,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRunsIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/workflow-runs/$id/files': {
+      id: '/api/workflow-runs/$id/files'
+      path: '/api/workflow-runs/$id/files'
+      fullPath: '/api/workflow-runs/$id/files'
+      preLoaderRoute: typeof ApiWorkflowRunsIdFilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/jobs/$id/events': {
       id: '/api/jobs/$id/events'
       path: '/api/jobs/$id/events'
@@ -522,6 +542,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiExportsUsageCsvRoute: ApiExportsUsageCsvRoute,
   ApiArtifactsIdContentRoute: ApiArtifactsIdContentRoute,
   ApiJobsIdEventsRoute: ApiJobsIdEventsRoute,
+  ApiWorkflowRunsIdFilesRoute: ApiWorkflowRunsIdFilesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
