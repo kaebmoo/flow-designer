@@ -161,7 +161,12 @@ test.describe("triggers", () => {
     const form = await openNewTriggerForm(page);
     const options = form.getByLabel("Type", { exact: true }).locator("option");
     await expect(options).toHaveCount(TRIGGER_TYPES.length);
-    await expect(options).toHaveText(TRIGGER_TYPES.map((entry) => entry.type));
+    // The label is what the operator reads; the value is the token Atlas receives. Asserting
+    // only one of them would let the picker offer the right words and post the wrong type.
+    await expect(options).toHaveText(TRIGGER_TYPES.map((entry) => entry.label));
+    expect(
+      await options.evaluateAll((nodes) => nodes.map((node) => (node as HTMLOptionElement).value)),
+    ).toEqual(TRIGGER_TYPES.map((entry) => entry.type));
   });
 
   /**

@@ -228,7 +228,7 @@ test.describe("Phase 5: role-restricted pages for a viewer", () => {
   test("a viewer can read conversations but is offered no create action", async ({ page }) => {
     await page.goto("/conversations");
     // The page loads real data (or a real empty state) — never the scaffold's rows.
-    await expect(page.getByText(/most recently updated conversations/)).toBeVisible();
+    await expect(page.getByText(/\d+ newest conversations Atlas returned/)).toBeVisible();
     await expect(page.getByText("conv_1204")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "New conversation" })).toHaveCount(0);
   });
@@ -270,13 +270,30 @@ test.describe("Phase 5: operational pages as admin", () => {
     const fileContent = `Downloaded from the artifact ledger ${suffix}\n`;
     const filename = `phase5-ledger-${suffix}.txt`;
 
+    /**
+     * Its own run, born held, rather than the shared seeded one.
+     *
+     * The seeded run dials an unreachable worker and finishes as `failed` some seconds later,
+     * and Atlas refuses `POST /api/workflow-runs/{id}/files` on a finished run — so uploading
+     * to it is a race against the executor that this test loses whenever the suite reaches it
+     * a moment late. A held run never leaves `paused`, and starting from an empty artifact set
+     * is also what makes the "2 of 2 artifacts" totals below true by construction rather than
+     * by this test happening to run before the ones that add more to the seeded run.
+     */
+    const created = await atlasPost("/api/workflow-runs", {
+      workflow_definition_id: seed().workflowId,
+      input: {},
+      hold: true,
+    });
+    const runId = (created.run as { id: string }).id;
+
     await atlasPost("/api/artifacts", {
-      run_id: seed().runId,
+      run_id: runId,
       key: previewKey,
       kind: "text",
       content: previewContent,
     });
-    await atlasUpload(seed().runId, fileKey, filename, fileContent);
+    await atlasUpload(runId, fileKey, filename, fileContent);
 
     await gotoHydrated(page, "/artifacts");
 
@@ -307,9 +324,9 @@ test.describe("Phase 5: operational pages as admin", () => {
     await expect(previewButton).toBeFocused();
 
     // The run filter is pushed into the URL and Atlas reports a truthful filtered total.
-    await page.getByLabel(/Filter by run id/).fill(seed().runId);
+    await page.getByLabel(/Filter by run id/).fill(runId);
     await page.getByRole("button", { name: "Apply filters" }).click();
-    await expect(page).toHaveURL(new RegExp(`[?&]run=${seed().runId}(?:&|$)`));
+    await expect(page).toHaveURL(new RegExp(`[?&]run=${runId}(?:&|$)`));
     await expect(page.getByRole("row").filter({ hasText: previewKey })).toBeVisible();
     await expect(page.getByRole("row").filter({ hasText: fileKey })).toBeVisible();
     await expect(
@@ -326,7 +343,7 @@ test.describe("Phase 5: operational pages as admin", () => {
     ).toBeVisible();
 
     await page.goBack();
-    await expect(page).toHaveURL(new RegExp(`[?&]run=${seed().runId}(?:&|$)`));
+    await expect(page).toHaveURL(new RegExp(`[?&]run=${runId}(?:&|$)`));
     await expect(page.getByRole("row").filter({ hasText: fileKey })).toBeVisible();
     await page.goForward();
     await expect(page).toHaveURL(new RegExp(`[?&]key=${previewKey}(?:&|$)`));
@@ -347,7 +364,7 @@ test.describe("Phase 5: operational pages as admin", () => {
     // `file_ref` downloads travel through the authenticated same-origin proxy.
     await gotoHydrated(
       page,
-      `/artifacts?run=${encodeURIComponent(seed().runId)}&key=${encodeURIComponent(fileKey)}&kind=file_ref`,
+      `/artifacts?run=${encodeURIComponent(runId)}&key=${encodeURIComponent(fileKey)}&kind=file_ref`,
     );
     const fileRow = page.getByRole("row").filter({ hasText: fileKey });
     await expect(fileRow.getByRole("button", { name: actionName("Preview", fileKey) })).toHaveCount(

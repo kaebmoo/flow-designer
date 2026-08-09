@@ -307,9 +307,12 @@ function TriggersPage() {
                 ? "Atlas has no triggers for this workflow."
                 : "Atlas has no workflow triggers yet."}
             </p>
+            {/* Not a second "New trigger": two buttons with the same accessible name on one
+                page are indistinguishable to anyone navigating by button list, and this one
+                only exists while there is nothing to list. */}
             <div className="mt-4 flex justify-center">
               <Button type="button" size="sm" onClick={() => setEditing({ trigger: null })}>
-                <Plus /> New trigger
+                <Plus /> Create the first trigger
               </Button>
             </div>
           </EmptyHint>

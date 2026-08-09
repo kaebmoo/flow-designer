@@ -63,7 +63,7 @@ test("navigating away aborts the in-flight read RPC and leaves no stale or error
 
   // The destination page is healthy: real data, no failure state bleeding across from the
   // cancelled read.
-  await expect(page.getByRole("heading", { name: "Mission Control" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
   await expect(page.getByText("Atlas error")).toHaveCount(0);
   await expect(page.getByText("Atlas timed out")).toHaveCount(0);
 

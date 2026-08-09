@@ -75,10 +75,13 @@ test("login rate limiting disables submit, counts down, and clears the password"
     }
   }
 
+  // The live region states the lockout without the seconds on purpose: a per-second count in
+  // an aria-live region queues one screen-reader announcement per tick for the whole lockout.
+  // The countdown itself lives on the disabled submit button.
   const rateLimitStatus = page.getByRole("status");
-  await expect(rateLimitStatus).toContainText(/try again in \d+ second/i);
+  await expect(rateLimitStatus).toContainText(/rate limited/i);
   await expect(rateLimitStatus).toHaveAttribute("aria-live", "polite");
-  await expect(page.getByRole("button", { name: /try again in/i })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /^try again in \d+s$/i })).toBeDisabled();
   await expect(page.getByLabel("Password")).toHaveValue("");
 });
 

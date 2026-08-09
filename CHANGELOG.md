@@ -49,6 +49,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Fixed the triggers page offering two buttons with the same accessible name
+  ("New trigger") whenever the list was empty; the empty-state call to action is
+  now distinct.
 - Fixed delivery status tones so delivered and blocked states are visually
   distinct from neutral statuses.
 - Fixed mobile and table accessibility regressions, including clipped wide

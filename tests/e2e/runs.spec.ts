@@ -389,6 +389,13 @@ test.describe("run detail", () => {
       .getByRole("button", { name: "Continue" })
       .click();
 
+    // Choosing a branch is as irreversible as rejecting one, so it is confirmed too — and the
+    // dialog names the branch about to be taken rather than asking a generic "are you sure?".
+    const confirm = page.getByRole("alertdialog");
+    await expect(confirm).toBeVisible();
+    await expect(confirm).toContainText('Take the "Continue" branch?');
+    await confirm.getByRole("button", { name: 'Choose "Continue"' }).click();
+
     // Atlas continues the run on a fresh thread after the decision, so the second gate appears
     // asynchronously — polled, never slept on.
     const after = await untilRun(
