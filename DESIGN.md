@@ -164,6 +164,7 @@ meaning — a state always pairs its hue with an icon and an accessible label, a
 discipline the codebase already holds for colour-blind operators.
 
 **Key Characteristics:**
+
 - Dark cockpit throughout; light is information, not decoration.
 - One rationed cyan primary + one amber attention accent; green/red/violet reserved for status.
 - Tonal layering over shadow for depth; soft glow only on live state.
@@ -177,18 +178,21 @@ signals; the palette is defined in OKLCH so lightness steps stay perceptually
 even across a very dark UI.
 
 ### Primary
+
 - **Runway Cyan** (`oklch(0.82 0.15 200)`): The one true accent. Primary
   buttons, focus rings, selected/running state, active edges, chart series 1,
-  and the `start` badge. It marks *live and primary* — and it is deliberately
+  and the `start` badge. It marks _live and primary_ — and it is deliberately
   rare so that meaning holds.
 
 ### Secondary
+
 - **Warning Amber** (`oklch(0.78 0.16 70)`): Attention and "AI decision"
   identity. The `manager` node tile, `waiting_for_human` state, and the
   `warning` role all share this hue. Warm against the cool floor, so it pulls
   the eye without alarming.
 
 ### Tertiary (status signals)
+
 - **Signal Green** (`oklch(0.75 0.17 160)`): Success — succeeded runs, the
   `join` ("wait for branches") node.
 - **Alert Red** (`oklch(0.65 0.22 25)`): Destructive/failed/interrupted and the
@@ -197,6 +201,7 @@ even across a very dark UI.
   categorical hue for data viz.
 
 ### Neutral
+
 - **Obsidian Deep** (`oklch(0.19 0.03 254)`): The app floor / page background.
 - **Obsidian Raised** (`oklch(0.22 0.03 254)`): Cards, popovers, sidebar,
   minimap — one step up from the floor.
@@ -209,12 +214,14 @@ even across a very dark UI.
   placeholders.
 
 ### Canvas-only surfaces
+
 - **Edge label chip** (`--surface-raised #101a27`, border `#33475a`, text
   `#b6c7d7`): The raised chip that carries an edge's condition label on the
   workflow canvas. Intentionally hardcoded hex because it is the one place the
   React Flow renderer needs a fixed literal.
 
 ### Named Rules
+
 **The One Signal Rule.** Runway cyan appears on ≤ ~10% of any screen. It is the
 primary/live colour and nothing else may borrow it; its rarity is what makes a
 single cyan ring legible on a crowded canvas.
@@ -237,6 +244,7 @@ identifier, count, cursor, and edge condition is set in it, so "this is real
 data from the system" is signalled typographically, not just verbally.
 
 ### Hierarchy
+
 - **Display** (700, `text-7xl` / ~4.5rem, line-height 1): Reserved for hero
   numerals like the `404`. Not a routine page element.
 - **Headline** (600, `text-xl` / 1.25rem, tracking-tight): Page and section
@@ -252,6 +260,7 @@ data from the system" is signalled typographically, not just verbally.
   emphasis lines. IDs, edge-condition labels, the `start` badge, counts.
 
 ### Named Rules
+
 **The Machine-Voice Rule.** Anything that is literally a value from Atlas — an
 ID, a sequence cursor, a byte count, an edge condition, a state token — is set
 in JetBrains Mono. Prose about the system stays in Inter Display.
@@ -273,11 +282,12 @@ inspector panel.
 Depth is primarily **tonal layering**, not shadow: obsidian floor → raised card
 → elevated slate reads as three planes purely through lightness. Shadows are the
 secondary, soft, ambient layer — `shadow-sm`/`shadow` on buttons and cards,
-`shadow-lg` on canvas nodes so they float above the pane. The only *lit* depth
+`shadow-lg` on canvas nodes so they float above the pane. The only _lit_ depth
 is state: a `pulse-glow` keyframe emits an expanding cyan ring for live/attention
 moments, and focus rings are a 1px cyan halo.
 
 ### Named Rules
+
 **The Layered-Not-Lifted Rule.** Reach for a lighter surface token before a
 bigger shadow. Shadows stay soft and ambient; glow is reserved for live state,
 never for ornament.
@@ -294,6 +304,7 @@ border already speaks the theme; you set width and radius, not colour.
 ## Components
 
 ### Buttons
+
 - **Shape:** `rounded-md` (6px), height 36px default (`h-9`), `text-sm`
   medium-weight, `transition-colors`.
 - **Primary:** runway-cyan fill, obsidian-deep text, subtle shadow; hover drops
@@ -308,6 +319,7 @@ border already speaks the theme; you set width and radius, not colour.
 - **Sizes:** `sm` h-8 / `text-xs`, `lg` h-10 / px-8, `icon` 36×36 square.
 
 ### Cards / Containers
+
 - **Corner Style:** `rounded-xl` (12px).
 - **Background:** obsidian-raised, ice-white text.
 - **Shadow Strategy:** soft `shadow` (see Elevation) — layering does most of the work.
@@ -315,11 +327,13 @@ border already speaks the theme; you set width and radius, not colour.
 - **Internal Padding:** 24px (`p-6`); header/content/footer share it.
 
 ### Inputs / Fields
+
 - **Style:** transparent fill, 1px hull-border, `rounded-md`, height 36px, subtle shadow.
 - **Focus:** 1px cyan ring, outline removed.
 - **Placeholder:** haze-grey. **Disabled:** 50% opacity, not-allowed cursor.
 
 ### Badges / Chips
+
 - **Default:** runway-cyan fill, obsidian-deep text, `rounded-md`, `text-xs`
   semibold. **Secondary:** slate-elevated. **Destructive:** alert-red.
   **Outline:** foreground text on transparent.
@@ -327,9 +341,11 @@ border already speaks the theme; you set width and radius, not colour.
   `/40` border of the state colour (e.g. the `start` badge, edge labels).
 
 ### Workflow Canvas Node (signature component)
+
 The defining custom surface. A `w-60`, `rounded-xl`, **2px-bordered** raised card
 with a 36px icon tile, title, and derived hint. Four node kinds, each colour- and
 icon-coded so kind is readable without reading:
+
 - **AI Task** (`worker`, cyan/primary, `Cpu`)
 - **AI Decision** (`manager`, amber/accent, `Sparkles`)
 - **Wait for branches** (`join`, green/success, `Merge`)
@@ -343,12 +359,14 @@ neutral. Selection and local validation issues also drive the ring. Handles are
 full opacity when selected, with an animated dash `flow` keyframe.
 
 ### Navigation (sidebar)
+
 Persistent obsidian-raised rail; items use ghost-style hover (highlight wash),
 cyan for the active item. Icon + label pairing.
 
 ## Do's and Don'ts
 
 ### Do:
+
 - **Do** reference semantic tokens, never literals — `bg-card`, `text-primary`,
   `border-border`. The one sanctioned exception is the canvas edge-label chip
   (`--surface-raised` and friends), which the renderer needs as fixed hex.
@@ -361,6 +379,7 @@ cyan for the active item. Icon + label pairing.
 - **Do** keep runway cyan rare — it means primary/live.
 
 ### Don't:
+
 - **Don't** introduce a new hue for a status; the five signals (cyan/amber/green/
   red/violet) plus neutrals are the whole vocabulary.
 - **Don't** use colour as the only signal for a state, error, or node kind.

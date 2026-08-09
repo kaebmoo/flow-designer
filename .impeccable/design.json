@@ -8,57 +8,148 @@
         "role": "primary",
         "displayName": "Runway Cyan",
         "canonical": "oklch(0.82 0.15 200)",
-        "tonalRamp": ["oklch(0.15 0.12 200)", "oklch(0.26 0.14 200)", "oklch(0.37 0.15 200)", "oklch(0.48 0.15 200)", "oklch(0.59 0.15 200)", "oklch(0.70 0.15 200)", "oklch(0.82 0.15 200)", "oklch(0.93 0.07 200)"]
+        "tonalRamp": [
+          "oklch(0.15 0.12 200)",
+          "oklch(0.26 0.14 200)",
+          "oklch(0.37 0.15 200)",
+          "oklch(0.48 0.15 200)",
+          "oklch(0.59 0.15 200)",
+          "oklch(0.70 0.15 200)",
+          "oklch(0.82 0.15 200)",
+          "oklch(0.93 0.07 200)"
+        ]
       },
       "warning-amber": {
         "role": "secondary",
         "displayName": "Warning Amber",
         "canonical": "oklch(0.78 0.16 70)",
-        "tonalRamp": ["oklch(0.15 0.10 70)", "oklch(0.26 0.13 70)", "oklch(0.37 0.15 70)", "oklch(0.48 0.16 70)", "oklch(0.59 0.16 70)", "oklch(0.70 0.16 70)", "oklch(0.78 0.16 70)", "oklch(0.92 0.07 70)"]
+        "tonalRamp": [
+          "oklch(0.15 0.10 70)",
+          "oklch(0.26 0.13 70)",
+          "oklch(0.37 0.15 70)",
+          "oklch(0.48 0.16 70)",
+          "oklch(0.59 0.16 70)",
+          "oklch(0.70 0.16 70)",
+          "oklch(0.78 0.16 70)",
+          "oklch(0.92 0.07 70)"
+        ]
       },
       "signal-green": {
         "role": "tertiary",
         "displayName": "Signal Green",
         "canonical": "oklch(0.75 0.17 160)",
-        "tonalRamp": ["oklch(0.15 0.10 160)", "oklch(0.26 0.13 160)", "oklch(0.37 0.15 160)", "oklch(0.48 0.16 160)", "oklch(0.59 0.17 160)", "oklch(0.68 0.17 160)", "oklch(0.75 0.17 160)", "oklch(0.91 0.08 160)"]
+        "tonalRamp": [
+          "oklch(0.15 0.10 160)",
+          "oklch(0.26 0.13 160)",
+          "oklch(0.37 0.15 160)",
+          "oklch(0.48 0.16 160)",
+          "oklch(0.59 0.17 160)",
+          "oklch(0.68 0.17 160)",
+          "oklch(0.75 0.17 160)",
+          "oklch(0.91 0.08 160)"
+        ]
       },
       "alert-red": {
         "role": "tertiary",
         "displayName": "Alert Red",
         "canonical": "oklch(0.65 0.22 25)",
-        "tonalRamp": ["oklch(0.15 0.10 25)", "oklch(0.26 0.15 25)", "oklch(0.37 0.19 25)", "oklch(0.48 0.22 25)", "oklch(0.57 0.22 25)", "oklch(0.65 0.22 25)", "oklch(0.75 0.16 25)", "oklch(0.90 0.07 25)"]
+        "tonalRamp": [
+          "oklch(0.15 0.10 25)",
+          "oklch(0.26 0.15 25)",
+          "oklch(0.37 0.19 25)",
+          "oklch(0.48 0.22 25)",
+          "oklch(0.57 0.22 25)",
+          "oklch(0.65 0.22 25)",
+          "oklch(0.75 0.16 25)",
+          "oklch(0.90 0.07 25)"
+        ]
       },
       "telemetry-violet": {
         "role": "tertiary",
         "displayName": "Telemetry Violet",
         "canonical": "oklch(0.65 0.2 300)",
-        "tonalRamp": ["oklch(0.15 0.10 300)", "oklch(0.26 0.14 300)", "oklch(0.37 0.17 300)", "oklch(0.48 0.20 300)", "oklch(0.57 0.20 300)", "oklch(0.65 0.20 300)", "oklch(0.76 0.14 300)", "oklch(0.90 0.06 300)"]
+        "tonalRamp": [
+          "oklch(0.15 0.10 300)",
+          "oklch(0.26 0.14 300)",
+          "oklch(0.37 0.17 300)",
+          "oklch(0.48 0.20 300)",
+          "oklch(0.57 0.20 300)",
+          "oklch(0.65 0.20 300)",
+          "oklch(0.76 0.14 300)",
+          "oklch(0.90 0.06 300)"
+        ]
       },
       "obsidian-deep": {
         "role": "neutral",
         "displayName": "Obsidian Deep",
         "canonical": "oklch(0.19 0.03 254)",
-        "tonalRamp": ["oklch(0.19 0.03 254)", "oklch(0.22 0.03 254)", "oklch(0.28 0.03 254)", "oklch(0.32 0.03 254)", "oklch(0.45 0.03 254)", "oklch(0.62 0.03 254)", "oklch(0.72 0.03 240)", "oklch(0.97 0.01 240)"]
+        "tonalRamp": [
+          "oklch(0.19 0.03 254)",
+          "oklch(0.22 0.03 254)",
+          "oklch(0.28 0.03 254)",
+          "oklch(0.32 0.03 254)",
+          "oklch(0.45 0.03 254)",
+          "oklch(0.62 0.03 254)",
+          "oklch(0.72 0.03 240)",
+          "oklch(0.97 0.01 240)"
+        ]
       }
     },
     "typographyMeta": {
-      "display": { "displayName": "Display", "purpose": "Hero numerals like the 404; not a routine page element." },
+      "display": {
+        "displayName": "Display",
+        "purpose": "Hero numerals like the 404; not a routine page element."
+      },
       "headline": { "displayName": "Headline", "purpose": "Page/section/dialog titles." },
       "title": { "displayName": "Title", "purpose": "Card titles and compact panel headers." },
-      "body": { "displayName": "Body", "purpose": "Default UI text; inputs bump to text-base on mobile." },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default UI text; inputs bump to text-base on mobile."
+      },
       "label": { "displayName": "Label", "purpose": "Badges, chips, small emphatic labels." },
-      "mono": { "displayName": "Mono", "purpose": "Machine voice — Atlas IDs, cursors, counts, edge conditions, the start badge." }
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Machine voice — Atlas IDs, cursors, counts, edge conditions, the start badge."
+      }
     },
     "shadows": [
-      { "name": "control", "value": "0 1px 2px 0 rgb(0 0 0 / 0.25)", "purpose": "Ambient lift on buttons, inputs, badges (Tailwind shadow-sm/shadow over a dark floor)." },
-      { "name": "node-lift", "value": "0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4)", "purpose": "Canvas nodes floating above the React Flow pane (shadow-lg)." },
-      { "name": "live-glow", "value": "0 0 0 0 color-mix(in oklab, var(--color-primary) 40%, transparent)", "purpose": "Start frame of the pulse-glow keyframe; expands to a transparent 6px ring to signal live/attention." }
+      {
+        "name": "control",
+        "value": "0 1px 2px 0 rgb(0 0 0 / 0.25)",
+        "purpose": "Ambient lift on buttons, inputs, badges (Tailwind shadow-sm/shadow over a dark floor)."
+      },
+      {
+        "name": "node-lift",
+        "value": "0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4)",
+        "purpose": "Canvas nodes floating above the React Flow pane (shadow-lg)."
+      },
+      {
+        "name": "live-glow",
+        "value": "0 0 0 0 color-mix(in oklab, var(--color-primary) 40%, transparent)",
+        "purpose": "Start frame of the pulse-glow keyframe; expands to a transparent 6px ring to signal live/attention."
+      }
     ],
     "motion": [
-      { "name": "state", "value": "cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Default transition-colors easing for hover/focus/state changes." },
-      { "name": "flow", "value": "stroke-dashoffset 24 -> 0", "purpose": "Animated dash travelling along active workflow edges." },
-      { "name": "pulse-glow", "value": "box-shadow ring 0 -> 6px, 2s", "purpose": "Breathing cyan halo on live/attention elements." },
-      { "name": "slide-up", "value": "translateY(100%) + opacity 0 -> 0, ", "purpose": "Sheets/drawers entering from the bottom edge." }
+      {
+        "name": "state",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Default transition-colors easing for hover/focus/state changes."
+      },
+      {
+        "name": "flow",
+        "value": "stroke-dashoffset 24 -> 0",
+        "purpose": "Animated dash travelling along active workflow edges."
+      },
+      {
+        "name": "pulse-glow",
+        "value": "box-shadow ring 0 -> 6px, 2s",
+        "purpose": "Breathing cyan halo on live/attention elements."
+      },
+      {
+        "name": "slide-up",
+        "value": "translateY(100%) + opacity 0 -> 0, ",
+        "purpose": "Sheets/drawers entering from the bottom edge."
+      }
     ],
     "breakpoints": [
       { "name": "md", "value": "768px" },
@@ -134,10 +225,26 @@
       "State is never colour alone — always hue + icon + label."
     ],
     "rules": [
-      { "name": "The One Signal Rule", "body": "Runway cyan appears on ≤ ~10% of any screen. It is the primary/live colour and nothing else may borrow it; its rarity is what makes a single cyan ring legible on a crowded canvas.", "section": "colors" },
-      { "name": "The Never-Colour-Alone Rule", "body": "No state is communicated by hue alone. Running, waiting, succeeded, failed each pair their colour with an icon and an accessible label — the red ring is never the only issue signal.", "section": "colors" },
-      { "name": "The Machine-Voice Rule", "body": "Anything that is literally a value from Atlas — an ID, sequence cursor, byte count, edge condition, state token — is set in JetBrains Mono. Prose about the system stays in Inter Display.", "section": "typography" },
-      { "name": "The Layered-Not-Lifted Rule", "body": "Reach for a lighter surface token before a bigger shadow. Shadows stay soft and ambient; glow is reserved for live state, never for ornament.", "section": "elevation" }
+      {
+        "name": "The One Signal Rule",
+        "body": "Runway cyan appears on ≤ ~10% of any screen. It is the primary/live colour and nothing else may borrow it; its rarity is what makes a single cyan ring legible on a crowded canvas.",
+        "section": "colors"
+      },
+      {
+        "name": "The Never-Colour-Alone Rule",
+        "body": "No state is communicated by hue alone. Running, waiting, succeeded, failed each pair their colour with an icon and an accessible label — the red ring is never the only issue signal.",
+        "section": "colors"
+      },
+      {
+        "name": "The Machine-Voice Rule",
+        "body": "Anything that is literally a value from Atlas — an ID, sequence cursor, byte count, edge condition, state token — is set in JetBrains Mono. Prose about the system stays in Inter Display.",
+        "section": "typography"
+      },
+      {
+        "name": "The Layered-Not-Lifted Rule",
+        "body": "Reach for a lighter surface token before a bigger shadow. Shadows stay soft and ambient; glow is reserved for live state, never for ornament.",
+        "section": "elevation"
+      }
     ],
     "dos": [
       "Do reference semantic tokens, never literals — bg-card, text-primary, border-border. The one sanctioned exception is the canvas edge-label chip, which the renderer needs as fixed hex.",
