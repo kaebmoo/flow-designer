@@ -33,6 +33,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Changed the node inspector's advanced routing from free-text `worker_id` and
+  `workspace_id` boxes to pickers over Atlas's real inventory. Each option names
+  the worker, or the workspace key with its directory and owning worker, plus the
+  id, so a node can no longer be pinned to the wrong directory by pasting an
+  opaque string; choosing a worker narrows the workspace list to that worker's
+  own. An id Atlas no longer lists stays selected and labelled rather than being
+  silently dropped, and the saved value is still the bare id string.
 - Improved list and table surfaces across runs, jobs, deliveries, artifacts,
   audit, usage, workflows, users, fleet, and workspaces with accessible filter
   chips, status icons and tones, keyboardable rows, selected-row state,

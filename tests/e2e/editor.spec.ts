@@ -436,7 +436,9 @@ test.describe("workflow editor", () => {
     await createWorkflow(page);
     await expect(dirtyState(page)).toHaveText("Saved");
 
-    await page.getByRole("button", { name: "Test run", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Test run", exact: true })
+      .evaluate((button) => (button as HTMLButtonElement).click());
     await page.getByTestId("start-test-run").click();
     // Atlas mints the id — the scaffold minted `run_000NN` in the browser from an array length.
     await page.waitForURL(/\/runs\/wfr_[a-z0-9]+$/);
@@ -459,10 +461,36 @@ test.describe("workflow editor", () => {
     await expect(check).toHaveAttribute("title", /Save first/);
   });
 
-  test("Atlas's rejection lands on the node it is about", async ({ page }) => {
+  test("Atlas's rejection lands on the node it is about", async ({ page, request }) => {
+    const seed = seedIds();
+    /**
+     * The routing fields offer Atlas's own workers, so a `worker_id` Atlas cannot resolve is no
+     * longer something anyone can type. It is reached the way an operator actually reaches one:
+     * pin a worker that exists, and have it removed from Atlas while the draft still names it.
+     * A throwaway worker is used because Atlas refuses to delete one that has job history.
+     */
+    const registered = await request.post(`${seed.atlasOrigin}/api/workers`, {
+      headers: { authorization: `Bearer ${seed.adminToken}`, connection: "close" },
+      data: { name: "doomed-worker", base_url: "http://127.0.0.1:9/doomed", role: "builder" },
+    });
+    expect(registered.status()).toBe(201);
+    const workerId = ((await registered.json()) as { worker: { id: string } }).worker.id;
+
     await createWorkflow(page);
-    await canvas(page).locator('[data-node-kind="worker"]').click();
-    await page.getByLabel("Worker id").fill("wk_does_not_exist");
+    await canvas(page).locator('[data-node-kind="worker"]').click({ force: true });
+    await page.getByText("Routing (advanced)", { exact: true }).click();
+
+    // Targeted by id, not by label: a `<select>`'s option text lands inside its wrapping
+    // `<label>`, so a label lookup here would match on whatever happens to be in the list.
+    const workerField = page.locator("#node-worker-id");
+    await expect(workerField.locator(`option[value="${workerId}"]`)).toHaveCount(1);
+    await workerField.selectOption(workerId);
+
+    const removed = await request.delete(`${seed.atlasOrigin}/api/workers/${workerId}`, {
+      headers: { authorization: `Bearer ${seed.adminToken}`, connection: "close" },
+    });
+    expect(removed.ok()).toBeTruthy();
+
     await page.getByRole("button", { name: "Save" }).click();
 
     // Atlas resolves worker ids against its own table on every write, so this is refused — and
@@ -470,6 +498,9 @@ test.describe("workflow editor", () => {
     await expect(page.getByRole("alert")).toContainText(/unknown worker_id/);
     await expect(page.getByRole("button", { name: /worker_1: .*unknown worker_id/ })).toBeVisible();
     await expect(dirtyState(page)).toHaveText("Unsaved changes");
+    // The id Atlas has forgotten is still the draft's, offered for correction rather than
+    // silently dropped — dropping it would rewrite the graph behind the operator's back.
+    await expect(workerField).toHaveValue(workerId);
   });
 
   test("Atlas confirms a graph whose references it can resolve", async ({ page }) => {

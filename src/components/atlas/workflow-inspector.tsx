@@ -12,9 +12,11 @@
  * no outgoing condition matches, Atlas schedules nothing.
  */
 
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 
+import { workersQuery, workspacesQuery } from "@/lib/atlas-queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,6 +40,8 @@ import {
   type HumanGateNode,
   type JsonObject,
   type JsonValue,
+  type ManagerNode,
+  type WorkerNode,
   type WorkflowGraph,
   type WorkflowPolicy,
 } from "@/lib/workflow-graph";
@@ -167,6 +171,109 @@ function optionalNumber(value: string): number | undefined {
   if (trimmed === "") return undefined;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+/**
+ * Worker and workspace routing, picked from Atlas's real inventory rather than typed.
+ *
+ * These two fields used to be free-text id boxes, which is how an operator pinned a node to the
+ * workspace `data` (`flow-designer/data`) when they meant `thclaws` (the repo root): the id is
+ * opaque, and nothing on screen said which directory it resolved to. So each option carries the
+ * name, the id, and — for a workspace — the directory and the worker that owns it, before the
+ * choice is made. The saved value is still the bare id string Atlas's schema declares.
+ *
+ * Both lists come from the same reads the Fleet and Workspaces pages use, so this adds no Atlas
+ * surface; the cache is usually already warm.
+ */
+function AgentRoutingFields({
+  node,
+  onChange,
+}: {
+  node: WorkerNode | ManagerNode;
+  onChange: (next: GraphNode) => void;
+}) {
+  const workers = useQuery(workersQuery());
+  const workspaces = useQuery(workspacesQuery());
+
+  const workerId = node.worker_id ?? "";
+  const workspaceId = node.workspace_id ?? "";
+  const workerList = workers.data ?? [];
+  const workspaceList = workspaces.data ?? [];
+
+  // A workspace belongs to exactly one worker and Atlas rejects a mismatched pair, so pinning a
+  // worker narrows the offer to that worker's directories — the UI refuses the mistake first.
+  const offered = workerId ? workspaceList.filter((w) => w.workerId === workerId) : workspaceList;
+
+  const workerOptions = [
+    { value: "", label: "None — route by role, tags, or company" },
+    ...workerList.map((w) => ({ value: w.id, label: `${w.name} — ${w.id}` })),
+  ];
+  // An id Atlas no longer lists (a deleted worker, or a list that failed to load) is still what
+  // the graph holds. Dropping it from the options would rewrite the node the moment anything
+  // else on this panel changed, so it stays selectable and labelled for what it is.
+  if (workerId && !workerList.some((w) => w.id === workerId)) {
+    workerOptions.push({ value: workerId, label: `${workerId} — not in Atlas's worker list` });
+  }
+
+  const workspaceOptions = [
+    { value: "", label: "None — route by company or the worker's default" },
+    ...offered.map((w) => ({
+      value: w.id,
+      label: `${w.workspaceKey} — ${w.workspaceDir} — on ${w.workerName} — ${w.id}`,
+    })),
+  ];
+  if (workspaceId && !offered.some((w) => w.id === workspaceId)) {
+    const elsewhere = workspaceList.find((w) => w.id === workspaceId);
+    workspaceOptions.push({
+      value: workspaceId,
+      label: elsewhere
+        ? `${elsewhere.workspaceKey} — ${elsewhere.workspaceDir} — on ${elsewhere.workerName} — ${elsewhere.id} — does not belong to the selected worker`
+        : `${workspaceId} — not in Atlas's workspace list`,
+    });
+  }
+
+  const listHint = (query: { isPending: boolean; isError: boolean }, what: string) =>
+    query.isPending
+      ? `Loading Atlas's ${what} list — only the saved value is offered until it arrives.`
+      : query.isError
+        ? `Atlas's ${what} list could not be loaded, so only the saved value is offered.`
+        : undefined;
+
+  return (
+    <>
+      <Field
+        label="Worker"
+        hint={
+          listHint(workers, "worker") ??
+          "Optional. Pins this node to one worker; Atlas re-checks the id when you validate."
+        }
+      >
+        <Choose
+          id="node-worker-id"
+          value={workerId}
+          options={workerOptions}
+          onChange={(next) => onChange({ ...node, worker_id: next || undefined })}
+        />
+      </Field>
+
+      <Field
+        label="Workspace"
+        hint={
+          listHint(workspaces, "workspace") ??
+          (workerId
+            ? "Optional. Only this worker's workspaces are offered — a workspace belongs to one worker."
+            : "Optional. Choose a worker above to narrow this to that worker's directories.")
+        }
+      >
+        <Choose
+          id="node-workspace-id"
+          value={workspaceId}
+          options={workspaceOptions}
+          onChange={(next) => onChange({ ...node, workspace_id: next || undefined })}
+        />
+      </Field>
+    </>
+  );
 }
 
 export interface NodeInspectorProps {
@@ -345,30 +452,7 @@ export function NodeInspector({
           </Section>
 
           <DetailsSection title="Routing (advanced)">
-            <Field
-              label="Worker id"
-              hint="Optional. Atlas checks this against its own worker table when you validate."
-            >
-              <Input
-                value={node.worker_id ?? ""}
-                spellCheck={false}
-                onChange={(event) =>
-                  onChange({ ...node, worker_id: event.target.value || undefined })
-                }
-                className="font-mono text-xs"
-              />
-            </Field>
-
-            <Field label="Workspace id" hint="Optional. Must belong to the worker above.">
-              <Input
-                value={node.workspace_id ?? ""}
-                spellCheck={false}
-                onChange={(event) =>
-                  onChange({ ...node, workspace_id: event.target.value || undefined })
-                }
-                className="font-mono text-xs"
-              />
-            </Field>
+            <AgentRoutingFields node={node} onChange={onChange} />
 
             <Field
               label="Role"
