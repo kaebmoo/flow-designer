@@ -222,12 +222,16 @@ function AgentRoutingFields({
       label: `${w.workspaceKey} — ${w.workspaceDir} — on ${w.workerName} — ${w.id}`,
     })),
   ];
+  const mismatched = workspaceId ? workspaceList.find((w) => w.id === workspaceId) : undefined;
+  const belongsElsewhere =
+    workerId !== "" && mismatched !== undefined && mismatched.workerId !== workerId
+      ? mismatched
+      : undefined;
   if (workspaceId && !offered.some((w) => w.id === workspaceId)) {
-    const elsewhere = workspaceList.find((w) => w.id === workspaceId);
     workspaceOptions.push({
       value: workspaceId,
-      label: elsewhere
-        ? `${elsewhere.workspaceKey} — ${elsewhere.workspaceDir} — on ${elsewhere.workerName} — ${elsewhere.id} — does not belong to the selected worker`
+      label: mismatched
+        ? `${mismatched.workspaceKey} — ${mismatched.workspaceDir} — on ${mismatched.workerName} — ${mismatched.id}`
         : `${workspaceId} — not in Atlas's workspace list`,
     });
   }
@@ -258,10 +262,20 @@ function AgentRoutingFields({
 
       <Field
         label="Workspace"
+        // A mismatched pair is the mistake this whole panel exists to prevent, and the option
+        // text alone cannot carry it: a native select truncates its closed label. Atlas refuses
+        // the pair on save, so this is stated as the refusal it will become.
+        error={
+          belongsElsewhere
+            ? `${belongsElsewhere.workspaceKey} lives on ${belongsElsewhere.workerName}, not the worker selected above. Atlas will refuse this pair — choose one of this worker's workspaces, or clear the worker.`
+            : undefined
+        }
         hint={
           listHint(workspaces, "workspace") ??
           (workerId
-            ? "Optional. Only this worker's workspaces are offered — a workspace belongs to one worker."
+            ? offered.length === 0
+              ? "The selected worker exposes no workspaces. Map one on the Workspaces page, or route by company instead."
+              : "Optional. Only this worker's workspaces are offered — a workspace belongs to one worker."
             : "Optional. Choose a worker above to narrow this to that worker's directories.")
         }
       >

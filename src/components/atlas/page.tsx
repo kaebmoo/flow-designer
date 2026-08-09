@@ -1,4 +1,4 @@
-import { Check, Copy } from "lucide-react";
+import { AlertTriangle, Check, Copy } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 export function PageHeader({
@@ -217,17 +217,22 @@ export function CopyableId({ value, label }: { value: string; label: string }) {
             () => setState("failed"),
           );
         }}
-        className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-secondary/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-secondary/30 px-1.5 py-1 font-mono text-[10px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <span className="sr-only">Copy {label}</span>
         <span className="truncate">{value}</span>
+        {/* The id is machine text and stays monospace; the outcome is prose and does not.
+            Both outcomes pair their colour with an icon — the tone is never the only signal. */}
         {state === "copied" ? (
           <>
             <Check className="size-3 shrink-0 text-success" aria-hidden="true" />
-            <span className="text-success">Copied</span>
+            <span className="font-sans text-success">Copied</span>
           </>
         ) : state === "failed" ? (
-          <span className="text-destructive">Copy failed</span>
+          <>
+            <AlertTriangle className="size-3 shrink-0 text-destructive" aria-hidden="true" />
+            <span className="font-sans text-destructive">Copy failed</span>
+          </>
         ) : (
           <Copy className="size-3 shrink-0" aria-hidden="true" />
         )}
