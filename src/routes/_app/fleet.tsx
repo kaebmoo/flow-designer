@@ -3,7 +3,7 @@ import { createFileRoute, getRouteApi } from "@tanstack/react-router";
 import { AlertTriangle, Loader2, Pencil, Plus, RefreshCw, ServerOff, Trash2 } from "lucide-react";
 import { cloneElement, useId, useState } from "react";
 
-import { DataTable, EmptyHint, PageHeader, StatusPill } from "@/components/atlas/page";
+import { CopyableId, DataTable, EmptyHint, PageHeader, StatusPill } from "@/components/atlas/page";
 import { useReturnFocus } from "@/hooks/use-return-focus";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import {
@@ -316,6 +316,10 @@ function FleetPage() {
                     <div>
                       <div className="text-sm font-medium">{w.name}</div>
                       <div className="font-mono text-[10px] text-muted-foreground">{w.baseUrl}</div>
+                      {/* The id, not the name, is what a workflow node's `worker_id` holds. */}
+                      <div className="mt-1">
+                        <CopyableId value={w.id} label={`worker id for ${w.name}`} />
+                      </div>
                     </div>
                   ),
                 },
@@ -577,6 +581,17 @@ function WorkerFormDialog({
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {worker ? (
+              <div className="space-y-1.5">
+                <span className="block text-sm font-medium">Worker id</span>
+                <CopyableId value={worker.id} label={`worker id for ${worker.name}`} />
+                <FieldHint>
+                  Atlas assigns this and never changes it. Paste it into a workflow node&apos;s
+                  worker routing to pin that node to this worker.
+                </FieldHint>
+              </div>
+            ) : null}
+
             <div className="space-y-1.5">
               <Label htmlFor="worker-name">Name</Label>
               <Input

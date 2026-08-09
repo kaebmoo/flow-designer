@@ -9,6 +9,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Added copyable Atlas ids to the Fleet and Workspaces pages and to their edit
+  dialogs: the `wrk_`/`wsp_` id a workflow node actually routes on is now shown
+  in full, in monospace, behind a keyboard-operable copy control that names what
+  it copies and announces the result to assistive tech.
 - Added workflow controls on the jobs page so operators can act on workflows from
   job context.
 - Added the Atlas-backed global artifacts ledger with kind and run filters, run

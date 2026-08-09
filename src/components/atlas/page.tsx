@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { Check, Copy } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export function PageHeader({
   title,
@@ -176,6 +177,70 @@ export function FilterChip({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * An Atlas id, shown in full and copyable.
+ *
+ * A node's routing fields hold `wrk_…` / `wsp_…` strings, so an operator has to be able to read
+ * one off an inventory page and paste it — a name alone cannot be pasted anywhere. The whole
+ * chip is the button so it is one tab stop, its accessible name says which id will be copied
+ * (a bare "Copy" repeated down a table names nothing), and the outcome is both visible and
+ * announced through a live region — never a `title`, which keyboard and screen-reader users
+ * never receive.
+ */
+export function CopyableId({ value, label }: { value: string; label: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  // The confirmation is transient; it must not sit there implying the clipboard still holds it.
+  useEffect(() => {
+    if (state === "idle") return;
+    const timer = setTimeout(() => setState("idle"), 2_000);
+    return () => clearTimeout(timer);
+  }, [state]);
+
+  return (
+    <span className="inline-flex max-w-full items-center">
+      <button
+        type="button"
+        onClick={() => {
+          // Absent over plain http and refusable by permission policy, so the failure is a real
+          // state the operator is told about rather than a click that appears to do nothing.
+          const written = navigator.clipboard?.writeText(value);
+          if (!written) {
+            setState("failed");
+            return;
+          }
+          void written.then(
+            () => setState("copied"),
+            () => setState("failed"),
+          );
+        }}
+        className="inline-flex max-w-full items-center gap-1 rounded border border-border bg-secondary/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        <span className="sr-only">Copy {label}</span>
+        <span className="truncate">{value}</span>
+        {state === "copied" ? (
+          <>
+            <Check className="size-3 shrink-0 text-success" aria-hidden="true" />
+            <span className="text-success">Copied</span>
+          </>
+        ) : state === "failed" ? (
+          <span className="text-destructive">Copy failed</span>
+        ) : (
+          <Copy className="size-3 shrink-0" aria-hidden="true" />
+        )}
+      </button>
+      {/* Present from first render so the update inside it is actually announced. */}
+      <span role="status" className="sr-only">
+        {state === "copied"
+          ? `${label} copied`
+          : state === "failed"
+            ? `${label} could not be copied. Select the text and copy it manually.`
+            : ""}
+      </span>
+    </span>
   );
 }
 

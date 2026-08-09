@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { cloneElement, useEffect, useId, useState } from "react";
 
-import { DataTable, EmptyHint, PageHeader, StatusPill } from "@/components/atlas/page";
+import { CopyableId, DataTable, EmptyHint, PageHeader, StatusPill } from "@/components/atlas/page";
 import { useReturnFocus } from "@/hooks/use-return-focus";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import {
@@ -264,7 +264,14 @@ function WorkspacesPage() {
                 key: "workspaceKey",
                 header: "Workspace Key",
                 render: (w) => (
-                  <span className="font-mono text-sm text-foreground">{w.workspaceKey}</span>
+                  <div>
+                    <span className="font-mono text-sm text-foreground">{w.workspaceKey}</span>
+                    {/* The id, not the key, is what a workflow node's `workspace_id` holds — and
+                        the key alone is only unique per worker. */}
+                    <div className="mt-1">
+                      <CopyableId value={w.id} label={`workspace id for ${w.workspaceKey}`} />
+                    </div>
+                  </div>
                 ),
               },
               {
@@ -494,6 +501,20 @@ function WorkspaceFormDialog({
                   the ones loaded earlier and may be out of date. Nothing typed here is lost —
                   finish or cancel, then reload the page.
                 </span>
+              </div>
+            ) : null}
+
+            {workspace ? (
+              <div className="space-y-1.5">
+                <span className="block text-sm font-medium">Workspace id</span>
+                <CopyableId
+                  value={workspace.id}
+                  label={`workspace id for ${workspace.workspaceKey}`}
+                />
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Atlas assigns this and never changes it. Paste it into a workflow node&apos;s
+                  workspace routing to pin that node to this directory.
+                </p>
               </div>
             ) : null}
 

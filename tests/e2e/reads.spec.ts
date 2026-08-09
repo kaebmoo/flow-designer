@@ -105,8 +105,10 @@ test.describe("Atlas-backed reads", () => {
   test("workspaces lists the real workspace and its worker", async ({ page }) => {
     await page.goto("/workspaces");
 
-    // `exact` matters: "/tmp/contract-ws" is a cell in the same row.
-    await expect(page.getByRole("cell", { name: "contract-ws", exact: true })).toBeVisible();
+    // The key's cell now also carries the copyable workspace id, so the cell's accessible name
+    // is no longer the key alone — but `exact` on the key's own element still matters, because
+    // "/tmp/contract-ws" is a cell in the same row.
+    await expect(page.getByText("contract-ws", { exact: true })).toBeVisible();
     await expect(page.getByText("/tmp/contract-ws")).toBeVisible();
     await expect(page.getByText("Contract Co")).toBeVisible();
 
