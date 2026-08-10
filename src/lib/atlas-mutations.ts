@@ -21,6 +21,7 @@ import {
   createTriggerFn,
   createUserFn,
   createWorkflowFn,
+  draftWorkflowFn,
   decideApprovalFn,
   deleteTriggerFn,
   deleteUserFn,
@@ -49,7 +50,12 @@ import {
 } from "./atlas-mutations.functions";
 import { exportPackFn, type AtlasResult } from "./atlas-reads.functions";
 import type { ApiTokenView, ClientAtlasError } from "./atlas-mappers";
-import type { AtlasWorkflowInterface, WorkflowExecutionMode, WorkflowStatus } from "./atlas-types";
+import type {
+  AtlasWorkflowDraft,
+  AtlasWorkflowInterface,
+  WorkflowExecutionMode,
+  WorkflowStatus,
+} from "./atlas-types";
 import type { AtlasPackBundle, AtlasPackImportResponse } from "./atlas-types";
 import type { JsonObject } from "./workflow-graph";
 import { queryKeys } from "./query-keys";
@@ -158,6 +164,14 @@ export function useCreateWorkflow() {
       interface?: AtlasWorkflowInterface | null;
     }) => createWorkflowFn({ data }),
     ["workflows", "metrics"],
+  );
+}
+
+/** Drafts are unsaved proposals; Atlas bounds its own retry, so this mutation never retries. */
+export function useDraftWorkflow() {
+  return useAtlasMutation<{ plainLanguagePrompt: string }, AtlasWorkflowDraft>(
+    (data) => draftWorkflowFn({ data }),
+    [],
   );
 }
 

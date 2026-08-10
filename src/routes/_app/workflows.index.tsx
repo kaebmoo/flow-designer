@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import type { SearchSchemaInput } from "@tanstack/react-router";
-import { ChevronRight, Loader2, Plus, Workflow } from "lucide-react";
+import { ChevronRight, Loader2, Plus, Sparkles, Workflow } from "lucide-react";
 import { useState } from "react";
 
 import { EmptyHint, FilterChip, PageHeader, StatusPill } from "@/components/atlas/page";
 import { Button } from "@/components/ui/button";
 import { useCreateWorkflow } from "@/lib/atlas-mutations";
+import type { AtlasWorkflowDraft } from "@/lib/atlas-types";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import { WindowNotice } from "@/components/atlas/window";
 import { ATLAS_LIMIT_OPTIONS, parseLimitSearch } from "@/lib/atlas-search";
@@ -16,6 +17,7 @@ import { workflowsQuery } from "@/lib/atlas-queries";
 import { serializeWorkflowGraph, serializeWorkflowPolicy } from "@/lib/workflow-graph";
 import { WORKFLOW_EXAMPLES, type WorkflowExample } from "@/lib/workflow-examples";
 import { WorkflowPackImportDialog } from "@/components/atlas/workflow-pack-import-dialog";
+import { WorkflowAiDraftDialog } from "@/components/atlas/workflow-ai-draft-dialog";
 
 export const Route = createFileRoute("/_app/workflows/")({
   /**
@@ -53,11 +55,13 @@ function WorkflowsIndex() {
   const routerNavigate = useNavigate();
   const identity = appRoute.useLoaderData();
   const [importOpen, setImportOpen] = useState(false);
+  const [draftOpen, setDraftOpen] = useState(false);
   // Which control kicked off the in-flight create, so only that button shows "Creating…"
   // (`create.isPending` alone is global and would relabel every create button at once).
   const [pendingCreateId, setPendingCreateId] = useState<string | null>(null);
   const workflows = useQuery(workflowsQuery({ limit }));
   const create = useCreateWorkflow();
+  const draftCreate = useCreateWorkflow();
   const canImportPacks =
     identity.status === "authenticated" &&
     (identity.identity.role === "admin" || identity.identity.role === "operator");
@@ -88,6 +92,23 @@ function WorkflowsIndex() {
       // Success navigates away; on error we re-enable the controls and clear the label.
       onSettled: () => setPendingCreateId(null),
     });
+  };
+
+  const createDraft = (draft: AtlasWorkflowDraft) => {
+    draftCreate.mutate(
+      {
+        name: draft.name,
+        description: draft.description,
+        graph: draft.graph,
+        policy: draft.policy,
+      },
+      {
+        onSuccess: (workflow) => {
+          setDraftOpen(false);
+          routerNavigate({ to: "/workflows/$id", params: { id: workflow.id } });
+        },
+      },
+    );
   };
 
   /**
@@ -210,6 +231,16 @@ function WorkflowsIndex() {
                 <Plus className="mr-1.5 size-3.5" aria-hidden="true" />
               )}
               {pendingCreateId === NEW_WORKFLOW_ID ? "Creating…" : "New workflow"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={draftCreate.isPending}
+              onClick={() => setDraftOpen(true)}
+            >
+              <Sparkles className="mr-1.5 size-3.5" aria-hidden="true" />
+              Draft with AI
             </Button>
           </div>
         }
@@ -367,6 +398,13 @@ function WorkflowsIndex() {
         )}
       </div>
       <WorkflowPackImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      <WorkflowAiDraftDialog
+        open={draftOpen}
+        onOpenChange={setDraftOpen}
+        onCreate={createDraft}
+        createPending={draftCreate.isPending}
+        createError={draftCreate.error}
+      />
     </>
   );
 }

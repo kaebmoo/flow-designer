@@ -29,7 +29,8 @@ Both frontends stay in use; they cover different ground.
 | Run file upload (e.g. a contract PDF for a human gate)               | No — API only                                            | No — API only                                                                  |
 | Ad-hoc job submission / handoff                                      | No — API only                                            | No — API only                                                                  |
 | Solution-pack import/export                                          | No — API only                                            | Yes, from the Workflows list and workflow editor                               |
-| Draft-from-plain-language, Explain, Repair, Suggest workers/triggers | No — API only                                            | No — API only                                                                  |
+| Draft-from-plain-language                                            | No — API only                                            | Yes, **Draft with AI** on the Workflows list                                   |
+| Explain, Repair, Suggest workers/triggers                            | No — API only                                            | No — API only                                                                  |
 | Usage metering                                                       | Yes, plus a 7-day chart and a quota/threshold alert      | Yes, no chart, no quota alert                                                  |
 | Audit log                                                            | Yes, filterable by type, rows jump to the job/run/worker | Yes, plain log, no type filter, rows are not clickable                         |
 | Users & API tokens                                                   | Yes                                                      | Yes                                                                            |
@@ -48,7 +49,7 @@ through Atlas's REST API (see the
 
 - Submitting an ad-hoc job outside a workflow, with routing/handoff (`POST /api/jobs`).
 - Uploading a file to a run, e.g. a contract for a human gate to review (`POST /api/workflow-runs/{id}/files`).
-- Non-saving Explain/Repair drafts and Draft-from-plain-language (`POST /api/workflows/{id}/explain|repair`, `POST /api/workflows/draft`).
+- Non-saving Explain/Repair drafts (`POST /api/workflows/{id}/explain|repair`). **Draft with AI** is available from the Workflows list; the editor assists remain API-only.
 - Suggest-workers / Suggest-triggers helpers (`POST /api/workflows/suggest-workers`, `POST /api/workflows/{id}/suggest-triggers`).
 - A dedicated "manager decision" panel with proposal/acceptance reasoning (visible via run events and audit instead — see §9).
 - Staging a binary file for the _start_ node. `POST /api/workflow-runs/{id}/files` needs a run that already exists, so a JSON `attachments` field carries text or metadata, never an upload.
@@ -227,6 +228,20 @@ Researcher → Writer → Reviewer, Coder → Tester → Reviewer, and
 Manager-directed loop — which remain reachable only via
 `GET /api/workflow-templates`.)
 
+**Draft with AI** opens a temporary proposal dialog. Describe the workflow in
+plain language, then keep the window open while Atlas calls the configured
+builder model; this can take several minutes. Atlas returns the name,
+description, explanation, warnings, and a node/edge/policy summary. The
+proposal is not saved until you choose **Create as draft & open**. That action
+creates one Atlas workflow without a status field, so Atlas defaults it to
+`draft`, and then opens the editor. **Discard** leaves Atlas unchanged.
+
+Any proposed triggers are display-only and link to **Triggers**; they are never
+created as part of workflow creation. Atlas 400 text is shown verbatim. If the
+instance has no worker tagged `workflow_builder`, the dialog adds a setup hint;
+configure that worker before trying again. The browser does not persist the
+prompt, and this UI does not retry the billed draft request.
+
 Pack import/export controls are described in the Workflow packs section below.
 
 ### The editor
@@ -315,8 +330,9 @@ entirely form-based:
 Toolbar actions (exact button text): **Auto-arrange**, **Save**/"Saving…",
 **Check against Atlas**/"Checking…" (calls Atlas's
 `POST /api/workflows/{id}/validate`), and **Test run**/"Starting…". There is
-no **Explain** and no **Repair** button, and no Draft-from-plain-language /
-Suggest-workers UI anywhere (see "Not here" above).
+no **Explain**, **Repair**, or Suggest-workers button in the editor; **Draft
+with AI** starts from the Workflows list (see "Not here" above for the
+remaining API-only assists).
 
 ### Application interface
 

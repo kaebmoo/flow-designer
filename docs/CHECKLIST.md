@@ -611,6 +611,19 @@ warnings), format:check, unit **383**, contract **136 + 3 skipped** (real Atlas)
 - [x] Commit messages identify Phase 7 logical slices.
 - [ ] **Gate:** user confirms release/commit.
 
+## AI authoring — D3
+
+- [x] `Draft with AI` is a typed, session-validated Atlas call with a two-hour ceiling for Atlas's
+      two-job bounded retry; the flow-designer mutation itself has `retry: false`.
+- [x] The Workflows list dialog has explicit prompt, busy, result, warning, error, forbidden, and
+      discard states. Creating is an explicit action, defaults to Atlas `draft`, and navigates to
+      the existing editor path.
+- [x] Proposed triggers are display-only and link to Triggers; no trigger mutation is called.
+- [x] Guides EN/TH and `BACKEND_INTEGRATION.md` describe the UI/API contract.
+- [x] `bun run lint`, `bun run typecheck`, `bun run test`, `bun run test:contract`,
+      `bun run scan:bundle`, and `bun run build` are green for this stage (645 unit tests;
+      179 contract tests plus 3 skips; bundle scan clean; build succeeded).
+
 ### Phase 7 verification evidence (2026-07-21)
 
 Frontend baseline: `64eeae9`. Tested implementation: `7740797`; Node-runtime harness:

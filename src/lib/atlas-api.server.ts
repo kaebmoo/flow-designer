@@ -24,6 +24,7 @@ import {
   isAtlasSession,
   isAtlasUser,
   isAtlasWorkflowDefaultReply,
+  isAtlasWorkflowDraft,
   isAtlasWorkflowEventPage,
   isAtlasPackBundle,
   isAtlasPackImportResponse,
@@ -50,6 +51,7 @@ import {
   type AtlasUserRow,
   type AtlasWorker,
   type AtlasWorkflowDefinition,
+  type AtlasWorkflowDraft,
   type AtlasWorkflowEventPage,
   type AtlasWorkflowInterface,
   type AtlasWorkflowRun,
@@ -66,6 +68,8 @@ import { getServerEnv } from "./env.server";
 
 /** Atlas is on a private network; 10s is generous for it and still bounds a hung socket. */
 export const DEFAULT_ATLAS_TIMEOUT_MS = 10_000;
+/** A draft can spend two synchronous builder jobs; Atlas's default per-job wait is one hour. */
+export const DRAFT_WORKFLOW_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
 export { MAX_RETRY_AFTER_SECONDS } from "./atlas-retry";
 
 export class AtlasError extends Error {
@@ -551,6 +555,30 @@ export async function atlasGetWorkflow(
   });
 
   return expectShape<{ workflow: AtlasWorkflowDefinition }>(payload, hasWorkflow).workflow;
+}
+
+/** POST /api/workflows/draft — a validated, unsaved AI proposal. */
+export async function atlasDraftWorkflow(
+  token: string,
+  plainLanguagePrompt: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowDraft> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/workflows/draft",
+    token,
+    body: { plain_language_prompt: plainLanguagePrompt },
+    ...options,
+    timeoutMs: options.timeoutMs ?? DRAFT_WORKFLOW_TIMEOUT_MS,
+  });
+
+  return expectShape<{ draft: AtlasWorkflowDraft }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      isAtlasWorkflowDraft((value as Record<string, unknown>).draft),
+  ).draft;
 }
 
 /** `GET /api/packs/{definitionId}/export` — 200, `{ pack }`. */

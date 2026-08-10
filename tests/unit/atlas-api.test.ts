@@ -4,6 +4,8 @@ import {
   AtlasError,
   atlasErrorKindForStatus,
   atlasCreateWorkflow,
+  atlasDraftWorkflow,
+  DRAFT_WORKFLOW_TIMEOUT_MS,
   atlasGetArtifact,
   atlasGetMe,
   atlasListApiTokens,
@@ -127,6 +129,34 @@ describe("Retry-After contract", () => {
 });
 
 describe("request construction", () => {
+  it("posts a plain-language draft request to the fixed Atlas operation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        draft: {
+          name: "Complaint handler",
+          description: "Routes complaints.",
+          graph: { start: "worker_1", nodes: [{ id: "worker_1", type: "worker" }], edges: [] },
+          policy: {},
+          triggers: [],
+          explanation: "The graph follows the requested route.",
+          warnings: [],
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(atlasDraftWorkflow("tok", "Handle customer complaints")).resolves.toMatchObject({
+      name: "Complaint handler",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`${ATLAS_ORIGIN}/api/workflows/draft`);
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ plain_language_prompt: "Handle customer complaints" });
+    expect(init.headers.authorization).toBe("Bearer tok");
+    expect(DRAFT_WORKFLOW_TIMEOUT_MS).toBe(2 * 60 * 60 * 1_000);
+  });
+
   it("sends default_reply and expected_version without a client version field", async () => {
     const fetchMock = vi
       .fn()

@@ -283,6 +283,32 @@ export interface AtlasWorkflowDefinition {
   updated_at: string;
 }
 
+/** POST /api/workflows/draft — validated proposal; never persisted by Atlas. */
+export interface AtlasWorkflowDraft {
+  name: string;
+  description: string;
+  graph: JsonObject;
+  policy: JsonObject;
+  triggers: JsonObject[];
+  explanation: string;
+  warnings: string[];
+}
+
+export function isAtlasWorkflowDraft(value: unknown): value is AtlasWorkflowDraft {
+  if (!isPlainAtlasObject(value)) return false;
+  return (
+    typeof value.name === "string" &&
+    typeof value.description === "string" &&
+    isPlainAtlasObject(value.graph) &&
+    isPlainAtlasObject(value.policy) &&
+    Array.isArray(value.triggers) &&
+    value.triggers.every(isPlainAtlasObject) &&
+    typeof value.explanation === "string" &&
+    Array.isArray(value.warnings) &&
+    value.warnings.every((warning) => typeof warning === "string")
+  );
+}
+
 /** The opaque-but-typed bundle carried by the pack endpoints. Unknown JSON keys are preserved. */
 export interface AtlasPackWorkflow {
   name: string;

@@ -37,6 +37,7 @@ import {
   atlasDeleteWorkflowTrigger,
   atlasDeleteWorker,
   atlasDeleteWorkspace,
+  atlasDraftWorkflow,
   atlasDeliverRun,
   atlasFireWorkflowTrigger,
   atlasGetArtifact,
@@ -62,6 +63,7 @@ import {
   atlasUpsertWorkspace,
   atlasValidateWorkflow,
   AtlasError,
+  DRAFT_WORKFLOW_TIMEOUT_MS,
   type AtlasRunAction,
 } from "./atlas-api.server";
 import { clampAtlasLimit } from "./atlas-limits";
@@ -104,6 +106,7 @@ import {
   ATLAS_USER_STATUSES,
   WORKFLOW_STATUSES,
   isWorkflowStatus,
+  type AtlasWorkflowDraft,
   type AtlasWorkflowInterface,
   type WorkflowExecutionMode,
   type WorkflowStatus,
@@ -151,6 +154,7 @@ const MAX_NAME_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 4_000;
 /** Bounds the JSON a single request may carry, so a malformed client cannot post a novel. */
 const MAX_GRAPH_BYTES = 512_000;
+const MAX_DRAFT_PROMPT_LENGTH = 8_000;
 
 function field(data: unknown, key: string): unknown {
   return data === null || typeof data !== "object"
@@ -181,6 +185,19 @@ function requiredName(data: unknown, key: string): string {
     throw new Error(`${key} is required.`);
   }
   if (value.length > MAX_NAME_LENGTH) throw new Error(`${key} is too long.`);
+  return value.trim();
+}
+
+function requiredDraftPrompt(data: unknown): string {
+  const value = field(data, "plainLanguagePrompt");
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error("plainLanguagePrompt is required.");
+  }
+  if (value.length > MAX_DRAFT_PROMPT_LENGTH) {
+    throw new Error(
+      "plainLanguagePrompt is too long (maximum " + MAX_DRAFT_PROMPT_LENGTH + " characters).",
+    );
+  }
   return value.trim();
 }
 
@@ -610,6 +627,20 @@ export const createWorkflowFn = createServerFn({ method: "POST" })
           }),
         );
       }),
+  );
+
+/** POST /api/workflows/draft — one typed call; Atlas owns the bounded model retry. */
+export const draftWorkflowFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({
+    plainLanguagePrompt: requiredDraftPrompt(data),
+  }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<AtlasWorkflowDraft>> =>
+      mutate(async (token) =>
+        atlasDraftWorkflow(token, data.plainLanguagePrompt, {
+          timeoutMs: DRAFT_WORKFLOW_TIMEOUT_MS,
+        }),
+      ),
   );
 
 /**
