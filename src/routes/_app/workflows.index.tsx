@@ -66,6 +66,11 @@ function WorkflowsIndex() {
     identity.status === "authenticated" &&
     (identity.identity.role === "admin" || identity.identity.role === "operator");
 
+  const handleDraftOpenChange = (open: boolean) => {
+    setDraftOpen(open);
+    if (!open) draftCreate.reset();
+  };
+
   const createWorkflow = (example?: WorkflowExample) => {
     const template = example
       ? {
@@ -104,7 +109,7 @@ function WorkflowsIndex() {
       },
       {
         onSuccess: (workflow) => {
-          setDraftOpen(false);
+          handleDraftOpenChange(false);
           routerNavigate({ to: "/workflows/$id", params: { id: workflow.id } });
         },
       },
@@ -400,7 +405,7 @@ function WorkflowsIndex() {
       <WorkflowPackImportDialog open={importOpen} onOpenChange={setImportOpen} />
       <WorkflowAiDraftDialog
         open={draftOpen}
-        onOpenChange={setDraftOpen}
+        onOpenChange={handleDraftOpenChange}
         onCreate={createDraft}
         createPending={draftCreate.isPending}
         createError={draftCreate.error}

@@ -42,17 +42,32 @@ describe("AI workflow draft helpers", () => {
     expect(canSubmitWorkflowDraft("x".repeat(MAX_DRAFT_PROMPT_LENGTH + 1))).toBe(false);
   });
 
-  it("maps setup and permission failures while preserving Atlas text", () => {
+  it("maps setup failures while preserving Atlas text", () => {
     expect(describeWorkflowDraftError(new Error("No workflow_builder worker configured"))).toEqual({
       message: "No workflow_builder worker configured",
       forbidden: false,
       needsBuilderSetup: true,
     });
-    expect(
-      describeWorkflowDraftError(new Error("role does not allow this operation")),
-    ).toMatchObject({
-      message: "role does not allow this operation",
+  });
+
+  it("uses the structured Atlas error kind for forbidden state", () => {
+    expect(describeWorkflowDraftError({ kind: "forbidden", message: "Access denied" })).toEqual({
+      message: "Access denied",
       forbidden: true,
+      needsBuilderSetup: false,
+    });
+  });
+
+  it("does not misclassify validation copy that mentions an operator", () => {
+    expect(
+      describeWorkflowDraftError({
+        kind: "validation",
+        message: "The operator description is invalid",
+      }),
+    ).toEqual({
+      message: "The operator description is invalid",
+      forbidden: false,
+      needsBuilderSetup: false,
     });
   });
 });

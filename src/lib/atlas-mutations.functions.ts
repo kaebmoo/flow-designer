@@ -66,7 +66,7 @@ import {
   DRAFT_WORKFLOW_TIMEOUT_MS,
   type AtlasRunAction,
 } from "./atlas-api.server";
-import { clampAtlasLimit } from "./atlas-limits";
+import { clampAtlasLimit, MAX_DRAFT_PROMPT_LENGTH } from "./atlas-limits";
 import {
   toApiTokenView,
   toApprovalView,
@@ -154,7 +154,6 @@ const MAX_NAME_LENGTH = 200;
 const MAX_DESCRIPTION_LENGTH = 4_000;
 /** Bounds the JSON a single request may carry, so a malformed client cannot post a novel. */
 const MAX_GRAPH_BYTES = 512_000;
-const MAX_DRAFT_PROMPT_LENGTH = 8_000;
 
 function field(data: unknown, key: string): unknown {
   return data === null || typeof data !== "object"

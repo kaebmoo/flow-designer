@@ -11,6 +11,9 @@ export const ATLAS_LIMIT_MIN = 1;
 export const ATLAS_LIMIT_MAX = 10_000;
 export const ATLAS_DEFAULT_LIMIT = 100;
 
+/** Maximum plain-language prompt accepted by the AI workflow draft boundary. */
+export const MAX_DRAFT_PROMPT_LENGTH = 8_000;
+
 export function clampAtlasLimit(limit: number | undefined): number {
   if (limit === undefined || !Number.isFinite(limit)) return ATLAS_DEFAULT_LIMIT;
   return Math.max(ATLAS_LIMIT_MIN, Math.min(Math.trunc(limit), ATLAS_LIMIT_MAX));

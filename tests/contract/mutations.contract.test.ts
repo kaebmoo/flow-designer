@@ -27,6 +27,7 @@ import {
   atlasDeleteWorkflowTrigger,
   atlasDeleteWorker,
   atlasDeleteWorkspace,
+  atlasDraftWorkflow,
   atlasDeliverRun,
   atlasFireWorkflowTrigger,
   atlasGetJob,
@@ -749,6 +750,17 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
       expect(error.status).toBe(403);
 
       await expect(atlasGetWorkflow(viewerToken, seeded!.workflowId)).resolves.toBeTruthy();
+    });
+  });
+
+  describe("workflow draft endpoint", () => {
+    it("returns the actionable no-builder refusal without invoking a model", async () => {
+      const error = atlasErrorFrom(
+        await atlasDraftWorkflow(adminToken, "Create a simple workflow.").catch((e: unknown) => e),
+      );
+
+      expect(error.status).toBe(400);
+      expect(error.message).toContain("No workflow_builder worker configured");
     });
   });
 

@@ -10,7 +10,7 @@ const clientSource = readFileSync(
   "utf8",
 );
 
-describe("AI draft server-function contract", () => {
+describe("AI draft server-function boundary", () => {
   it("keeps the draft call session-bound, fixed, and explicitly non-retrying", () => {
     expect(functionsSource).toContain("export const draftWorkflowFn");
     expect(functionsSource).toContain("requiredDraftPrompt(data)");

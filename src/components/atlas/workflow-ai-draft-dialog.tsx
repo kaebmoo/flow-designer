@@ -124,7 +124,9 @@ export function WorkflowAiDraftDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className={`max-h-[90vh] overflow-y-auto sm:max-w-2xl ${busy ? "[&>button]:hidden" : ""}`}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="size-4 text-primary" aria-hidden="true" />
@@ -163,7 +165,7 @@ export function WorkflowAiDraftDialog({
                   aria-hidden="true"
                 />
                 Drafting calls your configured model and may take several minutes. Keep this window
-                open.
+                open; the dialog stays open while the request is in flight.
               </p>
             ) : null}
             {draftRequest.error ? <ActionError error={draftRequest.error} /> : null}
@@ -198,7 +200,11 @@ export function WorkflowAiDraftDialog({
                 </ul>
               </div>
             ) : null}
-            <ProposedTriggers triggers={draft.triggers} />
+            {draft.triggers.length ? (
+              <ProposedTriggers triggers={draft.triggers} />
+            ) : (
+              <p className="text-xs text-muted-foreground">No trigger suggestions.</p>
+            )}
             {createError ? <ActionError error={createError} /> : null}
           </div>
         )}

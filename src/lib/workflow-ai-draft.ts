@@ -1,6 +1,8 @@
 import type { AtlasWorkflowDraft } from "@/lib/atlas-types";
+import { isClientAtlasError } from "@/lib/atlas-mappers";
+import { MAX_DRAFT_PROMPT_LENGTH } from "@/lib/atlas-limits";
 
-export const MAX_DRAFT_PROMPT_LENGTH = 8_000;
+export { MAX_DRAFT_PROMPT_LENGTH } from "@/lib/atlas-limits";
 
 export interface WorkflowDraftSummary {
   nodeCount: number;
@@ -39,10 +41,13 @@ export function describeWorkflowDraftError(error: unknown): {
   forbidden: boolean;
   needsBuilderSetup: boolean;
 } {
-  const candidate = error instanceof Error ? error.message : "The draft could not be generated.";
+  const atlasError = isClientAtlasError(error) ? error : undefined;
+  const candidate =
+    atlasError?.message ??
+    (error instanceof Error ? error.message : "The draft could not be generated.");
   return {
     message: candidate,
-    forbidden: /permission|forbidden|operator|admin|role does not allow/i.test(candidate),
+    forbidden: atlasError?.kind === "forbidden",
     needsBuilderSetup: /No workflow_builder worker configured/i.test(candidate),
   };
 }
