@@ -102,7 +102,11 @@ import {
   ARTIFACT_KINDS,
   ATLAS_ROLES,
   ATLAS_USER_STATUSES,
+  WORKFLOW_STATUSES,
+  isWorkflowStatus,
   type AtlasWorkflowInterface,
+  type WorkflowExecutionMode,
+  type WorkflowStatus,
 } from "./atlas-types";
 import type { AtlasPackBundle, AtlasPackImportResponse } from "./atlas-types";
 import { clearSession, requireAtlasToken } from "./auth.server";
@@ -211,6 +215,25 @@ function optionalBoolean(data: unknown, key: string): boolean | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "boolean") {
     throw new Error(`${key} must be a boolean.`);
+  }
+  return value;
+}
+
+/** `undefined`/absent stays absent (Atlas preserves/defaults); anything present must be valid. */
+function optionalWorkflowStatus(data: unknown): WorkflowStatus | undefined {
+  const value = field(data, "status");
+  if (value === undefined || value === null) return undefined;
+  if (!isWorkflowStatus(value)) {
+    throw new Error(`status must be one of: ${WORKFLOW_STATUSES.join(", ")}.`);
+  }
+  return value;
+}
+
+/** Always explicit — an omitted mode means production on the Atlas side, so never default here. */
+function requiredExecutionMode(data: unknown): WorkflowExecutionMode {
+  const value = field(data, "executionMode");
+  if (value !== "test" && value !== "production") {
+    throw new Error("executionMode must be test or production.");
   }
   return value;
 }
@@ -564,6 +587,8 @@ export const createWorkflowFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => ({
     name: requiredName(data, "name"),
     description: optionalText(data, "description", MAX_DESCRIPTION_LENGTH),
+    // Omitted = Atlas's default (`draft`), so a new workflow starts test-only by design.
+    status: optionalWorkflowStatus(data),
     graph: field(data, "graph"),
     policy: field(data, "policy"),
     defaultReply: optionalDefaultReply(data),
@@ -577,6 +602,7 @@ export const createWorkflowFn = createServerFn({ method: "POST" })
           await atlasCreateWorkflow(token, {
             name: data.name,
             description: data.description,
+            status: data.status,
             graph: accepted.graph,
             policy: accepted.policy,
             default_reply: data.defaultReply,
@@ -597,6 +623,8 @@ export const saveWorkflowFn = createServerFn({ method: "POST" })
     workflowId: requiredId(data, "workflowId"),
     name: requiredName(data, "name"),
     description: optionalText(data, "description", MAX_DESCRIPTION_LENGTH),
+    // Omitted preserves Atlas's stored status; the editor always sends its loaded value.
+    status: optionalWorkflowStatus(data),
     expectedVersion: optionalWorkflowVersion(data),
     graph: field(data, "graph"),
     policy: field(data, "policy"),
@@ -611,6 +639,7 @@ export const saveWorkflowFn = createServerFn({ method: "POST" })
           await atlasUpdateWorkflow(token, data.workflowId, {
             name: data.name,
             description: data.description,
+            status: data.status,
             graph: accepted.graph,
             policy: accepted.policy,
             default_reply: data.defaultReply,
@@ -680,6 +709,9 @@ export const startRunFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => ({
     workflowDefinitionId: requiredId(data, "workflowDefinitionId"),
     input: plainObject(data, "input"),
+    // Always explicit: Atlas treats an omitted mode as production (fail closed for drafts),
+    // and this client never wants to rely on that default silently.
+    executionMode: requiredExecutionMode(data),
     expectedWorkflowVersion: optionalWorkflowVersion(data, "expectedWorkflowVersion"),
     // `hold: true` asks Atlas for a born-paused run (attach files, then resume starts it).
     hold: optionalBoolean(data, "hold"),
@@ -691,6 +723,7 @@ export const startRunFn = createServerFn({ method: "POST" })
           await atlasStartWorkflowRun(token, {
             workflowDefinitionId: data.workflowDefinitionId,
             input: data.input,
+            executionMode: data.executionMode,
             expectedWorkflowVersion: data.expectedWorkflowVersion,
             hold: data.hold,
           }),

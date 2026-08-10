@@ -5,6 +5,7 @@ colors:
   obsidian-deep: "oklch(0.19 0.03 254)"
   obsidian-raised: "oklch(0.22 0.03 254)"
   slate-elevated: "oklch(0.28 0.03 254)"
+  interactive-wash: "oklch(0.3 0.03 254)"
   hull-border: "oklch(0.32 0.03 254)"
   runway-cyan: "oklch(0.82 0.15 200)"
   warning-amber: "oklch(0.78 0.16 70)"
@@ -206,7 +207,11 @@ even across a very dark UI.
 - **Obsidian Raised** (`oklch(0.22 0.03 254)`): Cards, popovers, sidebar,
   minimap — one step up from the floor.
 - **Slate Elevated** (`oklch(0.28 0.03 254)`): Secondary buttons, muted fills,
-  inputs, hover surfaces — the highest common surface.
+  inputs — the highest common resting surface.
+- **Interactive Wash** (`oklch(0.30 0.03 254)`): Hover and highlight for neutral
+  controls — outline and ghost buttons, the highlighted option in a select.
+  Deliberately one step above slate-elevated and one below hull-border, so a
+  hovered control reads as lifted without swallowing its own edge.
 - **Hull Border** (`oklch(0.32 0.03 254)`): The default divider/edge on every
   element (applied globally: `* { border-color: var(--color-border) }`).
 - **Ice White** (`oklch(0.97 0.01 240)`): Primary foreground text.
@@ -229,6 +234,15 @@ single cyan ring legible on a crowded canvas.
 **The Never-Colour-Alone Rule.** No state is communicated by hue alone. Running,
 waiting, succeeded, failed each pair their colour with an icon and an accessible
 label — the red ring is never the only issue signal.
+
+**The Saturation-Is-State Rule.** A saturated hue is only ever spent on a state
+Atlas reported or a role named above. Interaction — hover, highlight, an
+overview map at rest — is a step up the neutral ladder, never a hue. This rule
+exists because it was once broken in the other direction: `--accent` and
+`--warning` held the same amber, so shadcn's `hover:bg-accent` lit every
+secondary control in the colour of `waiting_for_human`, and amber stopped
+meaning anything. The two names are now an explicit alias for the one attention
+colour, and hover has its own neutral token.
 
 ## Typography
 
@@ -309,10 +323,10 @@ border already speaks the theme; you set width and radius, not colour.
   medium-weight, `transition-colors`.
 - **Primary:** runway-cyan fill, obsidian-deep text, subtle shadow; hover drops
   to 90% opacity.
-- **Outline:** hull-border stroke on the obsidian floor; hover fills with amber
-  accent + accent-foreground.
+- **Outline:** hull-border stroke on the obsidian floor; hover fills with the
+  **interactive wash** (`oklch(0.30 0.03 254)`) + ice-white.
 - **Secondary:** slate-elevated fill; hover 80% opacity.
-- **Ghost:** transparent; hover fills amber accent.
+- **Ghost:** transparent; hover fills the interactive wash.
 - **Destructive:** alert-red fill, ice-white text.
 - **Link:** cyan text, underline on hover.
 - **Focus:** 1px cyan ring (`focus-visible:ring-1 ring-ring`), no outline.
@@ -354,9 +368,24 @@ icon-coded so kind is readable without reading:
 The node's **border ring encodes live run state** straight from Atlas —
 `running` cyan, `waiting_for_human` amber, `succeeded` green,
 `failed`/`interrupted` red, `skipped` dimmed; an unknown Atlas state stays
-neutral. Selection and local validation issues also drive the ring. Handles are
-10px cyan dots ringed in the background colour; edges are cyan at 50% opacity,
-full opacity when selected, with an animated dash `flow` keyframe.
+neutral. A local validation issue falls back into the same border when there is
+no run state to show.
+
+**Selection is a second, concentric ring, not a third colour on the first.** It
+is a cyan halo hugging the state border, so a node can say "waiting on a human"
+and "this is the one you are editing" at the same time — which the old
+single-border model could not: it checked run state first, so during a run the
+selected node was invisible. Keyboard focus is a third ring further out (2px
+cyan outline at 3px offset), because focus and selection genuinely co-occur.
+
+Handles are 10px cyan dots ringed in the background colour; edges are cyan at
+50% opacity, full opacity when selected, with an animated dash `flow` keyframe.
+
+The **minimap** is neutral at rest — muted-foreground marks on a mask that dims
+toward the app floor. Colouring it by node _kind_ would fill the overview with
+rationed cyan on any worker-heavy graph, so it stays quiet until there is
+something to report, then paints each mark with the same run-state colours the
+canvas uses. It is hidden below `xl`, where it cost a tenth of the viewport.
 
 ### Navigation (sidebar)
 
@@ -389,3 +418,9 @@ cyan for the active item. Icon + label pairing.
   incrementally render.
 - **Don't** spend cyan on decoration, or reach for a heavier shadow where a
   lighter surface token conveys the same lift.
+- **Don't** let a hover, highlight, or other interaction take a status hue —
+  reach for `interactive`. A shadcn primitive that defaults to `bg-accent` for
+  hover is asking for amber; repoint it. Amber is `waiting_for_human`.
+- **Don't** adopt a third-party surface at its defaults. React Flow's light
+  minimap, its `outline: none` on node focus, and its `minZoom: 0.5` all shipped
+  invisibly and each broke a rule on this page.

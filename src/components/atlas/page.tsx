@@ -169,7 +169,9 @@ export function FilterChip({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+      // 21px tall is a fine click and a poor tap; `inline-flex` lets the coarse-pointer
+      // minimum height centre the label instead of just padding the box out.
+      className={`inline-flex items-center justify-center rounded-full border px-3 py-0.5 font-mono text-[10px] uppercase tracking-widest transition focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:px-4 pointer-coarse:text-xs ${
         active
           ? "border-primary/40 bg-primary/10 text-primary"
           : "border-border bg-secondary/30 text-muted-foreground hover:text-foreground"

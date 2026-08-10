@@ -189,7 +189,7 @@ function ConversationsPage() {
               count={rows.length}
               limit={conversations.data.limit}
               mayHaveMore={conversations.data.mayHaveMore}
-              noun="conversations"
+              noun="conversation"
             />
             <p className="mt-2 text-xs text-muted-foreground">
               Atlas offers no paging, search, or per-conversation detail endpoint. Conversations

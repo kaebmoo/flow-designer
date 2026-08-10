@@ -71,6 +71,26 @@ test.describe("workflow editor", () => {
     }
   });
 
+  test("workflow editor keeps global navigation as a rail", async ({ page }) => {
+    await createWorkflow(page);
+
+    await expect(page.getByRole("button", { name: "Expand navigation" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Dashboard" })).toBeVisible();
+  });
+
+  test("standard pages expand navigation without obscuring content", async ({ page }) => {
+    const collapse = page.getByRole("button", { name: "Collapse navigation" });
+    if (await collapse.count()) await collapse.click();
+
+    const main = page.locator("main");
+    const collapsedX = (await main.boundingBox())!.x;
+    await page.getByRole("button", { name: "Expand navigation" }).click();
+    await page.waitForTimeout(250);
+
+    expect((await main.boundingBox())!.x).toBeGreaterThan(collapsedX);
+    await expect(page.getByRole("button", { name: "Close navigation" })).toHaveCount(0);
+  });
+
   test("the canvas zoom controls keep enough icon contrast to be readable", async ({ page }) => {
     await createWorkflow(page);
 
@@ -99,6 +119,33 @@ test.describe("workflow editor", () => {
       expect(colors.background, `${name} button background`).toBe(colors.expectedBackground);
       expect(colors.icon, `${name} icon color`).toBe(colors.expectedIcon);
     }
+  });
+
+  test("status: a new workflow starts Draft; saving Active bumps the version and survives reload", async ({
+    page,
+  }) => {
+    const id = await createWorkflow(page);
+    const statusSelect = page.getByLabel("Workflow status");
+
+    // A UI-created workflow visibly starts as Draft (Atlas's default) in the selector, the
+    // toolbar names the Atlas id, and just loading the value does not dirty the editor.
+    await expect(statusSelect).toHaveValue("draft");
+    await expect(page.getByText(id, { exact: true })).toBeVisible();
+    await expect(dirtyState(page)).toHaveText("Saved");
+
+    // The status change saves through the same optimistic path as everything else — the
+    // version line advances to v2, proving the save really went through expected_version.
+    await statusSelect.selectOption("active");
+    await expect(dirtyState(page)).toHaveText("Unsaved changes");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(dirtyState(page)).toHaveText("Saved");
+    await expect(statusSelect).toHaveValue("active");
+    await expect(page.getByText(/^v2/, { exact: false })).toBeVisible();
+
+    // Atlas is the source of truth: a full reload shows the stored value, not client state.
+    await page.reload();
+    await ready(page);
+    await expect(page.getByLabel("Workflow status")).toHaveValue("active");
   });
 
   test("a saved graph survives a full reload, and the layout is kept separately", async ({
@@ -437,7 +484,7 @@ test.describe("workflow editor", () => {
     await expect(dirtyState(page)).toHaveText("Saved");
 
     await page
-      .getByRole("button", { name: "Test run", exact: true })
+      .getByRole("button", { name: "Run live test", exact: true })
       .evaluate((button) => (button as HTMLButtonElement).click());
     await page.getByTestId("start-test-run").click();
     // Atlas mints the id — the scaffold minted `run_000NN` in the browser from an array length.
@@ -452,13 +499,16 @@ test.describe("workflow editor", () => {
     await page.getByRole("button", { name: /^Wait for branches/ }).click();
     await expect(dirtyState(page)).toHaveText("Unsaved changes");
 
-    const run = page.getByRole("button", { name: "Test run", exact: true });
+    const run = page.getByRole("button", { name: "Run live test", exact: true });
     await expect(run).toBeDisabled();
-    await expect(run).toHaveAttribute("title", /Save first/);
+    await expect(run).toHaveAttribute("aria-describedby", "workflow-readiness");
 
     const check = page.getByRole("button", { name: /Check against Atlas/ });
     await expect(check).toBeDisabled();
-    await expect(check).toHaveAttribute("title", /Save first/);
+    await expect(check).toHaveAttribute("aria-describedby", "workflow-readiness");
+    await expect(page.locator("#workflow-readiness")).toContainText(
+      "save this version, verify it with Atlas, then run a live test",
+    );
   });
 
   test("Atlas's rejection lands on the node it is about", async ({ page, request }) => {

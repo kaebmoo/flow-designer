@@ -251,7 +251,7 @@ function CancelJobControl({ job }: { job: JobDetailView }) {
             <AlertDialogCancel disabled={cancel.isPending}>Keep it running</AlertDialogCancel>
             <AlertDialogAction
               disabled={cancel.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive-solid text-destructive-foreground hover:bg-destructive-solid/90"
               onClick={(event) => {
                 // The dialog stays open until Atlas answers; a refusal renders beside the
                 // control instead of being hidden behind an optimistic close.
@@ -663,7 +663,7 @@ function JobsPage() {
               className="flex flex-wrap items-center gap-1"
             >
               <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                Window
+                Rows
               </span>
               {ATLAS_LIMIT_OPTIONS.map((option) => (
                 <FilterChip
@@ -784,7 +784,7 @@ function JobsPage() {
                 count={jobs.data.items.length}
                 limit={jobs.data.limit}
                 mayHaveMore={jobs.data.mayHaveMore}
-                noun="jobs"
+                noun="job"
               />
               {workflowLookupNeeded ? (
                 <p className="mt-1 text-xs text-muted-foreground">

@@ -78,6 +78,8 @@ async function createWorkflow(
   const response = await request.post(`${seed().atlasOrigin}/api/workflows`, {
     headers: atlasHeaders(),
     data: {
+      // Held runs here are started by direct API call (production mode) — needs active.
+      status: "active",
       name: `E2E held upload ${workflowCounter}`,
       description: "",
       graph: workerGraph(prompt, includeWorker),
@@ -169,7 +171,7 @@ test("held Test Run dialog is non-sticky and creates a paused run with no runtim
   await ready(page);
   await expect(page.getByTestId("workflow-dirty-state")).toHaveText("Saved", { timeout: 30_000 });
 
-  const openDialog = page.getByRole("button", { name: "Test run", exact: true });
+  const openDialog = page.getByRole("button", { name: "Run live test", exact: true });
   const hold = page.locator("#test-run-hold");
   await openDialog.evaluate((button) => (button as HTMLButtonElement).click());
   await expect(hold).toBeVisible();

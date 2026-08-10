@@ -20,8 +20,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { toClientAtlasError } from "@/lib/atlas-mappers";
+import { isWorkflowStatus } from "@/lib/atlas-types";
 import {
   useDeleteWorkflow,
   useSaveWorkflow,
@@ -160,7 +161,7 @@ function WorkflowEditorRoute() {
    * The observed run interface of the **saved** graph.
    *
    * Derived from `workflow.graph`, not from the editor's draft, because Atlas runs the stored
-   * graph — and the Test run button is disabled while the editor is dirty for the same reason.
+   * graph — and the Run live test button is disabled while the editor is dirty for the same reason.
    * Computed before the unparseable-graph return below so the hook order is unconditional.
    */
   const contract = useMemo(
@@ -191,6 +192,9 @@ function WorkflowEditorRoute() {
         workflowId: id,
         name: draft.name,
         description: draft.description,
+        // Send only a valid closed-vocabulary value; a legacy stored status the operator
+        // did not touch is omitted so the save cannot be rejected for a field they never saw.
+        status: isWorkflowStatus(draft.status) ? draft.status : undefined,
         graph: draft.graph,
         policy: draft.policy,
         defaultReply: draft.defaultReply,
@@ -216,9 +220,92 @@ function WorkflowEditorRoute() {
     );
   };
 
+  /**
+   * The workflow-level actions, shared by both branches below.
+   *
+   * The editable branch renders them inside the editor's own header — the name and description
+   * are edited where they are displayed, rather than repeated as cramped toolbar fields — and
+   * the unparseable-graph branch renders them in its own `PageHeader`. Building them once is
+   * what keeps the two honest: a workflow this editor refuses to open still has to be
+   * exportable, inspectable, and deletable, and an earlier copy of that branch carried its own
+   * hand-rolled pair of controls with Delete missing, which left such a workflow unremovable
+   * from the UI entirely.
+   */
+  const headerActions = (
+    <>
+      <WorkflowPackExportAction definitionId={workflow.id} workflowName={workflow.name} />
+      {/* Same control recipe as its siblings, so the three actions sit on one crisp line. */}
+      <Button asChild size="sm" variant="outline">
+        <Link to="/runs" search={{ limit: 100, workflow: workflow.id, state: undefined }}>
+          View runs
+        </Link>
+      </Button>
+      <AlertDialog
+        open={confirmingDelete}
+        onOpenChange={(next) => {
+          // No dismissal while the delete is in flight — Escape here would present an
+          // unresolved mutation as abandoned.
+          if (!next && remove.isPending) return;
+          setConfirmingDelete(next);
+        }}
+      >
+        <AlertDialogTrigger asChild>
+          <Button type="button" size="sm" variant="outline" disabled={remove.isPending}>
+            Delete
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{workflow.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Atlas removes the definition and cascades its triggers and run history. This cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Keep it</AlertDialogCancel>
+            {/*
+              Destructive, not the default cyan.
+
+              `AlertDialogAction` inherits `buttonVariants()`, so the action that cascades this
+              workflow's triggers and its entire run history was rendering in the same runway
+              cyan as Save, while "Keep it" — the safe choice — was the quiet outline. The
+              weighting said the opposite of the copy directly above it.
+            */}
+            <AlertDialogAction
+              className={buttonVariants({ variant: "destructive" })}
+              disabled={remove.isPending}
+              onClick={(event) => {
+                // Keep the dialog open until Atlas confirms: closing on click would
+                // present a refusal as a completed delete. Success navigates away,
+                // which unmounts the dialog with the page.
+                event.preventDefault();
+                remove.mutate(
+                  { workflowId: id },
+                  {
+                    onSuccess: () => navigate({ to: "/workflows", search: { limit: 100 } }),
+                    // Close on refusal so the page-level alert underneath is readable.
+                    onError: () => setConfirmingDelete(false),
+                  },
+                );
+              }}
+            >
+              {remove.isPending ? "Deleting…" : "Delete workflow"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+
   if (!workflow.graph.ok) {
     return (
       <>
+        {remove.error ? (
+          <p role="alert" className="bg-destructive/10 px-8 py-2 text-xs text-destructive">
+            {remove.error.message}
+          </p>
+        ) : null}
         <PageHeader
           title={workflow.name}
           subtitle={workflow.description || "No description."}
@@ -230,22 +317,20 @@ function WorkflowEditorRoute() {
           }
           actions={
             <div className="flex max-w-full flex-wrap items-start justify-end gap-2">
-              <WorkflowPackExportAction definitionId={workflow.id} workflowName={workflow.name} />
-              <Link
-                to="/runs"
-                search={{ limit: 100, workflow: workflow.id, state: undefined }}
-                className="inline-flex items-center rounded border border-border bg-secondary/40 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:bg-secondary"
-              >
-                View runs
-              </Link>
+              {headerActions}
             </div>
           }
         />
         <div className="flex-1 overflow-y-auto px-8 py-6">
-          <div
-            role="alert"
-            className="max-w-2xl rounded-lg border border-warning/40 bg-warning/10 px-4 py-3"
-          >
+          {/*
+            No `role="alert"`: nothing here is dynamic.
+
+            This block is the whole page at load, not an interruption during a task, and an
+            assertive live region fired on every visit — talking over the heading a screen reader
+            was already about to read. The `<h2>` and the prose carry it in the normal reading
+            order, which is where a page-level explanation belongs.
+          */}
+          <div className="max-w-2xl rounded-lg border border-warning/40 bg-warning/10 px-4 py-3">
             <h2 className="text-sm font-semibold text-foreground">
               This workflow cannot be opened in the editor
             </h2>
@@ -268,75 +353,6 @@ function WorkflowEditorRoute() {
 
   return (
     <>
-      <PageHeader
-        title={workflow.name}
-        subtitle={workflow.description || "No description."}
-        meta={
-          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-            {workflow.id} · {workflow.status} · v{workflow.version} · updated{" "}
-            {workflow.updatedAtLabel}
-          </span>
-        }
-        actions={
-          <div className="flex max-w-full flex-wrap items-start justify-end gap-2">
-            <WorkflowPackExportAction definitionId={workflow.id} workflowName={workflow.name} />
-            <Link
-              to="/runs"
-              search={{ limit: 100, workflow: workflow.id, state: undefined }}
-              className="inline-flex items-center rounded border border-border bg-secondary/40 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition hover:bg-secondary"
-            >
-              View runs
-            </Link>
-            <AlertDialog
-              open={confirmingDelete}
-              onOpenChange={(next) => {
-                // No dismissal while the delete is in flight — Escape here would present an
-                // unresolved mutation as abandoned.
-                if (!next && remove.isPending) return;
-                setConfirmingDelete(next);
-              }}
-            >
-              <AlertDialogTrigger asChild>
-                <Button type="button" size="sm" variant="outline" disabled={remove.isPending}>
-                  Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete “{workflow.name}”?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Atlas removes the definition and cascades its triggers and run history. This
-                    cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={remove.isPending}>Keep it</AlertDialogCancel>
-                  <AlertDialogAction
-                    disabled={remove.isPending}
-                    onClick={(event) => {
-                      // Keep the dialog open until Atlas confirms: closing on click would
-                      // present a refusal as a completed delete. Success navigates away,
-                      // which unmounts the dialog with the page.
-                      event.preventDefault();
-                      remove.mutate(
-                        { workflowId: id },
-                        {
-                          onSuccess: () => navigate({ to: "/workflows", search: { limit: 100 } }),
-                          // Close on refusal so the page-level alert underneath is readable.
-                          onError: () => setConfirmingDelete(false),
-                        },
-                      );
-                    }}
-                  >
-                    {remove.isPending ? "Deleting…" : "Delete workflow"}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-        }
-      />
-
       {remove.error ? (
         <p role="alert" className="bg-destructive/10 px-8 py-2 text-xs text-destructive">
           {remove.error.message}
@@ -346,7 +362,7 @@ function WorkflowEditorRoute() {
       {/*
         Suppressed while a save conflict is showing: that banner says the same thing about the
         same event, and offers the better pair of actions (reload, or keep the local draft).
-        The Test run guard itself is unconditional — it keys on `serverMoved`, not on this.
+        The Run live test guard itself is unconditional — it keys on `serverMoved`, not on this.
       */}
       {serverMoved && !conflictServer ? (
         <div
@@ -356,7 +372,7 @@ function WorkflowEditorRoute() {
         >
           <span>
             This workflow was saved elsewhere and is now at version {workflow.version}; the canvas
-            below is still showing version {editorBaseVersion}. Test run is unavailable until you
+            below is still showing version {editorBaseVersion}. Live test is unavailable until you
             reload, because Atlas runs the stored graph, not the one drawn here. Anything unsaved in
             this tab is kept.
           </span>
@@ -428,6 +444,9 @@ function WorkflowEditorRoute() {
         serverMoved={serverMoved}
         initialName={workflow.name}
         initialDescription={workflow.description}
+        initialStatus={workflow.status}
+        updatedAtLabel={workflow.updatedAtLabel}
+        headerActions={headerActions}
         initialGraph={graph}
         initialPolicy={policy}
         initialDefaultReply={workflow.defaultReply}
@@ -464,7 +483,7 @@ function WorkflowEditorRoute() {
         }}
         running={startRun.isPending}
         // Opens the dialog; it does not start anything. The only mutation is the explicit
-        // `Start test run` click inside it. Withheld entirely once Atlas has moved past the
+        // `Start live test` click inside it. Withheld entirely once Atlas has moved past the
         // version this canvas is drawing — Atlas runs the stored graph, so testing from here
         // would run something the operator cannot see.
         onRun={serverMoved || !canStartRuns ? undefined : () => setTestRunOpen(true)}
@@ -494,13 +513,22 @@ function WorkflowEditorRoute() {
           workflowName={workflow.name}
           pending={startRun.isPending}
           error={
-            startRun.error ? { kind: startRun.error.kind, message: startRun.error.message } : null
+            startRun.error
+              ? {
+                  kind: startRun.error.kind,
+                  message: startRun.error.message,
+                  code: startRun.error.code,
+                }
+              : null
           }
           onStart={(input, options) =>
             startRun.mutate(
               {
                 workflowDefinitionId: id,
                 input,
+                // Explicit test mode: the only run class a Draft workflow may start.
+                // Production/direct starts elsewhere send "production" and Atlas gates both.
+                executionMode: "test",
                 // Sent only in declared mode: Atlas compares it against the same definition row
                 // it loads to start the run and answers 409 with no run created on a mismatch.
                 expectedWorkflowVersion: declaredInterface ? workflow.version : undefined,

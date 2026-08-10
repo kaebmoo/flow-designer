@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
-import { AtlasSidebar } from "@/components/atlas/sidebar";
+import { AtlasMobileNav, AtlasSidebar } from "@/components/atlas/sidebar";
 import { SessionWarning } from "@/components/atlas/session-warning";
 import { StaleDataWarning } from "@/components/atlas/stale-data-warning";
 import { AtlasErrorState, LoadingState, NotFoundState } from "@/components/atlas/states";
@@ -65,8 +65,28 @@ function AppLayout() {
       className="flex h-screen w-full overflow-hidden bg-background text-foreground"
       data-hydrated={hydrated ? "true" : undefined}
     >
+      {/*
+        The first tab stop on every page.
+
+        Navigation is fourteen links before anything on the page itself, which a keyboard or
+        screen-reader user was walking on every single navigation. A raw `<a href="#…">` on
+        purpose: the router's `Link` would intercept a same-page hash and never move focus,
+        which is the one thing this control exists to do.
+      */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow"
+      >
+        Skip to content
+      </a>
       <AtlasSidebar identity={result.identity} />
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* `tabIndex={-1}` so the skip link can actually land focus here. */}
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="flex min-w-0 flex-1 flex-col overflow-hidden"
+      >
+        <AtlasMobileNav identity={result.identity} />
         <SessionWarning expiresAt={result.identity.sessionExpiresAt} />
         <StaleDataWarning />
         <Outlet />

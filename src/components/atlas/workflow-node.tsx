@@ -41,24 +41,72 @@ const RUN_STATE_RING: Record<string, string> = {
   skipped: "border-border opacity-60",
 };
 
+/**
+ * The same states as flat colours, for the minimap's node marks.
+ *
+ * Kept beside `RUN_STATE_RING` so the overview and the canvas can never disagree about what a
+ * state looks like. Resolved values rather than classes because React Flow paints these as an
+ * SVG `fill` attribute, outside Tailwind's reach.
+ */
+const RUN_STATE_FILL: Record<string, string> = {
+  running: "var(--color-primary)",
+  waiting_for_human: "var(--color-warning)",
+  succeeded: "var(--color-success)",
+  failed: "var(--color-destructive)",
+  interrupted: "var(--color-destructive)",
+  skipped: "var(--color-border)",
+};
+
+/**
+ * What colour a node gets on the minimap.
+ *
+ * Deliberately neutral at rest. Colouring every node by *kind* would fill the overview with the
+ * rationed cyan on any worker-heavy graph and spend the One Signal Rule on decoration — the
+ * exact charge against the old minimap, just in the right palette. So the map stays quiet until
+ * there is something to report, and then it becomes the one place the whole run's state is
+ * visible at a glance: which branch is running, what is waiting on a human, what failed.
+ */
+export function minimapNodeFill(data: CanvasNodeData): string {
+  if (data.runState) return RUN_STATE_FILL[data.runState] ?? "var(--color-muted-foreground)";
+  if (data.hasIssue) return "var(--color-destructive)";
+  return "var(--color-muted-foreground)";
+}
+
 export function WorkflowCanvasNode({ data, selected }: NodeProps) {
   const node = data as CanvasNodeData;
   const presentation = NODE_PRESENTATION[node.kind];
   const Icon = presentation.icon;
 
-  const ring = node.runState
+  /**
+   * The border says what Atlas says. Nothing else is allowed to take it.
+   *
+   * Selection used to compete for this same border, and lose: the chain checked `runState`
+   * first, so while watching a run there was no way to see which node was selected — and a node
+   * with a validation issue had the same problem in the editor. Both are real states that
+   * co-occur, so they need two channels, not one that overwrites the other.
+   */
+  const stateBorder = node.runState
     ? (RUN_STATE_RING[node.runState] ?? "border-border")
     : node.hasIssue
       ? "border-destructive"
-      : selected
-        ? "border-primary"
-        : "border-border";
+      : "border-border";
+
+  /**
+   * Selection is a halo just outside that border — same rationed cyan, different geometry.
+   *
+   * Concentric rings read as two facts at once (amber border + cyan halo = "waiting on a human,
+   * and this is the one you are editing") where two colours on one border could only ever read
+   * as one. Offset 0 keeps it tight against the card so it does not collide with the keyboard
+   * focus outline, which sits further out at 3px.
+   */
+  const selectionHalo = selected ? "ring-2 ring-ring" : "";
 
   return (
     <div
-      className={`group relative w-60 rounded-xl border-2 bg-card p-2.5 shadow-lg transition-colors ${ring}`}
+      className={`group relative w-60 rounded-xl border-2 bg-card p-2.5 shadow-lg transition-colors ${stateBorder} ${selectionHalo}`}
       data-node-kind={node.kind}
       data-node-start={node.isStart ? "true" : "false"}
+      data-node-selected={selected ? "true" : "false"}
       data-run-state={node.runState ?? undefined}
     >
       {/*

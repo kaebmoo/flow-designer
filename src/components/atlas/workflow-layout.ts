@@ -35,9 +35,14 @@ interface StoredWorkflowLayout {
   viewport?: WorkflowViewport;
 }
 
-/** Node box size, used by the auto-layout to space columns and rows without overlap. */
-const NODE_WIDTH = 240;
-const NODE_HEIGHT = 96;
+/**
+ * Node box size, used by the auto-layout to space columns and rows without overlap.
+ *
+ * Exported because the editor needs the same box to drop a newly added node into a free slot
+ * near the viewport centre; two different ideas of how big a node is would let them overlap.
+ */
+export const NODE_WIDTH = 240;
+export const NODE_HEIGHT = 96;
 const COLUMN_GAP = 120;
 const ROW_GAP = 36;
 

@@ -17,6 +17,8 @@ export interface SemanticWorkflowDraft {
   version: number;
   name: string;
   description: string;
+  /** Optional so a draft written before status editing existed still reads back. */
+  status?: string;
   graph: Record<string, unknown>;
   policy: Record<string, unknown>;
   defaultReply: WorkflowDefaultReply;
@@ -58,6 +60,7 @@ export function readSemanticWorkflowDraft(
       candidate.version !== version ||
       typeof candidate.name !== "string" ||
       typeof candidate.description !== "string" ||
+      (candidate.status !== undefined && typeof candidate.status !== "string") ||
       candidate.graph === null ||
       typeof candidate.graph !== "object" ||
       Array.isArray(candidate.graph) ||

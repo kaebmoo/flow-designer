@@ -9,6 +9,8 @@
  * The search-parameter parsers live in `@/lib/atlas-search`.
  */
 
+import { counted } from "@/lib/plural";
+
 /**
  * States what the list is and, when the window came back full, that it may not be everything.
  *
@@ -21,15 +23,26 @@ export function WindowNotice({
   limit,
   mayHaveMore,
   noun,
+  pluralNoun,
 }: {
   count: number;
   limit: number;
   mayHaveMore: boolean;
+  /** Singular — the sentence pluralizes it against `count`. */
   noun: string;
+  /** Only when the plural is irregular; regular nouns take an `s`. */
+  pluralNoun?: string;
 }) {
   return (
     <p className="mt-4 text-xs text-muted-foreground">
-      Showing the {count} newest {noun} Atlas returned (window of {limit}).{" "}
+      {/*
+        Singular in, pluralized here. The prop used to be the plural form and was interpolated
+        verbatim, so a list holding exactly one row read "Showing the 1 newest workflows" — on
+        every list page in the product, in the sentence whose whole job is being precise about
+        what the operator is looking at.
+      */}
+      Showing the {counted(count, `newest ${noun}`, `newest ${pluralNoun ?? `${noun}s`}`)} Atlas
+      returned (window of {limit}).{" "}
       {mayHaveMore
         ? "The window is full, so older entries may exist — Atlas reports no total and offers no cursor."
         : "Atlas reports no total, so this is a window rather than a confirmed complete list."}

@@ -49,7 +49,7 @@ import {
 } from "./atlas-mutations.functions";
 import { exportPackFn, type AtlasResult } from "./atlas-reads.functions";
 import type { ApiTokenView, ClientAtlasError } from "./atlas-mappers";
-import type { AtlasWorkflowInterface } from "./atlas-types";
+import type { AtlasWorkflowInterface, WorkflowExecutionMode, WorkflowStatus } from "./atlas-types";
 import type { AtlasPackBundle, AtlasPackImportResponse } from "./atlas-types";
 import type { JsonObject } from "./workflow-graph";
 import { queryKeys } from "./query-keys";
@@ -68,12 +68,15 @@ export interface MutationFailure {
 
 export class AtlasMutationError extends Error {
   readonly kind: ClientAtlasError["kind"];
+  /** Stable refusal token when the server set one (e.g. `workflow_not_runnable`). */
+  readonly code?: string;
   readonly rejection?: GraphRejection;
 
   constructor(failure: MutationFailure) {
     super(failure.error.message);
     this.name = "AtlasMutationError";
     this.kind = failure.error.kind;
+    this.code = failure.error.code;
     this.rejection = failure.rejection;
   }
 }
@@ -147,6 +150,8 @@ export function useCreateWorkflow() {
     (data: {
       name: string;
       description?: string;
+      /** Omitted = Atlas defaults the new workflow to `draft` (test-only). */
+      status?: WorkflowStatus;
       graph: unknown;
       policy: unknown;
       defaultReply?: JsonObject | null;
@@ -168,6 +173,8 @@ export function useSaveWorkflow() {
       workflowId: string;
       name: string;
       description?: string;
+      /** Execution policy; the editor always sends the value its selector is showing. */
+      status?: WorkflowStatus;
       expectedVersion?: number;
       graph: unknown;
       policy: unknown;
@@ -222,6 +229,8 @@ export function useStartRun() {
     (data: {
       workflowDefinitionId: string;
       input?: Record<string, unknown>;
+      /** Sent explicitly on every start; Atlas gates it against the workflow's status. */
+      executionMode: WorkflowExecutionMode;
       expectedWorkflowVersion?: number;
       /** `true` = create born-paused (attach files on the run page, then Resume starts it). */
       hold?: boolean;

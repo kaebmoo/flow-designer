@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { AlertTriangle, Check, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, ShieldCheck, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ArtifactContentActions, ArtifactDownloadError } from "@/components/atlas/artifact-actions";
@@ -106,7 +106,7 @@ const BUTTON_BASE =
   "inline-flex items-center justify-center rounded border px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest transition disabled:cursor-not-allowed disabled:opacity-40";
 
 const BUTTON_TONES = {
-  primary: "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20",
+  primary: "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
   danger: "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/20",
   neutral: "border-border bg-secondary/30 text-foreground hover:bg-secondary",
 } as const;
@@ -252,12 +252,14 @@ function BlockedReasons({ reasons }: { reasons: Array<{ label: string; reason: s
 
 function ActionButton({
   label,
+  icon,
   tone = "neutral",
   blocked = null,
   pending = false,
   onClick,
 }: {
   label: string;
+  icon?: ReactNode;
   tone?: ButtonTone;
   blocked?: string | null;
   pending?: boolean;
@@ -271,6 +273,7 @@ function ActionButton({
       onClick={onClick}
       className={`${BUTTON_BASE} ${BUTTON_TONES[tone]}`}
     >
+      {icon && !pending ? <span className="[&_svg]:size-3.5">{icon}</span> : null}
       {pending ? "Working" : label}
     </button>
   );
@@ -343,7 +346,7 @@ function ConfirmAction({
               disabled={pending}
               className={
                 tone === "danger"
-                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  ? "bg-destructive-solid text-destructive-foreground hover:bg-destructive-solid/90"
                   : undefined
               }
               onClick={(event) => {
@@ -1026,8 +1029,8 @@ function InputFilesUploader({
   }
 
   return (
-    <div className="mb-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="mb-4 rounded-lg border border-primary/30 bg-primary/[0.04] p-4">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <input
           ref={inputRef}
           type="file"
@@ -1039,20 +1042,28 @@ function InputFilesUploader({
             }
           }}
         />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Upload className="size-4 text-primary" aria-hidden="true" />
+            <h3 className="text-sm font-semibold tracking-tight text-foreground">
+              Attach input files
+            </h3>
+          </div>
+          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            Attach files before resuming a held run. Each file is stored as a{" "}
+            <span className="font-mono">file_ref</span> artifact with key{" "}
+            <span className="font-mono">upload_&lt;name&gt;</span> and passed to workers through{" "}
+            <span className="font-mono">push_files</span>.
+          </p>
+        </div>
         <ActionButton
           label={uploading ? "Uploading" : "Upload input file"}
+          icon={<Upload aria-hidden="true" />}
+          tone="primary"
           blocked={blockedReason}
           pending={uploading}
           onClick={() => inputRef.current?.click()}
         />
-        <span className="text-xs text-muted-foreground">
-          Stored as a <span className="font-mono">file_ref</span> artifact keyed{" "}
-          <span className="font-mono">upload_&lt;name&gt;</span>. A worker receives it through an
-          edge with <span className="font-mono">push_files: [&quot;upload_*&quot;]</span>. Start the
-          run held (paused), attach files here, then Resume — that order can never race the first
-          node. Re-attaching the same filename replaces what is there; a different filename is
-          always added alongside, because Atlas cannot remove an artifact once it exists.
-        </span>
       </div>
 
       {/* The reason lives in the page, not in the disabled button's `title`: `BUTTON_BASE`
@@ -1061,6 +1072,11 @@ function InputFilesUploader({
       <BlockedReasons
         reasons={blockedReason ? [{ label: "Upload input file", reason: blockedReason }] : []}
       />
+
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+        Re-attaching the same filename replaces it; different filenames are added because Atlas
+        cannot remove an artifact once created.
+      </p>
 
       {/* Announced, and paired with an icon — the tone is never the only signal. */}
       {attached === 0 ? null : (

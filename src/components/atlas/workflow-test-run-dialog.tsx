@@ -15,7 +15,7 @@
  *
  * Rules that hold in both modes:
  *
- *  1. **Opening it has no side effect.** Only the explicit `Start test run` click mutates
+ *  1. **Opening it has no side effect.** Only the explicit `Start live test` click mutates
  *     anything.
  *  2. **Nothing generated here contains anything real.** Snippets and downloads come from the
  *     contract (declared or observed), never from the textarea, the deployment's Atlas origin,
@@ -31,6 +31,7 @@
  * `wfr_…` id.
  */
 
+import { AlertTriangle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -43,7 +44,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { AtlasWorkflowInterface } from "@/lib/atlas-types";
 import type { JsonObject } from "@/lib/workflow-graph";
@@ -88,7 +88,7 @@ export interface WorkflowTestRunDialogProps {
   /** True while the route's start mutation is in flight. Blocks a second submit. */
   pending: boolean;
   /** Atlas's own refusal, shown verbatim. Null when the last attempt did not fail. */
-  error: { kind: string; message: string } | null;
+  error: { kind: string; message: string; code?: string } | null;
   /** `hold: true` asks for a born-paused run — attach files on the run page, then Resume. */
   onStart: (input: JsonObject, options: { hold: boolean }) => void;
 }
@@ -178,6 +178,43 @@ function DriftNote({ drift }: { drift: DriftFinding[] }) {
   );
 }
 
+/**
+ * Enforcement mode — whether Atlas checks this input before spending anything on it.
+ *
+ * This lived at the top of each Integration tab, inside a `<details>` that opens closed. So the
+ * one fact that decides whether a typo is caught for free or paid for in worker time and budget
+ * units was in the DOM and not on screen at the moment of the decision. It sits with the cost
+ * note now because the two are halves of one sentence: what this run costs, and whether
+ * anything validates it first.
+ */
+function EnforcementBadge({ authoritative }: { authoritative: boolean }) {
+  return authoritative ? (
+    <p
+      data-testid="declared-badge"
+      role="note"
+      className="rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-xs leading-relaxed text-foreground"
+    >
+      <span className="font-bold uppercase tracking-wider">{DECLARED_BADGE}</span> — this workflow
+      stores an input_schema, and Atlas validates against it on every direct start, so bad input is
+      rejected before a run exists. The schema, sample, and outputs are under Integration details.
+      Minimum compatible Atlas commit:{" "}
+      <span className="font-mono text-[11px]">{MIN_COMPATIBLE_ATLAS_COMMIT}</span>.
+    </p>
+  ) : (
+    <p
+      data-testid="observed-badge"
+      role="note"
+      className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-foreground"
+    >
+      <span className="font-bold uppercase tracking-wider">{OBSERVED_BADGE}</span> — this workflow
+      has no authoritative interface (or one this build does not understand), so Atlas cannot reject
+      bad business input before creating a run. Everything under “Observed workflow facts” in
+      Integration details was read out of this graph&apos;s prompt text: it promises no type, no
+      default, nothing about which fields matter on which branch, and no artifact.
+    </p>
+  );
+}
+
 function DeclaredIntegrationTab({
   contract,
   declaredInterface,
@@ -206,17 +243,6 @@ function DeclaredIntegrationTab({
 
   return (
     <div className="space-y-6">
-      <p
-        data-testid="declared-badge"
-        role="note"
-        className="rounded-lg border border-success/40 bg-success/10 px-3 py-2 text-xs leading-relaxed text-foreground"
-      >
-        <span className="font-bold uppercase tracking-wider">{DECLARED_BADGE}</span> — the
-        input_schema, sample, and outputs below are stored on this workflow definition and validated
-        by Atlas on every direct start. Minimum compatible Atlas commit:{" "}
-        <span className="font-mono text-[11px]">{MIN_COMPATIBLE_ATLAS_COMMIT}</span>.
-      </p>
-
       <DriftNote drift={drift} />
 
       <section>
@@ -377,18 +403,6 @@ function ObservedIntegrationTab({ contract }: { contract: ObservedContract }) {
 
   return (
     <div className="space-y-6">
-      <p
-        data-testid="observed-badge"
-        role="note"
-        className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-foreground"
-      >
-        <span className="font-bold uppercase tracking-wider">{OBSERVED_BADGE}</span> — everything
-        under “Observed workflow facts” was read out of this graph&apos;s prompt text. This workflow
-        has no authoritative interface (or one this build does not understand), so Atlas cannot
-        reject bad business input before creating a run. Nothing below promises a type, a default,
-        which fields matter on which branch, or that an artifact will exist.
-      </p>
-
       <section>
         <h3 className="mb-2 font-mono text-[10px] uppercase tracking-widest text-primary">
           Official Atlas API facts
@@ -707,13 +721,18 @@ export function WorkflowTestRunDialog({
     !pending &&
     (authoritative ? blockingErrors.length === 0 : legacyBlocking.length === 0);
 
+  /**
+   * What describes the *input*, which is not the same as what describes the *action*.
+   *
+   * The cost note used to hang off the textarea, so the only place it was announced was a field
+   * a keyboard user can tab straight past. It now belongs to the Start button, where the
+   * consequence is actually incurred; the textarea keeps only the problem that is about the
+   * text it contains.
+   */
   const describedBy =
-    [
-      problem || legacyBlocking.length > 0 || blockingErrors.length > 0 ? "test-run-problem" : null,
-      "test-run-cost",
-    ]
-      .filter(Boolean)
-      .join(" ") || undefined;
+    problem || legacyBlocking.length > 0 || blockingErrors.length > 0
+      ? "test-run-problem"
+      : undefined;
 
   return (
     <Dialog
@@ -737,146 +756,160 @@ export function WorkflowTestRunDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Test run — {workflowName}</DialogTitle>
+          <DialogTitle>Run live test — {workflowName}</DialogTitle>
           <DialogDescription>
-            Sends this JSON to Atlas as the run input. Atlas runs the <em>saved</em> graph, not the
-            canvas on screen.
+            Sends this JSON to Atlas as the run input. This starts real work on the <em>saved</em>{" "}
+            graph, not the canvas on screen.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="input">
-          <TabsList>
-            <TabsTrigger value="input">Input JSON</TabsTrigger>
-            <TabsTrigger value="integration">Integration</TabsTrigger>
-          </TabsList>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="test-run-input">Run input JSON</Label>
+            <Textarea
+              id="test-run-input"
+              data-testid="test-run-input"
+              spellCheck={false}
+              // Nothing autocompletes here: the browser would otherwise offer a previous run's
+              // business data back on the next test.
+              autoComplete="off"
+              className="min-h-56 font-mono text-xs"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              aria-invalid={
+                problem !== null || legacyBlocking.length > 0 || blockingErrors.length > 0
+              }
+              aria-describedby={describedBy}
+            />
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {authoritative
+                ? "Prefilled from this workflow's declared sample_input. Edit freely — Atlas's stored input_schema is the authority, not this example."
+                : contract.skeleton === null
+                  ? "The example is empty because two observed paths overlap — see the Integration tab. Edit this freely."
+                  : contract.inputPaths.length === 0
+                    ? "This graph references no run input, so the example is an empty object. Edit it freely; Atlas accepts any JSON object."
+                    : "The example is generated from the paths this graph references. Its values are placeholders showing shape, not defaults or types — replace them."}{" "}
+              Nothing typed here is saved, and it never appears in a generated example or download.
+            </p>
+          </div>
 
-          <TabsContent value="input" className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="test-run-input">Run input JSON</Label>
-              <Textarea
-                id="test-run-input"
-                data-testid="test-run-input"
-                spellCheck={false}
-                // Nothing autocompletes here: the browser would otherwise offer a previous run's
-                // business data back on the next test.
-                autoComplete="off"
-                className="min-h-56 font-mono text-xs"
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-                aria-invalid={
-                  problem !== null || legacyBlocking.length > 0 || blockingErrors.length > 0
-                }
-                aria-describedby={describedBy}
-              />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                {authoritative
-                  ? "Prefilled from this workflow's declared sample_input. Edit freely — Atlas's stored input_schema is the authority, not this example."
-                  : contract.skeleton === null
-                    ? "The example is empty because two observed paths overlap — see the Integration tab. Edit this freely."
-                    : contract.inputPaths.length === 0
-                      ? "This graph references no run input, so the example is an empty object. Edit it freely; Atlas accepts any JSON object."
-                      : "The example is generated from the paths this graph references. Its values are placeholders showing shape, not defaults or types — replace them."}{" "}
-                Nothing typed here is saved, and it never appears in a generated example or
-                download.
-              </p>
-            </div>
-
-            {problem !== null || legacyBlocking.length > 0 || blockingErrors.length > 0 ? (
-              <div
-                id="test-run-problem"
-                role="alert"
-                data-testid="test-run-problem"
-                className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-              >
-                {problem !== null ? (
-                  <p>{problem}</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {authoritative
-                      ? blockingErrors.map((diagnostic, index) => (
-                          <li key={`${diagnostic.path}:${index}`}>
-                            <span className="font-mono">{diagnostic.path}</span>:{" "}
-                            {diagnostic.message}
-                          </li>
-                        ))
-                      : legacyBlocking.map((finding) => (
-                          <li key={finding.path}>{finding.message}</li>
-                        ))}
-                  </ul>
-                )}
-              </div>
-            ) : null}
-
-            {!authoritative && legacyWarnings.length > 0 ? (
-              <div
-                role="status"
-                data-testid="test-run-warnings"
-                className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground"
-              >
-                <p className="mb-1 font-semibold">
-                  Observed, not enforced — these may not apply to the branch this run takes:
-                </p>
-                <ul className="space-y-1">
-                  {legacyWarnings.map((finding) => (
-                    <li key={finding.path} className="text-muted-foreground">
-                      {finding.message}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            {authoritative && nearSizeLimit ? (
-              <p
-                role="status"
-                data-testid="test-run-size-warning"
-                className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground"
-              >
-                Advisory: this input is an estimated {effectiveBytes.toLocaleString()} bytes,{" "}
-                {overSizeLimit ? "over" : "near"} Atlas's{" "}
-                {EFFECTIVE_INPUT_MAX_BYTES.toLocaleString()}
-                -byte effective-input limit. This estimate is not byte-identical to Atlas's own
-                measurement (which also includes any{" "}
-                <span className="font-mono">default_reply</span> merge) and does not block starting
-                — Atlas's response is final.
-              </p>
-            ) : null}
-
-            <p
-              id="test-run-cost"
-              className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs leading-relaxed"
+          {problem !== null || legacyBlocking.length > 0 || blockingErrors.length > 0 ? (
+            <div
+              id="test-run-problem"
+              role="alert"
+              data-testid="test-run-problem"
+              className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
             >
+              {problem !== null ? (
+                <p>{problem}</p>
+              ) : (
+                <ul className="space-y-1">
+                  {authoritative
+                    ? blockingErrors.map((diagnostic, index) => (
+                        <li key={`${diagnostic.path}:${index}`}>
+                          <span className="font-mono">{diagnostic.path}</span>: {diagnostic.message}
+                        </li>
+                      ))
+                    : legacyBlocking.map((finding) => (
+                        <li key={finding.path}>{finding.message}</li>
+                      ))}
+                </ul>
+              )}
+            </div>
+          ) : null}
+
+          {!authoritative && legacyWarnings.length > 0 ? (
+            <div
+              role="status"
+              data-testid="test-run-warnings"
+              className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground"
+            >
+              <p className="mb-1 font-semibold">
+                Observed, not enforced — these may not apply to the branch this run takes:
+              </p>
+              <ul className="space-y-1">
+                {legacyWarnings.map((finding) => (
+                  <li key={finding.path} className="text-muted-foreground">
+                    {finding.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {authoritative && nearSizeLimit ? (
+            <p
+              role="status"
+              data-testid="test-run-size-warning"
+              className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground"
+            >
+              Advisory: this input is an estimated {effectiveBytes.toLocaleString()} bytes,{" "}
+              {overSizeLimit ? "over" : "near"} Atlas's {EFFECTIVE_INPUT_MAX_BYTES.toLocaleString()}
+              -byte effective-input limit. This estimate is not byte-identical to Atlas's own
+              measurement (which also includes any <span className="font-mono">
+                default_reply
+              </span>{" "}
+              merge) and does not block starting — Atlas's response is final.
+            </p>
+          ) : null}
+
+          <EnforcementBadge authoritative={authoritative} />
+
+          {/*
+            The only irreversible, billable action in the editor, weighted like it.
+
+            This was the quietest box in the dialog — flatter than the *synthetic data* note in
+            the interface panel, which guards a far cheaper mistake — sitting under the brightest
+            button on screen. The visual weight said the opposite of the words. Amber matches the
+            hue this system already uses for "a human needs to look at this", and the icon keeps
+            it off colour alone.
+          */}
+          <p
+            id="test-run-cost"
+            className="flex gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs leading-relaxed"
+          >
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+            <span>
               <strong>This starts a real Atlas run.</strong> Workers execute, budget units are
               consumed, and any webhook reply this workflow configures is sent. There is no dry run
               and no undo — a started run can only be cancelled.
+            </span>
+          </p>
+
+          {error ? (
+            <p
+              role="alert"
+              data-testid="test-run-error"
+              className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
+              {error.message}
+              {/* Version-conflict guidance only: a status refusal (workflow_not_runnable)
+                    already names its own fix, and "reload" would be the wrong advice. */}
+              {error.kind === "conflict" && error.code !== "workflow_not_runnable"
+                ? " Reload the workflow to see the version Atlas now has, then decide whether to resubmit — this is not retried automatically."
+                : null}
             </p>
-
-            {error ? (
-              <p
-                role="alert"
-                data-testid="test-run-error"
-                className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-              >
-                {error.message}
-                {error.kind === "conflict"
-                  ? " Reload the workflow to see the version Atlas now has, then decide whether to resubmit — this is not retried automatically."
-                  : null}
-              </p>
-            ) : null}
-          </TabsContent>
-
-          <TabsContent value="integration">
-            {authoritative && declaredInterface ? (
-              <DeclaredIntegrationTab
-                contract={contract}
-                declaredInterface={declaredInterface}
-                workflowVersion={workflowVersion}
-              />
-            ) : (
-              <ObservedIntegrationTab contract={contract} />
-            )}
-          </TabsContent>
-        </Tabs>
+          ) : null}
+          <details
+            data-testid="integration-details"
+            className="rounded-lg border border-border bg-secondary/20 px-3 py-2"
+          >
+            <summary className="cursor-pointer text-sm font-medium text-foreground marker:text-muted-foreground">
+              Integration details
+            </summary>
+            <div className="mt-4">
+              {authoritative && declaredInterface ? (
+                <DeclaredIntegrationTab
+                  contract={contract}
+                  declaredInterface={declaredInterface}
+                  workflowVersion={workflowVersion}
+                />
+              ) : (
+                <ObservedIntegrationTab contract={contract} />
+              )}
+            </div>
+          </details>
+        </div>
 
         <div className="mt-2 flex items-start gap-2">
           <input
@@ -908,6 +941,9 @@ export function WorkflowTestRunDialog({
             type="button"
             data-testid="start-test-run"
             aria-busy={pending}
+            // The cost is announced on the control that incurs it, so tabbing straight to Start
+            // still hears "no dry run and no undo".
+            aria-describedby="test-run-cost"
             disabled={!canStart}
             onClick={() => {
               // The latch first, and synchronously: `disabled` and `pending` both only take
@@ -922,7 +958,7 @@ export function WorkflowTestRunDialog({
               onStart(result.value, { hold });
             }}
           >
-            {pending ? "Starting…" : hold ? "Create held run" : "Start test run"}
+            {pending ? "Starting…" : hold ? "Create held run" : "Start live test"}
           </Button>
         </DialogFooter>
       </DialogContent>

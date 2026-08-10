@@ -264,6 +264,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       const created = await createPermitWorkflow();
       const run = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: created.id,
+        executionMode: "test",
         input: { applicant_name: "Real Applicant", detail: { floors: 3 } },
       });
       expect(run.id).toMatch(/^wfr_/);
@@ -277,6 +278,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       const startError = atlasErrorFrom(
         await atlasStartWorkflowRun(adminToken, {
           workflowDefinitionId: created.id,
+          executionMode: "test",
           // Missing required "detail" entirely.
           input: { applicant_name: "Incomplete" },
         }).catch((error: unknown) => error),
@@ -290,6 +292,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       const startError = atlasErrorFrom(
         await atlasStartWorkflowRun(adminToken, {
           workflowDefinitionId: created.id,
+          executionMode: "test",
           input: {
             applicant_name: "x",
             detail: { floors: 1 },
@@ -307,6 +310,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       const created = await createPermitWorkflow();
       const run = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: created.id,
+        executionMode: "test",
         input: { applicant_name: "x", detail: { floors: 1 } },
         expectedWorkflowVersion: created.version,
       });
@@ -326,6 +330,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       const startError = atlasErrorFrom(
         await atlasStartWorkflowRun(adminToken, {
           workflowDefinitionId: created.id,
+          executionMode: "test",
           input: { applicant_name: "x", detail: { floors: 1 } },
           expectedWorkflowVersion: created.version, // now one behind
         }).catch((error: unknown) => error),
@@ -345,6 +350,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       // has nothing to validate it against.
       const run = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: created.id,
+        executionMode: "test",
         input: { anything: "goes" },
       });
       expect(run.id).toMatch(/^wfr_/);
@@ -403,6 +409,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       const startedVersion = created.version;
       const run = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: created.id,
+        executionMode: "test",
         input: { applicant_name: "x", detail: { floors: 1 } },
       });
 
@@ -440,6 +447,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       expect(canonicalPythonBytes(exact)).toBe(EFFECTIVE_INPUT_MAX_BYTES);
       const exactRun = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: created.id,
+        executionMode: "test",
         input: exact,
       });
       expect(exactRun.id).toMatch(/^wfr_/);
@@ -448,6 +456,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       const overError = atlasErrorFrom(
         await atlasStartWorkflowRun(adminToken, {
           workflowDefinitionId: created.id,
+          executionMode: "test",
           input: over,
         }).catch((error: unknown) => error),
       );
@@ -471,6 +480,7 @@ describe.skipIf(!available)("Atlas workflow.interface contract (Milestone C)", (
       const startError = atlasErrorFrom(
         await atlasStartWorkflowRun(adminToken, {
           workflowDefinitionId: created.id,
+          executionMode: "test",
           // Tiny on its own — well under the cap without the merge.
           input: { applicant_name: "x", detail: { floors: 1 } },
         }).catch((error: unknown) => error),

@@ -45,6 +45,7 @@ import {
   type WorkflowGraph,
   type WorkflowPolicy,
 } from "@/lib/workflow-graph";
+import { counted } from "@/lib/plural";
 import { NODE_PRESENTATION } from "./workflow-node-presentation";
 
 export type WorkflowDefaultReply = JsonObject | null | undefined;
@@ -99,11 +100,21 @@ function DetailsSection({
  */
 function Field({
   label,
+  code,
   hint,
   error,
   children,
 }: {
   label: string;
+  /**
+   * The Atlas field this control writes, when the label is a human rendering of it.
+   *
+   * Both are shown. The label alone would hide the name an operator needs to read Atlas's own
+   * error messages and API docs; the key alone is what the panel used to do, which is the
+   * Machine-Voice Rule run backwards — an identifier standing in for a human label. Human voice
+   * leads, machine voice follows, exactly as DESIGN.md has it everywhere else.
+   */
+  code?: string;
   hint?: string;
   error?: string;
   children: React.ReactNode;
@@ -111,7 +122,14 @@ function Field({
   return (
     <div className="space-y-1.5">
       <Label className="block space-y-1.5 text-xs font-medium text-foreground">
-        <span className="block">{label}</span>
+        <span className="flex flex-wrap items-baseline gap-x-2">
+          <span>{label}</span>
+          {code ? (
+            <code className="font-mono text-[10px] font-normal tracking-wide text-muted-foreground">
+              {code}
+            </code>
+          ) : null}
+        </span>
         {children}
       </Label>
       {/* role="alert" announces the refusal when it appears; the field itself already flags
@@ -623,9 +641,10 @@ export function NodeInspector({
           {node.mode === "quorum" ? (
             <Field
               label="Quorum"
-              hint={`Whole number, at least 1, at most the ${
-                new Set(graph.edges.filter((e) => e.to === node.id).map((e) => e.from)).size
-              } distinct upstream node(s) feeding this join.`}
+              hint={`Whole number, at least 1, at most the ${counted(
+                new Set(graph.edges.filter((e) => e.to === node.id).map((e) => e.from)).size,
+                "distinct upstream node",
+              )} feeding this join.`}
             >
               <Input
                 inputMode="numeric"
@@ -1093,10 +1112,31 @@ export interface PolicyPanelProps {
 const POLICY_HINTS: Record<string, string> = {
   max_jobs: "Total jobs a single run may create.",
   max_iterations: "Guards a graph cycle. Setting this is one of the two ways to allow a loop.",
-  max_attempts_per_node: "Retries Atlas makes for one node before failing it.",
+  max_attempts_per_node: "How many times Atlas retries one node before failing it.",
   max_minutes: "Wall-clock budget for the whole run.",
   requires_human_after_iterations: "Pauses for a human once a run has iterated this many times.",
   max_budget_units: "Total budget units the run may consume.",
+};
+
+/**
+ * A human reading of each Atlas policy field, shown alongside the field name itself.
+ *
+ * The panel used to label eight controls with their raw snake_case keys, which asks every
+ * operator — and every external tenant — to parse an API schema to fill in a form. The keys are
+ * still there in mono, because Atlas's own validation errors name them and hiding them would
+ * make a rejection unreadable.
+ */
+const POLICY_LABELS: Record<string, string> = {
+  max_jobs: "Maximum jobs",
+  max_iterations: "Maximum loop iterations",
+  max_attempts_per_node: "Retries per node",
+  max_minutes: "Time budget",
+  requires_human_after_iterations: "Pause for a human after",
+  max_budget_units: "Budget units",
+  stop_on_first_failure: "Stop the run on the first failure",
+  file_handoff: "Allow nodes to hand files onward",
+  allowed_worker_ids: "Allowed workers",
+  allowed_workspace_ids: "Allowed workspaces",
 };
 
 export function PolicyPanel({
@@ -1204,7 +1244,12 @@ export function PolicyPanel({
           whole number within the range Atlas enforces.
         </p>
         {Object.entries(POLICY_LIMITS).map(([key, maximum]) => (
-          <Field key={key} label={key} hint={`${POLICY_HINTS[key] ?? ""} 1 to ${maximum}.`}>
+          <Field
+            key={key}
+            label={POLICY_LABELS[key] ?? key}
+            code={key}
+            hint={`${POLICY_HINTS[key] ?? ""} 1 to ${maximum}.`}
+          >
             <Input
               inputMode="numeric"
               value={
@@ -1224,9 +1269,14 @@ export function PolicyPanel({
       <Section title="Switches">
         <div className="flex items-center justify-between">
           <div className="pr-3">
-            <p className="text-xs font-medium text-foreground">stop_on_first_failure</p>
+            <p className="flex flex-wrap items-baseline gap-x-2 text-xs font-medium text-foreground">
+              {POLICY_LABELS.stop_on_first_failure}
+              <code className="font-mono text-[10px] font-normal tracking-wide text-muted-foreground">
+                stop_on_first_failure
+              </code>
+            </p>
             <p className="text-[11px] text-muted-foreground">
-              Ends the whole run as soon as any node fails.
+              Off, a failed node stops only its own branch and the rest of the run continues.
             </p>
           </div>
           {/*
@@ -1241,7 +1291,12 @@ export function PolicyPanel({
         </div>
         <div className="flex items-center justify-between">
           <div className="pr-3">
-            <p className="text-xs font-medium text-foreground">file_handoff</p>
+            <p className="flex flex-wrap items-baseline gap-x-2 text-xs font-medium text-foreground">
+              {POLICY_LABELS.file_handoff}
+              <code className="font-mono text-[10px] font-normal tracking-wide text-muted-foreground">
+                file_handoff
+              </code>
+            </p>
             <p className="text-[11px] text-muted-foreground">
               Required before any edge may push files to the next worker.
             </p>
@@ -1260,7 +1315,7 @@ export function PolicyPanel({
           Comma-separated Atlas ids. When set, every node must resolve inside them — Atlas checks
           that when you validate against the server.
         </p>
-        <Field label="allowed_worker_ids">
+        <Field label={POLICY_LABELS.allowed_worker_ids} code="allowed_worker_ids">
           <Input
             value={listToText(policy.allowed_worker_ids)}
             spellCheck={false}
@@ -1271,7 +1326,7 @@ export function PolicyPanel({
             className="font-mono text-xs"
           />
         </Field>
-        <Field label="allowed_workspace_ids">
+        <Field label={POLICY_LABELS.allowed_workspace_ids} code="allowed_workspace_ids">
           <Input
             value={listToText(policy.allowed_workspace_ids)}
             spellCheck={false}

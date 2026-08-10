@@ -133,6 +133,9 @@ export function RunCanvas({
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
+        // Same reason as the editor canvas: React Flow otherwise renders its light theme inside
+        // the obsidian shell, and the run canvas is the surface where state colour has to read.
+        colorMode="dark"
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1} />

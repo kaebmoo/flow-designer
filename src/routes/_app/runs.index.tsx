@@ -272,7 +272,7 @@ function RunsIndex() {
               count={runs.data.items.length}
               limit={runs.data.limit}
               mayHaveMore={runs.data.mayHaveMore}
-              noun="runs"
+              noun="run"
             />
           </>
         )}

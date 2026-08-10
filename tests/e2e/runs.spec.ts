@@ -121,7 +121,7 @@ async function createWorkflow(
 ): Promise<string> {
   const response = await request.post(`${seedIds().atlasOrigin}/api/workflows`, {
     headers: atlasHeaders(),
-    data: { name, description: "", graph, policy: {} },
+    data: { status: "active", name, description: "", graph, policy: {} },
   });
   expect(response.status()).toBe(201);
   return ((await response.json()) as { workflow: { id: string } }).workflow.id;

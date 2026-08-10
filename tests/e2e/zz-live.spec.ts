@@ -64,6 +64,7 @@ async function startStubRun(request: APIRequestContext, prompt: string): Promise
   const workflow = await request.post(`${seedIds().atlasOrigin}/api/workflows`, {
     headers: atlasHeaders(),
     data: {
+      status: "active",
       name: `E2E live ${workflowCounter}`,
       description: "",
       graph: {
@@ -95,7 +96,13 @@ async function createWorkflow(
   workflowCounter += 1;
   const response = await request.post(`${seedIds().atlasOrigin}/api/workflows`, {
     headers: atlasHeaders(),
-    data: { name: `E2E live ${workflowCounter}`, description: "", graph, policy: {} },
+    data: {
+      status: "active",
+      name: `E2E live ${workflowCounter}`,
+      description: "",
+      graph,
+      policy: {},
+    },
   });
   expect(response.status()).toBe(201);
   return ((await response.json()) as { workflow: { id: string } }).workflow.id;
@@ -241,7 +248,7 @@ test.describe("live run detail", () => {
     await expect(page.getByTestId("workflow-dirty-state")).toHaveText("Saved", { timeout: 30_000 });
 
     await page
-      .getByRole("button", { name: "Test run", exact: true })
+      .getByRole("button", { name: "Run live test", exact: true })
       .evaluate((button) => (button as HTMLButtonElement).click());
 
     // All four fields are rendered by the start node, so an empty object must block first.
@@ -318,20 +325,19 @@ test.describe("live run detail", () => {
     await expect(page.getByTestId("workflow-dirty-state")).toHaveText("Saved", { timeout: 30_000 });
 
     await page
-      .getByRole("button", { name: "Test run", exact: true })
+      .getByRole("button", { name: "Run live test", exact: true })
       .evaluate((button) => (button as HTMLButtonElement).click());
 
     // The dialog now asks for it: the manager node is the graph's start node, and its reference
     // is executable, so the generated example includes it like any worker's would.
     await expect(page.getByTestId("test-run-input")).toHaveValue(/<input\.routing_hint>/);
-    await page.getByRole("tab", { name: "Integration" }).click();
+    await page.getByTestId("integration-details").locator("summary").click();
     await expect(page.getByTestId("observed-input-paths")).toContainText("input.routing_hint");
     await expect(page.getByTestId("observed-input-paths")).toContainText(
       "the start node renders it before any branch is chosen",
     );
 
     // Blocking, too: an empty object omits a path the start node genuinely renders.
-    await page.getByRole("tab", { name: "Input JSON" }).click();
     await page.getByTestId("test-run-input").fill("{}");
     await expect(page.getByTestId("test-run-problem")).toContainText("input.routing_hint");
     await expect(page.getByTestId("start-test-run")).toBeDisabled();

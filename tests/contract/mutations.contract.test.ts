@@ -569,6 +569,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
       });
       const inherited = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: created.id,
+        executionMode: "test",
         input: {},
       });
       expect(inherited.input._meta).toEqual({
@@ -577,6 +578,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
 
       const overridden = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: created.id,
+        executionMode: "test",
         input: { _meta: { reply: { mode: "none", correlation_id: "run-override" } } },
       });
       expect(overridden.input._meta).toEqual({
@@ -587,6 +589,8 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("inherits a workflow default through a manual trigger", async () => {
       const created = await atlasCreateWorkflow(adminToken, {
         name: uniqueName("Trigger reply"),
+        // Triggers fire in production mode, so the workflow must be active to start.
+        status: "active",
         graph: serializeWorkflowGraph(graphOf(MINIMAL_GRAPH)),
         policy: {},
         default_reply: { mode: "none", correlation_id: "trigger-default" },
@@ -755,6 +759,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("starts a run that gets a real Atlas id and is immediately readable by it", async () => {
       const run = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: seeded!.workflowId,
+        executionMode: "test",
         input: {},
       });
 
@@ -793,6 +798,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
 
       const run = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: seeded!.workflowId,
+        executionMode: "test",
         input,
       });
 
@@ -816,6 +822,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("returns a real wfr_ id for a run started with business input", async () => {
       const run = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: seeded!.workflowId,
+        executionMode: "test",
         input: { topic: "weather" },
       });
       expect(run.id).toMatch(/^wfr_[a-z0-9]+$/);
@@ -832,6 +839,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
       const error = atlasErrorFrom(
         await atlasStartWorkflowRun(viewerToken, {
           workflowDefinitionId: seeded!.workflowId,
+          executionMode: "test",
           input: { topic: "weather" },
         }).catch((e: unknown) => e),
       );
@@ -896,6 +904,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
       const error = atlasErrorFrom(
         await atlasStartWorkflowRun(adminToken, {
           workflowDefinitionId: "wfd_does_not_exist",
+          executionMode: "test",
         }).catch((e: unknown) => e),
       );
       expect(error.kind).toBe("validation");
@@ -909,6 +918,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("reports Atlas's literal refusals for pause and resume once a run is terminal", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: seeded!.workflowId,
+        executionMode: "test",
       });
       const settled = await runInState(started.id, TERMINAL_RUN_STATES);
       expect(settled.state).toBe("failed");
@@ -929,6 +939,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("treats cancelling an already-terminal run as a no-op that returns it unchanged", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: seeded!.workflowId,
+        executionMode: "test",
       });
       const settled = await runInState(started.id, TERMINAL_RUN_STATES);
 
@@ -944,6 +955,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("cancels a run parked at a human gate, and then refuses to resume it", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: gates!.plainGateWorkflowId,
+        executionMode: "test",
       });
       const parked = await runInState(started.id, ["waiting_for_human"]);
       expect(parked.state).toBe("waiting_for_human");
@@ -1468,6 +1480,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("lists a real pending approval under the documented envelope, and the mapper takes it", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: gates!.plainGateWorkflowId,
+        executionMode: "test",
       });
       await runInState(started.id, ["waiting_for_human"]);
 
@@ -1497,6 +1510,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("filters the approvals list by state", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: gates!.plainGateWorkflowId,
+        executionMode: "test",
       });
       await runInState(started.id, ["waiting_for_human"]);
 
@@ -1513,6 +1527,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("approves a gate with no choices and lets the run finish", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: gates!.plainGateWorkflowId,
+        executionMode: "test",
       });
       await runInState(started.id, ["waiting_for_human"], HALF_BUDGET_MS);
       const [approval] = await atlasListApprovals(adminToken, { runId: started.id, limit: 25 });
@@ -1538,6 +1553,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("routes a gate that declares choices, and refuses a bare approve on one", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: gates!.branchingGateWorkflowId,
+        executionMode: "test",
       });
       await runInState(started.id, ["waiting_for_human"], HALF_BUDGET_MS);
       const [approval] = await atlasListApprovals(adminToken, { runId: started.id, limit: 25 });
@@ -1584,6 +1600,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("refuses choose on a gate that declares no choices", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: gates!.plainGateWorkflowId,
+        executionMode: "test",
       });
       await runInState(started.id, ["waiting_for_human"]);
       const [approval] = await atlasListApprovals(adminToken, { runId: started.id, limit: 25 });
@@ -1602,6 +1619,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("rejects a gate, which fails the run with the rejection as its error", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: gates!.plainGateWorkflowId,
+        executionMode: "test",
       });
       await runInState(started.id, ["waiting_for_human"]);
       const [approval] = await atlasListApprovals(adminToken, { runId: started.id, limit: 25 });
@@ -1639,6 +1657,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("refuses to deliver a run that has not completed", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: gates!.plainGateWorkflowId,
+        executionMode: "test",
       });
       await runInState(started.id, ["waiting_for_human"]);
 
@@ -1654,6 +1673,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
     it("refuses to deliver a completed run that carries no reply address", async () => {
       const started = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: seeded!.workflowId,
+        executionMode: "test",
       });
       await runInState(started.id, TERMINAL_RUN_STATES);
 
@@ -1677,6 +1697,7 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
       const error = atlasErrorFrom(
         await atlasStartWorkflowRun(adminToken, {
           workflowDefinitionId: gates!.plainGateWorkflowId,
+          executionMode: "test",
           input: {
             _meta: { reply: { mode: "webhook", callback_url: "https://example.invalid/hook" } },
           },

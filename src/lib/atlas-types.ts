@@ -242,6 +242,22 @@ export function isAtlasWorkflowInterfaceShape(value: unknown): value is AtlasWor
 }
 
 /**
+ * Workflow status is execution policy, enforced by Atlas at every start path
+ * (`atlas/workflows.py ensure_workflow_runnable`): draft allows explicit test runs only,
+ * active allows test and production, disabled blocks everything. Atlas validates this
+ * closed vocabulary on create/update, so it is safe to offer as a selector.
+ */
+export const WORKFLOW_STATUSES = ["draft", "active", "disabled"] as const;
+export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
+
+export function isWorkflowStatus(value: unknown): value is WorkflowStatus {
+  return (WORKFLOW_STATUSES as readonly unknown[]).includes(value);
+}
+
+/** Which class of run a start request is; Atlas checks it against the workflow's status. */
+export type WorkflowExecutionMode = "test" | "production";
+
+/**
  * `GET /api/workflows` / `GET /api/workflows/{id}` (`atlas/app.py:541,590`).
  *
  * There is no `enabled` column on a definition (`atlas/db.py:312-322`) — `enabled` belongs to

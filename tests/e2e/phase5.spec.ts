@@ -228,7 +228,7 @@ test.describe("Phase 5: role-restricted pages for a viewer", () => {
   test("a viewer can read conversations but is offered no create action", async ({ page }) => {
     await page.goto("/conversations");
     // The page loads real data (or a real empty state) — never the scaffold's rows.
-    await expect(page.getByText(/\d+ newest conversations Atlas returned/)).toBeVisible();
+    await expect(page.getByText(/\d+ newest conversations? Atlas returned/)).toBeVisible();
     await expect(page.getByText("conv_1204")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "New conversation" })).toHaveCount(0);
   });

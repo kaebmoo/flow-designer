@@ -35,7 +35,10 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-interactive: var(--interactive);
+  --color-interactive-foreground: var(--interactive-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-solid: var(--destructive-solid);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
@@ -107,13 +110,47 @@
   --secondary-foreground: oklch(0.97 0.01 240);
   --muted: oklch(0.28 0.03 254);
   --muted-foreground: oklch(0.72 0.03 240);
-  --accent: oklch(0.78 0.16 70); /* amber warning light */
+  /*
+   * Warning Amber, declared once.
+   *
+   * `--accent` and `--warning` previously carried the same literal by coincidence, which read as
+   * a duplicate rather than a decision. In this system they genuinely are one colour — DESIGN.md
+   * calls amber "the accent" and assigns it attention, `waiting_for_human`, and the AI Decision
+   * node — so the alias makes that explicit and keeps the two names from ever drifting apart.
+   */
+  --warning: oklch(0.78 0.16 70); /* amber warning light */
+  --accent: var(--warning);
   --accent-foreground: oklch(0.18 0.03 254);
+  /*
+   * Alert Red has to do two jobs that pull in opposite directions.
+   *
+   * As *text and borders on the obsidian floor* it needs to be light — at lightness 0.65 it
+   * reads 5.17:1 there. As a *solid fill under ice-white text* that same value is 3.40:1, an AA
+   * failure, which is what the enabled `Delete node` button was. No single lightness satisfies
+   * both: dropping to 0.58 fixes the button and breaks `text-destructive` on the floor
+   * (3.86:1). So the fill gets its own step at lightness 0.56, which puts ice-white at 4.93:1
+   * with headroom — and because it only ever sits *behind* text it never has to pass the floor
+   * test. Keep the two in step if the hue is ever retuned.
+   */
   --destructive: oklch(0.65 0.22 25);
+  --destructive-solid: oklch(0.56 0.22 25);
   --destructive-foreground: oklch(0.98 0.01 240);
   --success: oklch(0.75 0.17 160);
-  --warning: oklch(0.78 0.16 70);
   --danger: oklch(0.65 0.22 25);
+
+  /*
+   * The hover/active wash for neutral controls — the role shadcn's primitives reach for under
+   * the name `accent`.
+   *
+   * That borrowing is what made amber meaningless: every outline and ghost button, and every
+   * highlighted select option, filled with the exact hue that elsewhere means "a run is waiting
+   * on a human". Hover is not a state Atlas reported, so it does not get a state colour; it gets
+   * a step up the surface ladder, which is what "Layered-Not-Lifted" already said depth should
+   * be. Sits between slate-elevated (0.28) and hull-border (0.32) so the lift is visible against
+   * a secondary button at rest without swallowing the control's own border.
+   */
+  --interactive: oklch(0.3 0.03 254);
+  --interactive-foreground: oklch(0.97 0.01 240);
   --border: oklch(0.32 0.03 254);
   --input: oklch(0.28 0.03 254);
   --ring: oklch(0.82 0.15 200);
@@ -145,6 +182,13 @@
   --surface-raised: #101a27;
   --edge-label-border: #33475a;
   --edge-label-foreground: #b6c7d7;
+  /*
+   * Canvas wires. Slate, not cyan: an edge is structure, and DESIGN.md reserves the glow for
+   * things carrying live information. Lightness 0.52 is the lowest step that clears WCAG
+   * 1.4.11's 3:1 for non-text against the obsidian floor (3.36:1) — a wire is a graphical
+   * object conveying the whole shape of the workflow, so it is held to that bar.
+   */
+  --edge-stroke: oklch(0.52 0.03 254);
 }
 
 .dark {
@@ -176,16 +220,34 @@
 .react-flow__pane {
   background: transparent;
 }
-.react-flow__edge-path {
-  stroke: var(--color-primary);
-  stroke-opacity: 0.5;
-}
-.react-flow__edge.selected .react-flow__edge-path {
-  stroke-opacity: 1;
-}
+/*
+  Edge colour, set through React Flow's own variables rather than against it.
+
+  The vendor stylesheet is imported from the editor module, so it lands *after* this file and
+  wins every tie at equal specificity — which is why the `.react-flow__edge-path` rule that used
+  to sit here never painted a single wire. Edges rendered in the library's dark-mode grey at
+  1.72:1 against the canvas, under the 3:1 non-text minimum. Feeding the variables the vendor
+  rule already reads needs no specificity fight, and the arrowhead markers follow, because they
+  read the same variable.
+*/
 .react-flow {
   --xy-edge-label-background-color: var(--surface-raised);
   --xy-edge-label-color: var(--edge-label-foreground);
+  --xy-edge-stroke: var(--edge-stroke);
+  --xy-edge-stroke-selected: var(--color-ring);
+}
+/*
+  Keyboard focus on an edge — the same contract the node above got.
+
+  React Flow zeroes the outline on a focused edge and leaves only a grey-to-grey stroke swap, so
+  eight tab stops on a seven-node graph were invisible. An outline is not the fix here: an SVG
+  group's outline is its bounding box, which for a long bezier is a rectangle across half the
+  canvas. Ring colour *plus* a width step keeps the indicator off hue alone, and the width also
+  separates focused from merely selected, which share the colour.
+*/
+.react-flow .react-flow__edge.selectable:focus-visible .react-flow__edge-path {
+  stroke: var(--color-ring);
+  stroke-width: 3;
 }
 .react-flow__edge-textbg {
   stroke: var(--edge-label-border);
@@ -200,6 +262,23 @@
   background: var(--color-primary);
   border: 2px solid var(--color-background);
 }
+/*
+  Keyboard focus on a canvas node.
+
+  React Flow ships `.react-flow__node.selectable:focus, :focus-visible { outline: none }` in its
+  own stylesheet, so without this a node that is tabbed to looks exactly like one that is not —
+  a WCAG 2.4.7 failure on the editor's primary content, and on the very interaction the canvas's
+  `aria-label` promises works. The extra `.react-flow` ancestor outranks the vendor rule on
+  specificity so the fix does not depend on which stylesheet loads last.
+
+  Offset clears the node's own 2px state ring, which is a different signal (run state and
+  selection) and has to stay readable underneath the focus ring.
+*/
+.react-flow .react-flow__node.selectable:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 3px;
+  border-radius: 14px;
+}
 .react-flow__controls {
   --xy-controls-button-background-color: var(--color-card);
   --xy-controls-button-background-color-hover: var(--color-secondary);
@@ -211,10 +290,45 @@
   border-radius: 8px;
   overflow: hidden;
 }
+/*
+  The minimap, brought into the theme.
+
+  Only the container was ever themed here, which left the two things that actually paint — the
+  mask and the node rects — on React Flow's light-mode defaults: a 240-grey wash and 226-grey
+  marks. The result was a pale slab that was, by measurement, the brightest and largest object
+  in a product whose design rule is "light is information, not decoration". The mask now dims
+  toward the app floor and the marks default to muted foreground; `nodeColor` in the editor
+  overrides individual marks with run state when a run is being watched.
+*/
 .react-flow__minimap {
+  --xy-minimap-mask-background-color-props: color-mix(
+    in oklab,
+    var(--color-background) 74%,
+    transparent
+  );
+  --xy-minimap-mask-stroke-color-props: var(--color-border);
+  --xy-minimap-node-background-color-props: var(--color-muted-foreground);
+  --xy-minimap-node-stroke-color-props: transparent;
   background: var(--color-card) !important;
   border: 1px solid var(--color-border);
   border-radius: 8px;
+}
+/*
+  React Flow's zoom controls ship at 26×26, which is under even WCAG 2.2 AA's 24px floor once
+  the border is counted and nowhere near a comfortable tap. Sized by pointer type rather than
+  viewport, because a touchscreen laptop needs this as much as a phone does.
+*/
+@media (pointer: coarse) {
+  .react-flow__controls-button {
+    width: 44px;
+    height: 44px;
+  }
+  .react-flow__controls-button svg {
+    width: 16px;
+    height: 16px;
+    max-width: 16px;
+    max-height: 16px;
+  }
 }
 .react-flow__attribution {
   display: none;

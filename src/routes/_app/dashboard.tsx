@@ -200,7 +200,10 @@ function DashboardPage() {
         actions={
           <Link
             to="/workflows"
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-transparent px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-foreground transition hover:border-accent/50 hover:bg-accent/10 hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            // Hover is a surface step, not an attention signal: this link navigates to a list.
+            // The amber it used to take on is the same hue the approvals block below uses to say
+            // a run is waiting on a human, and it cannot mean both.
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-transparent px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-foreground transition hover:border-border hover:bg-interactive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <Workflow className="size-4" /> View Workflows
           </Link>

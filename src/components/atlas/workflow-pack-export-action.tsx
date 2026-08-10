@@ -27,14 +27,20 @@ export function WorkflowPackExportAction({
   const exportPack = useExportPack();
   const error = exportPack.error ? toClientAtlasError(exportPack.error) : null;
 
+  // A fragment, not a column: the parent lays these out in its own flex-wrap action row,
+  // so the button lines up flush with its siblings instead of dragging a caption along.
+  // The pack-contents note reaches keyboard/SR users via aria-describedby and sighted
+  // users on hover; an error claims a full row of its own beneath the buttons.
   return (
-    <div className="flex max-w-sm flex-col items-end gap-1.5">
+    <>
       <Button
         type="button"
         size="sm"
         variant="outline"
         disabled={exportPack.isPending}
         aria-busy={exportPack.isPending}
+        aria-describedby="pack-export-note"
+        title="Includes graph, policy, interface, synthetic sample input, and triggers. The default reply is not included in a pack."
         onClick={() =>
           exportPack.mutate(
             { definitionId },
@@ -45,14 +51,14 @@ export function WorkflowPackExportAction({
         <Download className="mr-1.5 size-3.5" aria-hidden="true" />
         {exportPack.isPending ? "Exporting…" : "Export pack"}
       </Button>
-      <p className="text-right text-[10px] leading-relaxed text-muted-foreground">
+      <span id="pack-export-note" className="sr-only">
         Includes graph, policy, interface, synthetic sample input, and triggers. The default reply
         is not included in a pack.
-      </p>
+      </span>
       {error ? (
         <p
           role="alert"
-          className={`text-right text-xs leading-relaxed ${
+          className={`basis-full text-right text-xs leading-relaxed ${
             error.kind === "forbidden" ? "text-accent" : "text-destructive"
           }`}
         >
@@ -60,6 +66,6 @@ export function WorkflowPackExportAction({
           {describeAtlasError(error).description}
         </p>
       ) : null}
-    </div>
+    </>
   );
 }

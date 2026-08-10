@@ -121,7 +121,8 @@ test.describe("workflow test run dialog", () => {
     await expect(dirtyState(page)).toHaveText("Saved", { timeout: 30_000 });
   }
 
-  const testRunButton = (page: Page) => page.getByRole("button", { name: "Test run", exact: true });
+  const testRunButton = (page: Page) =>
+    page.getByRole("button", { name: "Run live test", exact: true });
   const clickTestRun = async (page: Page) => {
     const button = testRunButton(page);
     await button.focus();
@@ -143,7 +144,7 @@ test.describe("workflow test run dialog", () => {
     await clickTestRun(page);
     await expect(dialog(page)).toBeVisible();
     await expect(dialog(page)).toHaveAttribute("aria-describedby", /.+/);
-    await expect(page.getByRole("heading", { name: /^Test run/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^Run live test/ })).toBeVisible();
 
     // Radix moves focus into the dialog; the textarea is labelled and reachable.
     await expect(page.getByLabel("Run input JSON")).toBeVisible();
@@ -273,6 +274,32 @@ test.describe("workflow test run dialog", () => {
     expect(run.input).toMatchObject({ topic: "a distinctive test topic" });
   });
 
+  test("a Disabled workflow's start is refused with copy naming the status and the fix", async ({
+    page,
+    request,
+  }) => {
+    const id = await createGraph(request, startWorker("Do the thing."));
+    const disabled = await request.put(`${seedIds().atlasOrigin}/api/workflows/${id}`, {
+      headers: atlasHeaders(),
+      data: { status: "disabled" },
+    });
+    expect(disabled.ok()).toBe(true);
+
+    await openEditor(page, id);
+    await clickTestRun(page);
+    await page.getByTestId("start-test-run").click();
+
+    // Atlas's stable workflow_not_runnable refusal arrives as actionable copy: it names the
+    // current status and the next action, instead of exposing a raw error token.
+    const error = page.getByTestId("test-run-error");
+    await expect(error).toBeVisible();
+    await expect(error).toContainText("Disabled");
+    await expect(error).toContainText("Active");
+    // The refusal created no run, and the dialog stays open with the payload intact.
+    expect(await runCountFor(request, id)).toBe(0);
+    await expect(dialog(page)).toBeVisible();
+  });
+
   test("keeps Atlas's refusal on screen instead of closing over it", async ({ page, request }) => {
     const id = await createGraph(request, startWorker("Do the thing."));
     await openEditor(page, id);
@@ -302,7 +329,7 @@ test.describe("workflow test run dialog", () => {
     const id = await createGraph(request, startWorker("Review {input.topic}."));
     await openEditor(page, id);
     await clickTestRun(page);
-    await page.getByRole("tab", { name: "Integration" }).click();
+    await page.getByTestId("integration-details").locator("summary").click();
 
     await expect(page.getByTestId("observed-badge")).toContainText(
       "Observed · not enforced by Atlas",
@@ -329,7 +356,7 @@ test.describe("workflow test run dialog", () => {
     const id = await createGraph(request, startWorker("Do the thing."));
     await openEditor(page, id);
     await clickTestRun(page);
-    await page.getByRole("tab", { name: "Integration" }).click();
+    await page.getByTestId("integration-details").locator("summary").click();
 
     const text = await dialog(page).innerText();
     expect(text).toContain("two POSTs are two runs");
@@ -350,7 +377,7 @@ test.describe("workflow test run dialog", () => {
     // A value that would be unmistakable if it ever leaked into a generated artefact.
     const secretish = "SUPER-SECRET-TEST-VALUE-42";
     await page.getByTestId("test-run-input").fill(`{"topic":"${secretish}"}`);
-    await page.getByRole("tab", { name: "Integration" }).click();
+    await page.getByTestId("integration-details").locator("summary").click();
 
     const atlasOrigin = seedIds().atlasOrigin;
     const adminToken = seedIds().adminToken;
@@ -499,7 +526,8 @@ test.describe("workflow test run dialog", () => {
     await expect(canvas(page).locator('[data-node-kind="join"]')).toHaveCount(0);
     // ...and the one action that would have run the *other* graph is withheld, with the reason.
     await expect(testRunButton(page)).toBeDisabled();
-    await expect(testRunButton(page)).toHaveAttribute("title", /Reload before testing/);
+    await expect(testRunButton(page)).toHaveAttribute("aria-describedby", "workflow-readiness");
+    await expect(page.locator("#workflow-readiness")).toContainText("Reload before testing");
 
     // Reloading reconciles all three: canvas, contract, and the graph Atlas would run.
     await page.getByRole("button", { name: "Reload server state" }).click();
@@ -557,7 +585,7 @@ test.describe("workflow test run dialog", () => {
 
     const secretish = "SUPER-SECRET-TEST-VALUE-42";
     await page.getByTestId("test-run-input").fill(`{"topic":"${secretish}"}`);
-    await page.getByRole("tab", { name: "Integration" }).click();
+    await page.getByTestId("integration-details").locator("summary").click();
 
     const atlasOrigin = seedIds().atlasOrigin;
     const adminToken = seedIds().adminToken;
@@ -698,9 +726,12 @@ test.describe("workflow test run dialog", () => {
     // not the gate — the RPC assertion above is what proves a viewer cannot actually start one.
     await viewerPage.goto(`/workflows/${id}`);
     await ready(viewerPage);
-    const viewerRun = viewerPage.getByRole("button", { name: "Test run", exact: true });
+    const viewerRun = viewerPage.getByRole("button", { name: "Run live test", exact: true });
     await expect(viewerRun).toBeDisabled();
-    await expect(viewerRun).toHaveAttribute("title", /role cannot start workflow runs/);
+    await expect(viewerRun).toHaveAttribute("aria-describedby", "workflow-readiness");
+    await expect(viewerPage.locator("#workflow-readiness")).toContainText(
+      "role cannot start workflow runs",
+    );
     await viewerContext.close();
 
     // Exactly one run exists: the deliberate one at the top of this test.

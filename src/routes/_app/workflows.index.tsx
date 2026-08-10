@@ -10,6 +10,7 @@ import { useCreateWorkflow } from "@/lib/atlas-mutations";
 import { AtlasErrorState, LoadingState } from "@/components/atlas/states";
 import { WindowNotice } from "@/components/atlas/window";
 import { ATLAS_LIMIT_OPTIONS, parseLimitSearch } from "@/lib/atlas-search";
+import { counted } from "@/lib/plural";
 import { toClientAtlasError } from "@/lib/atlas-mappers";
 import { workflowsQuery } from "@/lib/atlas-queries";
 import { serializeWorkflowGraph, serializeWorkflowPolicy } from "@/lib/workflow-graph";
@@ -89,26 +90,53 @@ function WorkflowsIndex() {
     });
   };
 
+  /**
+   * Names already in the operator's list, so a template can say when it would make a second one.
+   *
+   * The same grid renders above the empty state and inside the disclosure below a populated
+   * list, which means a workflow created from "Customer Complaint Handler" appears twice on one
+   * page — once as the real thing, once as the template that produced it — and the button said
+   * "Create example" both times. Atlas has no uniqueness constraint on a workflow name, so the
+   * second create silently succeeds and leaves two identically named rows. Naming that before
+   * the click is the whole fix; nothing here blocks it, because duplicating a starter is a
+   * legitimate thing to want.
+   */
+  const existingNames = new Set(workflows.data?.items.map((item) => item.name) ?? []);
+
   // One grid of starter cards, reused whether the operator's list is empty (shown prominently)
   // or populated (tucked into a "Start from a template" disclosure below the list).
   const starterGrid = (
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       {WORKFLOW_EXAMPLES.map((example) => {
         const isPending = pendingCreateId === example.id;
+        const alreadyCreated = existingNames.has(example.name);
         return (
           <div
             key={example.id}
             className="flex min-h-48 flex-col rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/35"
           >
             <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-bold leading-snug">{example.name}</h3>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="text-sm font-bold leading-snug">{example.name}</h3>
+                {/*
+                  Beside the title, not in the footer: it is a fact about the workflow, and
+                  putting it with the node/edge counts gave this one card a three-line footer
+                  while its siblings had one, breaking the row's baseline.
+                */}
+                {alreadyCreated ? (
+                  <span className="shrink-0 rounded border border-border px-1.5 py-px font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+                    In your list
+                  </span>
+                ) : null}
+              </div>
               <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
                 {example.description}
               </p>
             </div>
             <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
               <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                {example.graph.nodes.length} nodes · {example.graph.edges.length} edges
+                {counted(example.graph.nodes.length, "node")} ·{" "}
+                {counted(example.graph.edges.length, "edge")}
               </span>
               <Button
                 type="button"
@@ -123,7 +151,7 @@ function WorkflowsIndex() {
                     aria-hidden="true"
                   />
                 ) : null}
-                {isPending ? "Creating…" : "Create example"}
+                {isPending ? "Creating…" : alreadyCreated ? "Create another" : "Create example"}
               </Button>
             </div>
           </div>
@@ -140,23 +168,30 @@ function WorkflowsIndex() {
         actions={
           <div className="flex max-w-full flex-wrap items-start justify-end gap-2">
             <div className="flex flex-col items-end gap-1">
+              {/*
+                The reason lives in the caption, and the button points at it.
+
+                It used to be a `title` — which a disabled button can never show, because
+                `disabled:pointer-events-none` suppresses hover and it is out of the tab order
+                anyway. The caption beside it said `workflows.manage required` and was associated
+                with nothing, so a screen-reader user got a disabled control and no reason at all.
+              */}
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 disabled={!canImportPacks}
-                title={
-                  canImportPacks
-                    ? "Import a pack and create new workflows"
-                    : "Import pack requires the workflows.manage permission"
-                }
+                aria-describedby={canImportPacks ? undefined : "import-pack-permission"}
                 onClick={() => setImportOpen(true)}
               >
                 Import pack
               </Button>
               {!canImportPacks ? (
-                <span className="font-mono text-[10px] uppercase tracking-widest text-accent">
-                  workflows.manage required
+                <span
+                  id="import-pack-permission"
+                  className="font-mono text-[10px] uppercase tracking-widest text-warning"
+                >
+                  Needs the workflows.manage permission
                 </span>
               ) : null}
             </div>
@@ -181,7 +216,7 @@ function WorkflowsIndex() {
         meta={
           <div role="group" aria-label="Rows to load" className="flex items-center gap-1">
             <span className="mr-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Window
+              Rows
             </span>
             {ATLAS_LIMIT_OPTIONS.map((option) => (
               <FilterChip
@@ -298,8 +333,8 @@ function WorkflowsIndex() {
                       <StatusPill tone={w.status.tone}>{w.status.label}</StatusPill>
                     </div>
                     <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                      <span>{w.nodeCount} nodes</span>
-                      <span>{w.edgeCount} edges</span>
+                      <span>{counted(w.nodeCount, "node")}</span>
+                      <span>{counted(w.edgeCount, "edge")}</span>
                       <span>v{w.version}</span>
                       <span className="w-full">updated {w.updatedAt}</span>
                     </div>
@@ -310,7 +345,7 @@ function WorkflowsIndex() {
                 count={workflows.data.items.length}
                 limit={workflows.data.limit}
                 mayHaveMore={workflows.data.mayHaveMore}
-                noun="workflows"
+                noun="workflow"
               />
             </section>
             <details className="group rounded-lg border border-border bg-card/40">

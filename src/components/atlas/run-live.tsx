@@ -14,6 +14,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 
+import { counted } from "@/lib/plural";
 import type { RunDetailView, RuntimeNodeView } from "@/lib/atlas-mappers";
 import type { JobStreamEvent, JobStreamPhase, JobStreamSnapshot } from "@/lib/job-stream";
 import { queryKeys } from "@/lib/query-keys";
@@ -181,8 +182,12 @@ export function JobStreamPanel({
               ? `; ${snapshot.dropped} older events compacted out of memory`
               : ""}
             . The complete record is Atlas&apos;s persisted history below.
-            {snapshot.duplicates > 0 ? ` ${snapshot.duplicates} duplicate frame(s) dropped.` : ""}
-            {snapshot.malformed > 0 ? ` ${snapshot.malformed} unreadable frame(s) ignored.` : ""}
+            {snapshot.duplicates > 0
+              ? ` ${counted(snapshot.duplicates, "duplicate frame")} dropped.`
+              : ""}
+            {snapshot.malformed > 0
+              ? ` ${counted(snapshot.malformed, "unreadable frame")} ignored.`
+              : ""}
           </p>
         </>
       )}

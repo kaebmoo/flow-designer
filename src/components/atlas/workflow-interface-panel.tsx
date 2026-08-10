@@ -208,10 +208,23 @@ export interface WorkflowInterfacePanelProps {
   contract: ObservedContract;
 }
 
+/**
+ * `aria-live` because these appear *while typing*, not on submit.
+ *
+ * A JSON error here blocks Save, and it was previously rendered into a plain list with nothing
+ * announcing it — a screen-reader user learned the interface was invalid only by tabbing to a
+ * Save button that had gone quiet. `polite` rather than `assertive`: the operator is mid-keystroke
+ * and should not be interrupted, only told.
+ */
 function DiagnosticList({ diagnostics }: { diagnostics: InterfaceDiagnostic[] }) {
   if (diagnostics.length === 0) return null;
   return (
-    <ul className="mt-1.5 space-y-1" data-testid="interface-diagnostics">
+    <ul
+      className="mt-1.5 space-y-1"
+      data-testid="interface-diagnostics"
+      aria-live="polite"
+      aria-atomic="true"
+    >
       {diagnostics.map((diagnostic, index) => (
         <li
           key={`${diagnostic.path}:${index}`}

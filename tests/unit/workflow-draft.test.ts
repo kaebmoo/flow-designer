@@ -25,6 +25,7 @@ describe("semantic workflow draft recovery", () => {
       version: 3,
       name: "local",
       description: "draft",
+      status: "active",
       graph: { start: "worker_1" },
       policy: {},
       defaultReply: { mode: "webhook", x_ext: "preserve" },
@@ -33,11 +34,30 @@ describe("semantic workflow draft recovery", () => {
       version: 3,
       name: "local",
       description: "draft",
+      status: "active",
       graph: { start: "worker_1" },
       policy: {},
       defaultReply: { mode: "webhook", x_ext: "preserve" },
     });
     expect(JSON.stringify([...store.values()])).not.toMatch(/token|bearer|password|layout/i);
+  });
+
+  it("reads back a pre-status draft (status absent) and drops one whose status is not a string", () => {
+    const base = {
+      version: 3,
+      name: "local",
+      description: "",
+      graph: {},
+      policy: {},
+      defaultReply: { mode: "none" },
+    };
+    const key = "flow-designer:draft:wfd_1:v3";
+    store.set(key, JSON.stringify(base));
+    expect(readSemanticWorkflowDraft("wfd_1", 3)).toMatchObject({ name: "local" });
+
+    store.set(key, JSON.stringify({ ...base, status: 7 }));
+    expect(readSemanticWorkflowDraft("wfd_1", 3)).toBeUndefined();
+    expect(store.has(key)).toBe(false);
   });
 
   it.each([

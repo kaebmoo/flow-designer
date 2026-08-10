@@ -291,8 +291,8 @@ test.describe("Atlas-backed reads", () => {
       ["/fleet", /1 worker registered/],
       ["/workspaces", /1 workspace mapped/],
       ["/workflows", /Atlas reports no total/],
-      ["/runs", /Showing the \d+ newest runs/],
-      ["/jobs", /Showing the \d+ newest jobs/],
+      ["/runs", /Showing the \d+ newest runs?/],
+      ["/jobs", /Showing the \d+ newest jobs?/],
     ] as const;
 
     for (const [path, ready] of pages) {

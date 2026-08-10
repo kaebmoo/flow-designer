@@ -51,7 +51,8 @@ async function ready(page: Page) {
 
 const dirtyState = (page: Page) => page.getByTestId("workflow-dirty-state");
 const dialog = (page: Page) => page.getByRole("dialog");
-const testRunButton = (page: Page) => page.getByRole("button", { name: "Test run", exact: true });
+const testRunButton = (page: Page) =>
+  page.getByRole("button", { name: "Run live test", exact: true });
 const clickTestRun = async (page: Page) =>
   testRunButton(page).evaluate((button) => (button as HTMLButtonElement).click());
 
@@ -103,6 +104,8 @@ async function createWorkflow(
   const response = await request.post(`${seedIds().atlasOrigin}/api/workflows`, {
     headers: atlasHeaders(),
     data: {
+      // Direct API runs below start in production mode, so the fixture must be active.
+      status: "active",
       name: `Interface E2E ${workflowCounter + 1}`,
       description: "",
       graph: permitGraph(),
@@ -213,7 +216,7 @@ test.describe("workflow interface authoring", () => {
 
     // Test Run falls back to Observed.
     await clickTestRun(page);
-    await page.getByRole("tab", { name: "Integration" }).click();
+    await page.getByTestId("integration-details").locator("summary").click();
     await expect(page.getByTestId("observed-badge")).toContainText(
       "Observed · not enforced by Atlas",
     );
@@ -305,10 +308,9 @@ test.describe("declared Test Run mode", () => {
     await clickTestRun(page);
 
     await expect(page.getByTestId("test-run-input")).toHaveValue(/Sample Applicant/);
-    await page.getByRole("tab", { name: "Integration" }).click();
+    await page.getByTestId("integration-details").locator("summary").click();
     await expect(page.getByTestId("declared-badge")).toContainText("Declared · enforced by Atlas");
     await expect(page.getByTestId("declared-outputs")).toContainText("intake_review");
-    await page.getByRole("tab", { name: "Input JSON" }).click();
 
     await page.getByTestId("start-test-run").click();
     await page.waitForURL(/\/runs\/wfr_[a-z0-9]+$/);

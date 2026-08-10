@@ -206,7 +206,8 @@ function DeliveriesPage() {
               count={rows.length}
               limit={limit}
               mayHaveMore={rows.length >= limit}
-              noun="webhook deliveries"
+              noun="webhook delivery"
+              pluralNoun="webhook deliveries"
             />
           </>
         )}

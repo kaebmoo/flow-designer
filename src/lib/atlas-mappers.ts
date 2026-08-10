@@ -63,6 +63,12 @@ export interface ClientAtlasError {
   kind: AtlasErrorKind;
   message: string;
   retryAfterSeconds?: number;
+  /**
+   * Stable machine-readable token for the few refusals the UI branches on — today only
+   * `"workflow_not_runnable"` (a 409 whose fix is a status change, not a reload). Distinct
+   * from `message`, which is copy. Optional and additive; absent on every other failure.
+   */
+  code?: string;
 }
 
 /** Identity for UI rendering. */
@@ -154,6 +160,9 @@ export function toClientAtlasError(value: unknown): ClientAtlasError {
       kind: value.kind,
       message: value.message,
       ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
+      ...(typeof (value as { code?: unknown }).code === "string"
+        ? { code: (value as { code: string }).code }
+        : {}),
     };
   }
   return { kind: "server", message: SERVER_FAILURE_MESSAGE };

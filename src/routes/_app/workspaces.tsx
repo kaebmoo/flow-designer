@@ -692,7 +692,7 @@ function DeleteWorkspaceDialog({
         <AlertDialogFooter>
           <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className="bg-destructive-solid text-destructive-foreground hover:bg-destructive-solid/90"
             disabled={remove.isPending}
             // Radix closes on click; the dialog has to stay open to report Atlas's refusal.
             onClick={(event) => {

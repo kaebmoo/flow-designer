@@ -82,6 +82,7 @@ export async function seedAtlas(origin: string, adminToken: string): Promise<See
   const workspaceId = idOf(workspace, "workspace");
 
   const workflow = await post(origin, adminToken, "/api/workflows", {
+    status: "active",
     name: "Contract Workflow",
     description: "Seeded by the flow-designer contract tests.",
     graph: {
@@ -174,6 +175,7 @@ export interface SeededGates {
  */
 export async function seedGateWorkflows(origin: string, adminToken: string): Promise<SeededGates> {
   const plain = await post(origin, adminToken, "/api/workflows", {
+    status: "active",
     name: "Contract Gate Workflow",
     description: "Parks at a human gate that declares no choices.",
     graph: {
@@ -192,6 +194,7 @@ export async function seedGateWorkflows(origin: string, adminToken: string): Pro
   });
 
   const branching = await post(origin, adminToken, "/api/workflows", {
+    status: "active",
     name: "Contract Branching Gate Workflow",
     description: "A gate with choices routing into a second gate.",
     graph: {

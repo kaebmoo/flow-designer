@@ -310,6 +310,7 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
         // allowlisted, port 9 is dead: the attempt is made and refused.
         const run = await atlasStartWorkflowRun(adminToken, {
           workflowDefinitionId: seeded!.workflowId,
+          executionMode: "test",
           input: {
             _meta: { reply: { mode: "none", callback_url: "http://127.0.0.1:9/contract-hook" } },
           },
@@ -346,6 +347,7 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
       const rejection = await expectAtlasError(
         atlasStartWorkflowRun(adminToken, {
           workflowDefinitionId: seeded!.workflowId,
+          executionMode: "test",
           input: {
             _meta: { reply: { mode: "none", callback_url: "http://127.0.0.9:9/contract-hook" } },
           },
@@ -359,6 +361,7 @@ describe.skipIf(!available)("Phase 5 operational contract", () => {
       // A second delivery left mid-lifecycle: one attempt, four remaining → `pending`.
       const run = await atlasStartWorkflowRun(adminToken, {
         workflowDefinitionId: seeded!.workflowId,
+        executionMode: "test",
         input: {
           _meta: { reply: { mode: "none", callback_url: "http://127.0.0.1:9/contract-hook" } },
         },

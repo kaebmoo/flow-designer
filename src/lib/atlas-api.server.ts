@@ -76,6 +76,19 @@ export class AtlasError extends Error {
   readonly fromAtlas: boolean;
   /** Safe delta-seconds value from a 429 Retry-After header, when valid and bounded. */
   readonly retryAfterSeconds?: number;
+  /**
+   * Atlas's parsed JSON error body, when there was one. SERVER-SIDE ONLY: it never crosses
+   * the RPC boundary (`toClientAtlasError` forwards kind, message, and `code` alone). Exists
+   * so an operation wrapper can read the structured fields of a stable contract — today that
+   * is `{"error": "workflow_not_runnable", "reason": ..., "status": ...}` — and rewrite the
+   * message into actionable copy before the error travels to the browser.
+   */
+  readonly body?: Record<string, unknown>;
+  /**
+   * Stable machine-readable token the UI may branch on (forwarded to the client, unlike
+   * `body`). Set only by operation wrappers that recognise a stable Atlas contract.
+   */
+  readonly code?: string;
 
   constructor(
     kind: AtlasErrorKind,
@@ -84,6 +97,8 @@ export class AtlasError extends Error {
       status?: number;
       fromAtlas?: boolean;
       retryAfterSeconds?: number;
+      body?: Record<string, unknown>;
+      code?: string;
       cause?: unknown;
     } = {},
   ) {
@@ -93,6 +108,8 @@ export class AtlasError extends Error {
     this.status = options.status;
     this.fromAtlas = options.fromAtlas ?? false;
     this.retryAfterSeconds = options.retryAfterSeconds;
+    this.body = options.body;
+    this.code = options.code;
   }
 }
 
@@ -249,6 +266,10 @@ async function atlasRequest(options: AtlasRequestOptions): Promise<unknown> {
     throw new AtlasError(kind, atlasMessage ?? defaultMessageForKind(kind), {
       status: response.status,
       fromAtlas: atlasMessage !== undefined,
+      body:
+        parsed && payload !== null && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : undefined,
       retryAfterSeconds:
         kind === "rate_limited"
           ? parseRetryAfterSeconds(response.headers.get("retry-after"))
@@ -868,6 +889,11 @@ export async function atlasListWorkflowTriggers(
 export interface AtlasWorkflowWrite {
   name: string;
   description?: string;
+  /**
+   * Execution policy (`draft` | `active` | `disabled`), validated by Atlas against its
+   * closed vocabulary. Omitted = preserve on update, default `draft` on create.
+   */
+  status?: string;
   graph: Record<string, unknown>;
   policy: Record<string, unknown>;
   default_reply?: Record<string, unknown> | null;
@@ -897,6 +923,7 @@ export async function atlasCreateWorkflow(
       description: workflow.description ?? "",
       graph: workflow.graph,
       policy: workflow.policy,
+      ...(workflow.status === undefined ? {} : { status: workflow.status }),
       ...(workflow.default_reply === undefined ? {} : { default_reply: workflow.default_reply }),
       ...(workflow.interface === undefined ? {} : { interface: workflow.interface }),
     },
@@ -936,6 +963,7 @@ export async function atlasUpdateWorkflow(
       description: workflow.description ?? "",
       graph: workflow.graph,
       policy: workflow.policy,
+      ...(workflow.status === undefined ? {} : { status: workflow.status }),
       ...(workflow.default_reply === undefined ? {} : { default_reply: workflow.default_reply }),
       ...(workflow.interface === undefined ? {} : { interface: workflow.interface }),
       ...(workflow.expected_version === undefined
@@ -1011,11 +1039,40 @@ export async function atlasValidateWorkflow(
  * a 409 automatically. Present only when the caller has a declared interface to pin against —
  * absent (never sent) for the legacy Observed path, matching every other Atlas checkout.
  */
+/**
+ * Rewrites Atlas's stable `workflow_not_runnable` refusal into copy an operator can act on,
+ * naming the workflow's current status (from the error body — authoritative at refusal time,
+ * not the possibly-stale one the page loaded) and the next action. Everything else passes
+ * through untouched. The kind stays `conflict`, mirroring Atlas's 409.
+ */
+function describeWorkflowNotRunnable(error: unknown): unknown {
+  if (!isAtlasError(error) || error.body?.error !== "workflow_not_runnable") return error;
+  const reason = error.body.reason;
+  const message =
+    reason === "draft_requires_test_mode"
+      ? "This workflow is Draft, so production runs are blocked. Use Test Run, or set its status to Active and save."
+      : reason === "workflow_disabled"
+        ? "This workflow is Disabled — every run is blocked. Set its status to Active (or Draft for test-only runs) and save."
+        : `Atlas refused to run this workflow: its status is “${String(error.body.status ?? "unknown")}”. Set it to Active and save.`;
+  return new AtlasError("conflict", message, {
+    status: error.status,
+    fromAtlas: true,
+    body: error.body,
+    code: "workflow_not_runnable",
+  });
+}
+
 export async function atlasStartWorkflowRun(
   token: string,
   params: {
     workflowDefinitionId: string;
     input?: Record<string, unknown>;
+    /**
+     * Which class of run this is. Atlas checks it against the workflow's status (draft is
+     * test-only, disabled runs nothing) and treats an omitted mode as production, so this
+     * client always sends it explicitly.
+     */
+    executionMode: "test" | "production";
     expectedWorkflowVersion?: number;
     /**
      * When true, Atlas creates the run born-paused (state `paused`, no execution) so input
@@ -1026,20 +1083,26 @@ export async function atlasStartWorkflowRun(
   },
   options: AtlasCallOptions = {},
 ): Promise<AtlasWorkflowRun> {
-  const payload = await atlasRequest({
-    method: "POST",
-    path: "/api/workflow-runs",
-    token,
-    body: {
-      workflow_definition_id: params.workflowDefinitionId,
-      input: params.input ?? {},
-      ...(params.expectedWorkflowVersion === undefined
-        ? {}
-        : { expected_workflow_version: params.expectedWorkflowVersion }),
-      ...(params.hold === true ? { hold: true } : {}),
-    },
-    ...options,
-  });
+  let payload: unknown;
+  try {
+    payload = await atlasRequest({
+      method: "POST",
+      path: "/api/workflow-runs",
+      token,
+      body: {
+        workflow_definition_id: params.workflowDefinitionId,
+        input: params.input ?? {},
+        execution_mode: params.executionMode,
+        ...(params.expectedWorkflowVersion === undefined
+          ? {}
+          : { expected_workflow_version: params.expectedWorkflowVersion }),
+        ...(params.hold === true ? { hold: true } : {}),
+      },
+      ...options,
+    });
+  } catch (error) {
+    throw describeWorkflowNotRunnable(error);
+  }
 
   return expectShape<{ run: AtlasWorkflowRun }>(payload, (value) =>
     isAtlasRowEnvelope(value, "run"),

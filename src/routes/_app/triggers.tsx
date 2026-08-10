@@ -265,7 +265,7 @@ function TriggersPage() {
             </label>
             <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
             <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Window
+              Rows
             </span>
             {ATLAS_LIMIT_OPTIONS.map((option) => (
               <button
@@ -552,7 +552,7 @@ function TriggersPage() {
               limit={limit}
               // `listTriggersFn` returns a bare array, so the full-window inference is made here.
               mayHaveMore={rows.length >= limit}
-              noun="triggers"
+              noun="trigger"
             />
           </>
         )}
