@@ -30,6 +30,8 @@ test-results
 playwright-report
 
 # Editor directories and files
+.codex/
+.claude/
 .vscode/*
 !.vscode/extensions.json
 .idea
