@@ -1,13 +1,17 @@
 # Workflow status and execution enforcement plan
 
 Status: Implemented 2026-08-09 (both repositories; see the report in the implementing session).
+Flow requalified against Atlas `bc49652` plus the local Atlas falsy-status validation fix on
+2026-08-10. Atlas create/import now reject invalid falsy workflow statuses (`""`, `false`, `0`)
+instead of coercing them to defaults; Flow's server function validator rejects the same values
+before forwarding UI/BFF requests.
 Atlas: shared guard `ensure_workflow_runnable`, `execution_mode` on `POST /api/workflow-runs`,
 closed status vocabulary, `workflow_definition.status_change` audit, migration 016 backfill,
 `scripts/check_workflow_status.py` in the gate. Flow Designer: status selector in the editor,
 status through create/update, explicit `execution_mode` on every start, `workflow_not_runnable`
 mapped to actionable copy, contract + E2E coverage.
 
-Date: 2026-08-09
+Date: 2026-08-09; review addendum 2026-08-10
 
 Product decision confirmed: `draft` workflows may use Test Run, but production/direct and trigger
 runs require `active`; `disabled` blocks every run.
@@ -43,11 +47,11 @@ Relevant current code:
 
 Use a closed status vocabulary:
 
-| Status | Editor changes | Test Run | Direct/production Run | Trigger Run |
-| --- | --- | --- | --- | --- |
-| `draft` | allowed | allowed | blocked | blocked |
-| `active` | allowed | allowed | allowed | allowed |
-| `disabled` | allowed | blocked | blocked | blocked |
+| Status     | Editor changes | Test Run | Direct/production Run | Trigger Run |
+| ---------- | -------------- | -------- | --------------------- | ----------- |
+| `draft`    | allowed        | allowed  | blocked               | blocked     |
+| `active`   | allowed        | allowed  | allowed               | allowed     |
+| `disabled` | allowed        | blocked  | blocked               | blocked     |
 
 The `draft` Test Run exception is intentional: authors need to validate a workflow before making it
 production-active. It must be an explicit test execution mode, not an implicit UI-only bypass.
@@ -67,15 +71,14 @@ This policy is confirmed for implementation.
    ```
 
    Omitted mode defaults to `production`, so old callers fail closed against draft workflows.
-4. Add one shared guard used by every workflow-start path:
 
+4. Add one shared guard used by every workflow-start path:
    - direct `POST /api/workflow-runs`;
    - trigger-created runs;
    - synchronous/internal definition-backed starts;
    - recovery/reconciliation paths, if they can create a new run.
 
 5. Enforce:
-
    - `draft + test` → allowed;
    - `draft + production` → rejected;
    - `active + test/production` → allowed;
@@ -99,7 +102,6 @@ This policy is confirmed for implementation.
 1. Add a shared `WorkflowStatus` type and constants.
 2. Add `status` to the editable workflow view and workflow draft state.
 3. Add a status selector in `/workflows/$id` with clear copy:
-
    - Draft — test only;
    - Active — production runs enabled;
    - Disabled — all runs blocked.

@@ -1,16 +1,19 @@
 # Atlas backend integration contract
 
-Status: Atlas `82207f7` adoption is implemented and requalified on 2026-07-21; production release
-still requires deployment/operator inputs recorded in `RELEASE_READINESS.md`.
+Status: Atlas status-enforcement adoption is implemented and requalified on 2026-08-10 against
+`bc49652` plus the local Atlas falsy-status validation fix; production release still requires
+deployment/operator inputs recorded in `docs/RELEASE_READINESS.md`.
 
-Date inspected: 2026-07-21
+Date inspected: 2026-08-10
 
 Atlas checkout: `/Users/seal/Documents/GitHub/atlas-control-plane`
 
-Current Atlas commit inspected: `82207f7` (verified clean; Atlas gate GREEN). The existing
-flow-designer implementation is certified against the additive contracts used by this frontend;
-the historical `595ef62` matrix remains compatibility evidence only. The logical adoption commits
-are recorded in `RELEASE_READINESS.md`.
+Current Atlas checkout inspected: base commit `bc49652` (main; includes PR #54 jobs run filtering
+and PR #55 workflow status enforcement) plus local working-tree validation changes for falsy
+workflow statuses. The existing flow-designer implementation is certified against the additive
+contracts used by this frontend; the historical `82207f7` and `595ef62` matrices remain
+compatibility evidence only. The logical adoption commits are recorded in
+`docs/RELEASE_READINESS.md`.
 
 Primary backend references:
 
@@ -160,10 +163,12 @@ The canvas must serialize the Atlas semantic graph, not the React Flow layout ob
 - `manager.schema = "manager_decision_v1"` on every manager node
 - no layout state or unknown UI fields in the API payload
 
-**`status` is execution policy (status enforcement, 2026-08-09).** The definition's
-`status` accepts exactly `draft`, `active`, or `disabled` (create defaults to `draft`;
-anything else is a 400 from both `_validate_workflow_metadata` and the db-layer validator).
-Atlas enforces it at every start path via one shared guard
+**`status` is execution policy (status enforcement, 2026-08-09).** The definition's `status`
+accepts exactly `draft`, `active`, or `disabled` (create defaults to `draft`; pack import defaults
+omitted/null status to `active`). Flow's server function validator only omits absent/null; any
+present non-vocabulary value (`""`, `false`, `0`, `"archived"`) is rejected before forwarding to
+Atlas. Atlas create/import validation now follows the same rule in the inspected working tree.
+Atlas enforces runnable state at every start path via one shared guard
 (`atlas/workflows.py ensure_workflow_runnable`): `draft` allows explicit test runs only,
 `active` allows test and production, `disabled` blocks everything. Trigger fire always uses
 production mode, and trigger `enabled` remains an independent switch. A status change is
@@ -171,6 +176,10 @@ audited as `workflow_definition.status_change` with the old/new pair; migration 
 backfilled pre-enforcement rows to `active` (preserving explicit `disabled`) so nothing
 stopped running. The editor saves `status` with the same `expected_version` payload as
 every other field.
+
+Atlas falsy-status follow-up verified 2026-08-10: DB create rejects `""`, `false`, and `0` while
+omitted/null still defaults to `draft`; pack validate/import rejects `""`, `false`, and `0` while
+omitted/null still defaults to `active`.
 
 Atlas's executor accepts **exactly four** node `type` strings — `worker`, `manager`, `join`, `human_gate` (`atlas/workflows.py:173` rejects anything else). Of the UI's eight `NodeKind`s, only these map to a native graph node; `condition`, `loop`, and `fanout` are graph/edge constructs (not nodes), and `trigger` is a separate resource. See the compatibility matrix below. Do not silently send unsupported node types.
 
@@ -235,7 +244,7 @@ Atlas's effective artifact file cap.
 
 Ground truth: `atlas/workflows.py`, `docs/specs/workflow-definition.schema.json`,
 `docs/specs/workflow-visual-builder-spec-en.md`, and
-`docs/specs/workflow-trigger.schema.json`. Node semantics remain compatible at Atlas `82207f7`;
+`docs/specs/workflow-trigger.schema.json`. Node semantics remain compatible at Atlas `bc49652`;
 the workflow root additionally supports `default_reply`.
 
 | Editor concept                                | Atlas representation                                         | Status                          | Request fields (Atlas)                                                                                                                                                                                                   | Round-trip                                                                                                      | Validation (Atlas)                                                              | UI when unsupported                                            |
@@ -263,10 +272,11 @@ Where the parser is strict and where it is not, and why the distinction matters:
 - **Fails closed on parse** — an unknown node type, an unknown condition type, any field the schema does not declare (which is how a React Flow `position` or an edge `label` can never reach Atlas), duplicate node ids, and a blank entry in a string list. These make the workflow unopenable, and the UI says so instead of loading the part it understood and deleting the rest on the next save.
 - **Opens, then flags** — rules the published schema adds but Atlas's runtime validator does not enforce: an artifact key that is not an identifier, an empty `artifact_in` list, a non-identifier node id. Atlas legitimately stores these (a pack import can write one), so refusing to open them would leave a workflow uneditable by the only tool that can fix it.
 
-## Mutation endpoint map (current at Atlas `82207f7`)
+## Mutation endpoint map (current at Atlas `bc49652`)
 
 Every row was read out of `atlas/app.py`'s dispatcher and its handler, then re-checked by an independent pass. `PUT` and `DELETE` are genuinely routed (`atlas/app.py:164-174`); the complete `PUT` set is users, tokens, workflows, and workflow-triggers, and everything else updates by `POST` to the collection.
 
+<!-- prettier-ignore -->
 | Action               | Method and path                                   | Success | Response envelope             | Notes                                                                                                                                                                                                                                                                                                                        |
 | -------------------- | ------------------------------------------------- | ------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Create workflow      | `POST /api/workflows`                             | 201     | `{workflow}`                  | `graph` required; `name` optional server-side; a client-supplied `id` would be honoured, so we never send one; optional `interface` validated against `graph` at write time                                                                                                                                                  |
@@ -295,7 +305,7 @@ Rejections are always a single `{"error": "<one sentence>"}` with status 400 —
 ## Job event SSE contract
 
 Verified against `atlas/app.py` (`_stream_job_events`, `_is_authorized`), `atlas/db.py`
-(`get_job_events_after`), and `docs/specs/openapi.yaml`. Atlas commit `82207f7`.
+(`get_job_events_after`), and `docs/specs/openapi.yaml`. Atlas commit `bc49652`.
 
 - **Endpoint:** `GET /api/jobs/{job_id}/events?after=<seq>` → `Content-Type: text/event-stream`, `Connection: close`.
 - **Resume:** `after` is an **exclusive** lower bound (`seq > after`, default `0`) — resume from the last confirmed sequence. It is the only query parameter; there is **no** `Last-Event-ID`, `limit`, or `timeout`.
@@ -418,7 +428,7 @@ a codegen pass from the OpenAPI document.
 ## Role and permission matrix (UI gating only)
 
 Atlas enforces these centrally in `_dispatch`; the frontend mirrors them **only** to hide/disable
-actions (UX). Never use this as the security boundary. Re-verified unchanged at Atlas `82207f7`.
+actions (UX). Never use this as the security boundary. Re-verified unchanged at Atlas `bc49652`.
 
 Role → permissions:
 
@@ -460,7 +470,7 @@ Route → required permission (used to decide which UI actions to show):
 
 ## Contract questions resolved by source inspection
 
-Verified against Atlas `82207f7`; these are settled facts, not reasons to create a second backend:
+Verified against Atlas `bc49652`; these are settled facts, not reasons to create a second backend:
 
 - **Browser session cookie:** Atlas issues none (bearer-token only). flow-designer owns the browser session cookie and holds the Atlas bearer server-side.
 - **Dashboard-session lifecycle:** login sessions expire after 8 hours by default, only five

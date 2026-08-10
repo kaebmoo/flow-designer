@@ -1,8 +1,10 @@
 # Phase 7 release readiness
 
-Status: **Atlas 82207f7 adoption verified; production release blocked**
+Status: **Atlas `bc49652` Flow requalification verified; production release blocked; Atlas
+falsy-status fix verified in the local working tree**
 
-Evidence date: 2026-07-21 (Asia/Bangkok)
+Current evidence date: 2026-08-10 (Asia/Bangkok)
+Original Phase 7 evidence date: 2026-07-21 (Asia/Bangkok)
 
 Adoption commits: `6619542`, `ef83d08`, `701027d`, and `8671e08`; the release-evidence update is
 the follow-up commit containing this document. Baseline before the adoption pass: `85649e8`.
@@ -17,6 +19,20 @@ Atlas `82207f7` was clean and its completion gate was GREEN before this pass. Th
 implementation and requalification below cover its additive contracts; the original `595ef62`
 matrix remains historical compatibility evidence only.
 
+## 2026-08-10 status-enforcement requalification
+
+Flow Designer was requalified against Atlas `bc49652` (`main`, including PR #54 jobs run
+filtering and PR #55 workflow status enforcement). The local Atlas working tree also includes the
+falsy-status validation fix: create/import distinguish omitted/null `status` from invalid falsy
+values, rejecting `""`, `false`, and `0` instead of coercing them to defaults. The Flow-side status
+guard remains closed: the server function validator omits only absent/null `status`, and rejects
+present invalid values before forwarding create/update requests to Atlas.
+
+Validation from this requalification pass: `bun run typecheck`, `bun run test`,
+`bun run test:contract`, `bun run lint`, `bun run build`, targeted workflow E2E coverage, and
+`bun run scan:bundle` passed. Additional falsy-status repro against the Atlas working tree passed
+on 2026-08-10. Production remains blocked on the operator-owned deployment inputs listed below.
+
 ## Release decision
 
 | Target                              | Decision            | Reason                                                                                                                                           |
@@ -26,8 +42,8 @@ matrix remains historical compatibility evidence only.
 | A specific production deployment    | **Not configured**  | Exact `PUBLIC_ORIGIN`, private `ATLAS_API_ORIGIN`, production secret store, proxy, backup destination, and log sink remain operator inputs.      |
 
 The historical Phase 7 matrix below remains valid evidence for its original frontend/Atlas pair.
-The adoption matrix below is the current code/test evidence for Atlas `82207f7`; it is not a
-production deployment certificate.
+The Atlas `82207f7` adoption matrix remains historical code/test evidence; it is not a production
+deployment certificate.
 
 ## Verification matrix
 

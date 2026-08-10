@@ -2,12 +2,12 @@
  * API-facing Atlas types.
  *
  * These mirror what Atlas actually returns (verified against the Atlas checkout at
- * 82207f7), not what would be convenient for the UI. Components consume the view models in
+ * bc49652), not what would be convenient for the UI. Components consume the view models in
  * `atlas-mappers.ts` instead of these shapes, so an Atlas response change is absorbed in one
  * place. This module is import-safe from client code: it contains types and pure guards only.
  *
  * Phase 2 adds the read-only domain entities. Every field below was read out of the Atlas
- * checkout at `82207f7` (`atlas/db.py` schema + `atlas/app.py` handlers), not out of the
+ * checkout at `bc49652` (`atlas/db.py` schema + `atlas/app.py` handlers), not out of the
  * OpenAPI document — where the two disagree, the code is what ships.
  */
 
@@ -87,7 +87,7 @@ export interface AtlasErrorBody {
  * Normalised failure kinds. Every Atlas call funnels into exactly one of these so callers
  * branch on a closed union instead of re-deriving meaning from status codes.
  *
- * `conflict` and `rate_limited` are carried because Atlas `82207f7` emits them for conditional
+ * `conflict` and `rate_limited` are carried because Atlas `bc49652` emits them for conditional
  * workflow saves and login backoff respectively.
  */
 export type AtlasErrorKind =
@@ -244,8 +244,8 @@ export function isAtlasWorkflowInterfaceShape(value: unknown): value is AtlasWor
 /**
  * Workflow status is execution policy, enforced by Atlas at every start path
  * (`atlas/workflows.py ensure_workflow_runnable`): draft allows explicit test runs only,
- * active allows test and production, disabled blocks everything. Atlas validates this
- * closed vocabulary on create/update, so it is safe to offer as a selector.
+ * active allows test and production, disabled blocks everything. The BFF validates this closed
+ * vocabulary before forwarding create/update mutations, so it is safe to offer as a selector.
  */
 export const WORKFLOW_STATUSES = ["draft", "active", "disabled"] as const;
 export type WorkflowStatus = (typeof WORKFLOW_STATUSES)[number];
@@ -736,7 +736,7 @@ export interface AtlasApprovalDecision {
 }
 
 /**
- * `GET /api/workflow-runs/{id}/events?after=&limit=` (`atlas/app.py:808-818`, Atlas 82207f7).
+ * `GET /api/workflow-runs/{id}/events?after=&limit=` (`atlas/app.py`, Atlas `bc49652`).
  * Persisted history, not SSE.
  *
  * `id` is an `INTEGER PRIMARY KEY AUTOINCREMENT` (`atlas/db.py:369`), so unlike every other
