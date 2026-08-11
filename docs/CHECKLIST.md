@@ -637,8 +637,11 @@ warnings), format:check, unit **383**, contract **136 + 3 skipped** (real Atlas)
       trigger-suggestion refusal.
 - [x] Guides EN/TH and `BACKEND_INTEGRATION.md` document the editor assist contract, proposal
       boundary, worker prerequisite, and builder latency.
+- [x] Assist failures reuse the draft dialog's classification: a missing `workflow_builder`
+      carries the setup hint, and the one-hour builder deadline survives an unset `timeoutMs`
+      (pinned by a unit test).
 - [x] **Gate:** final D4 tree passes `bun run format:check`, `bun run lint` (0 errors; 12 existing
-      warnings), `bun run typecheck`, `bun run test` (651 passed), `bun run test:contract`
+      warnings), `bun run typecheck`, `bun run test` (652 passed), `bun run test:contract`
       (182 passed; 3 skipped), `bun run scan:bundle` (clean), and `bun run build`.
 
 ### Phase 7 verification evidence (2026-07-21)

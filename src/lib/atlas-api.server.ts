@@ -598,8 +598,8 @@ export async function atlasExplainWorkflow(
     path: `/api/workflows/${encodeURIComponent(workflowId)}/explain`,
     token,
     body: {},
-    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
     ...options,
+    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
   });
   return expectShape<{ explanation: string }>(
     payload,
@@ -630,8 +630,8 @@ export async function atlasRepairWorkflow(
       policy: candidate.policy,
       triggers: candidate.triggers ?? [],
     },
-    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
     ...options,
+    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
   });
   return expectShape<{ draft: AtlasWorkflowDraft }>(
     payload,
@@ -653,8 +653,8 @@ export async function atlasSuggestWorkflowWorkers(
     path: "/api/workflows/suggest-workers",
     token,
     body: { graph: candidate.graph, policy: candidate.policy },
-    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
     ...options,
+    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
   });
   return expectShape<{ suggestions: AtlasWorkerSuggestion[] }>(payload, (value) => {
     if (value === null || typeof value !== "object") return false;
@@ -675,8 +675,8 @@ export async function atlasSuggestWorkflowTriggers(
     path: `/api/workflows/${encodeURIComponent(workflowId)}/suggest-triggers`,
     token,
     body: plainLanguagePrompt ? { plain_language_prompt: plainLanguagePrompt } : {},
-    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
     ...options,
+    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
   });
   return expectShape<{ triggers: AtlasTriggerDraft[] }>(payload, (value) => {
     if (value === null || typeof value !== "object") return false;

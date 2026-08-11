@@ -259,6 +259,17 @@ describe("request construction", () => {
     expect(JSON.parse(fetchMock.mock.calls[2]![1].body)).toEqual({ graph: {}, policy: {} });
   });
 
+  // A caller may pass options with the key present but unset. The builder deadline has to
+  // survive that, or a call Atlas can spend an hour on would be cut at the 10s default.
+  it("keeps the builder deadline when options carry an unset timeout", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ explanation: "It runs." })));
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+
+    await atlasExplainWorkflow("tok", "wfd_1", { timeoutMs: undefined });
+
+    expect(timeoutSpy).toHaveBeenCalledWith(WORKFLOW_BUILDER_TIMEOUT_MS);
+  });
+
   it("fails closed when a workflow default reply has the wrong shape", async () => {
     vi.stubGlobal(
       "fetch",

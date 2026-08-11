@@ -23,7 +23,6 @@ import type {
   AtlasWorkflowDraft,
   AtlasWorkerSuggestion,
 } from "@/lib/atlas-types";
-import { toClientAtlasError } from "@/lib/atlas-mappers";
 import {
   parseWorkflowGraph,
   parseWorkflowPolicy,
@@ -33,7 +32,7 @@ import {
   type WorkflowPolicy,
 } from "@/lib/workflow-graph";
 import { applyWorkerSuggestion, unresolvedAgentNodes } from "@/lib/workflow-ai-assists";
-import { summarizeWorkflowDraft } from "@/lib/workflow-ai-draft";
+import { describeWorkflowDraftError, summarizeWorkflowDraft } from "@/lib/workflow-ai-draft";
 
 type Assist = "explain" | "repair" | "workers" | "triggers";
 
@@ -48,22 +47,29 @@ export interface WorkflowAiAssistsProps {
 }
 
 function AssistError({ error }: { error: unknown }) {
-  const details = toClientAtlasError(error);
-  const forbidden = details.kind === "forbidden";
+  const details = describeWorkflowDraftError(error);
+  const forbidden = details.forbidden;
   return (
-    <p
+    <div
       role="alert"
-      className={`flex gap-2 rounded-md border px-3 py-2 text-xs leading-relaxed ${forbidden ? "border-accent/40 bg-accent/10" : "border-destructive/40 bg-destructive/10"}`}
+      className={`space-y-2 rounded-md border px-3 py-2 text-xs leading-relaxed ${forbidden ? "border-accent/40 bg-accent/10" : "border-destructive/40 bg-destructive/10"}`}
     >
-      <AlertTriangle
-        className={`mt-0.5 size-3.5 shrink-0 ${forbidden ? "text-accent" : "text-destructive"}`}
-        aria-hidden="true"
-      />
-      <span>
-        {forbidden ? "Atlas permission: " : null}
-        {details.message}
-      </span>
-    </p>
+      <p className="flex gap-2">
+        <AlertTriangle
+          className={`mt-0.5 size-3.5 shrink-0 ${forbidden ? "text-accent" : "text-destructive"}`}
+          aria-hidden="true"
+        />
+        <span>
+          {forbidden ? "Atlas permission: " : null}
+          {details.message}
+        </span>
+      </p>
+      {details.needsBuilderSetup ? (
+        <p className="pl-5 text-muted-foreground">
+          Configure a worker tagged <code>workflow_builder</code>, then try again.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
