@@ -35,7 +35,15 @@ async function signIn(page: Page, creds: typeof ADMIN_CREDENTIALS) {
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
+/**
+ * The rail starts collapsed, so the username and role live behind initials until it is opened.
+ *
+ * The hydration wait is not decoration: after a full page load — `page.reload()` below — the
+ * toggle is painted before React attaches its handler, and a click in that window is swallowed
+ * silently, leaving the identity hidden and the assertion failing for the wrong reason.
+ */
 async function expandNavigation(page: Page) {
+  await page.locator('[data-hydrated="true"]').waitFor({ state: "attached" });
   await page.getByRole("button", { name: "Expand navigation" }).click();
 }
 

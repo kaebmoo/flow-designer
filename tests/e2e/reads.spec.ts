@@ -36,7 +36,9 @@ async function signIn(page: Page, creds: typeof ADMIN_CREDENTIALS) {
   await expect(page).toHaveURL(/\/dashboard$/);
 }
 
+/** Opens the collapsed rail so the identity text is rendered; see auth.spec.ts for the why. */
 async function expandNavigation(page: Page) {
+  await page.locator('[data-hydrated="true"]').waitFor({ state: "attached" });
   await page.getByRole("button", { name: "Expand navigation" }).click();
 }
 
