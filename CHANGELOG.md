@@ -9,6 +9,22 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Added **Draft with AI** to the Workflows list: a plain-language description is
+  sent to Atlas's `POST /api/workflows/draft` through a session-validated server
+  function whose deadline is sized for the two builder jobs Atlas may spend, and
+  the returned proposal — name, description, explanation, warnings, and a
+  node/edge/policy summary — is reviewed in a dialog before anything exists.
+  Creating omits `status`, so Atlas stores the workflow as `draft`, then the
+  editor opens. Proposed triggers are display-only, the mutation never retries a
+  billed model call, and Atlas's 400 text is shown verbatim, with a setup hint
+  when no `workflow_builder` worker is configured.
+- Added editor AI assists — **Explain**, **Repair with AI** (offered once Atlas
+  rejects a save or validation), **Suggest workers**, and **Suggest triggers**.
+  Every result stays a proposal: an accepted repair replaces only the unsaved
+  canvas draft and never saves, a suggested worker id is written to one node per
+  click, and a suggested trigger becomes a row only through the existing
+  create-trigger action. Worker suggestions keep working on an instance with no
+  `workflow_builder` worker, because Atlas falls back to local role matching.
 - Added copyable Atlas ids to the Fleet and Workspaces pages and to their edit
   dialogs: the `wrk_`/`wsp_` id a workflow node actually routes on is now shown
   in full, in monospace, behind a keyboard-operable copy control that names what
@@ -47,6 +63,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Changed workflow execution controls to enforce Atlas's status model: draft,
+  active, and disabled crossed with execution mode are guarded at the mutation
+  boundary, and Atlas's `409 workflow_not_runnable` is surfaced verbatim rather
+  than retried or hidden. The enforcement badge — declared/validated versus
+  observed/unchecked — was hoisted out of a collapsed `<details>` to sit beside
+  the cost note, where the decision is actually made.
 - Changed the node inspector's advanced routing from free-text `worker_id` and
   `workspace_id` boxes to pickers over Atlas's real inventory. Each option names
   the worker, or the workspace key with its directory and owning worker, plus the
@@ -60,6 +82,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   horizontal scrolling, return-focus behavior, and clearer operator copy.
 - Improved workflow editor keyboard operation with node selection, inspector
   connect flow, and undo/redo guidance.
+- Improved the workflow canvas over six design passes: focus rings that stay
+  visible on cyan fills, destructive actions styled destructive, the
+  unsaved-changes blocker made a real modal, arrival fit floored at a readable
+  zoom, a themed minimap, and pointer-coarse control sizing.
 
 ### Fixed
 
