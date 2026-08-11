@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-11
+
 ### Added
 
 - Added **Draft with AI** to the Workflows list: a plain-language description is
@@ -162,5 +164,6 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   guards, server/log redaction, client-bundle secret scanning, and `.env` ignore
   rules.
 
-[Unreleased]: https://github.com/kaebmoo/flow-designer/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kaebmoo/flow-designer/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kaebmoo/flow-designer/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kaebmoo/flow-designer/releases/tag/v0.1.0
