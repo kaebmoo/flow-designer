@@ -105,13 +105,17 @@ export function WorkflowAiDraftDialog({
   const [prompt, setPrompt] = useState("");
   const draft = draftRequest.data;
   const busy = draftRequest.isPending || createPending;
+  // The mutation object is a fresh reference on every render, so it must never be an effect
+  // dependency: the effect would run each render, reset() would notify, and the re-render would
+  // run it again — a loop that never lets this route finish hydrating. `reset` itself is stable.
+  const resetDraft = draftRequest.reset;
 
   useEffect(() => {
     if (!open) {
       setPrompt("");
-      draftRequest.reset();
+      resetDraft();
     }
-  }, [open, draftRequest]);
+  }, [open, resetDraft]);
 
   const close = () => {
     if (!busy) onOpenChange(false);
