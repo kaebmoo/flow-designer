@@ -39,6 +39,7 @@ export interface E2ESeed extends SeededAtlas {
     port: number;
     dbPath: string;
     uploadDir: string;
+    extraEnv: Record<string, string>;
   };
 }
 
@@ -80,7 +81,7 @@ export default async function globalSetup() {
   });
 
   /**
-   * Seed through Atlas's own API with an admin bearer.
+   * Seed through Atlas's own API with an admin API bearer.
    *
    * The browser tests then read whatever Atlas actually stores. Stubbing a network response in
    * the page instead would prove only that the UI can render a fixture — not that the
@@ -92,7 +93,22 @@ export default async function globalSetup() {
     body: JSON.stringify(ADMIN_CREDENTIALS),
   });
   if (!login.ok) throw new Error(`e2e seed login failed: ${login.status}`);
-  const { token } = (await login.json()) as { token: string };
+  const { token: sessionToken, user } = (await login.json()) as {
+    token: string;
+    user: { id: string };
+  };
+
+  const apiToken = await fetch(`${atlas.origin}/api/tokens`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${sessionToken}`,
+      connection: "close",
+    },
+    body: JSON.stringify({ user_id: user.id, name: "e2e seed api token" }),
+  });
+  if (!apiToken.ok) throw new Error(`e2e seed api token mint failed: ${apiToken.status}`);
+  const { api_token: token } = (await apiToken.json()) as { api_token: string };
 
   const seeded = await seedAtlas(atlas.origin, token);
   mkdirSync(dirname(SEED_FILE), { recursive: true });

@@ -98,6 +98,7 @@ export interface AtlasInstance {
     port: number;
     dbPath: string;
     uploadDir: string;
+    extraEnv: Record<string, string>;
   };
 }
 
@@ -202,7 +203,13 @@ export async function startIsolatedAtlas(
     origin,
     stop,
     logs: () => logs.join(""),
-    restart: { pid: child.pid, port, dbPath, uploadDir: join(dataDir, "uploads") },
+    restart: {
+      pid: child.pid,
+      port,
+      dbPath,
+      uploadDir: join(dataDir, "uploads"),
+      extraEnv: { ...extraEnv },
+    },
   };
 }
 
@@ -217,13 +224,14 @@ export async function respawnAtlas(restart: {
   port: number;
   dbPath: string;
   uploadDir: string;
+  extraEnv?: Record<string, string>;
 }): Promise<{ stop: () => void }> {
   const env = {
     ...process.env,
+    ...(restart.extraEnv ?? {}),
     ATLAS_DB: restart.dbPath,
     ATLAS_SECRET_KEY: "contract-test-secret-key",
     ATLAS_UPLOAD_DIR: restart.uploadDir,
-    ATLAS_OUTBOUND_ALLOWLIST: "127.0.0.1",
     ATLAS_LOOPBACK_NO_AUTH: "",
     ATLAS_API_TOKEN: "",
   };
