@@ -294,6 +294,45 @@ export interface AtlasWorkflowDraft {
   warnings: string[];
 }
 
+/** `POST /api/workflows/suggest-workers` — one proposal per unresolved agent node. */
+export interface AtlasWorkerSuggestion {
+  node_id: string;
+  role: string;
+  worker_id?: string;
+  workspace_id?: string;
+  reason: string;
+  state: "matched" | "fallback" | "unavailable";
+}
+
+export function isAtlasWorkerSuggestion(value: unknown): value is AtlasWorkerSuggestion {
+  if (!isPlainAtlasObject(value)) return false;
+  return (
+    typeof value.node_id === "string" &&
+    typeof value.role === "string" &&
+    typeof value.reason === "string" &&
+    (value.state === "matched" || value.state === "fallback" || value.state === "unavailable") &&
+    (value.worker_id === undefined || typeof value.worker_id === "string") &&
+    (value.workspace_id === undefined || typeof value.workspace_id === "string")
+  );
+}
+
+/** `TriggerDraft` returned by repair and suggest-triggers; it is not persisted by Atlas. */
+export interface AtlasTriggerDraft {
+  name?: string;
+  type?: string;
+  config: JsonObject;
+  enabled?: boolean;
+}
+
+export function isAtlasTriggerDraft(value: unknown): value is AtlasTriggerDraft {
+  if (!isPlainAtlasObject(value) || !isPlainAtlasObject(value.config)) return false;
+  return (
+    (value.name === undefined || typeof value.name === "string") &&
+    (value.type === undefined || typeof value.type === "string") &&
+    (value.enabled === undefined || typeof value.enabled === "boolean")
+  );
+}
+
 export function isAtlasWorkflowDraft(value: unknown): value is AtlasWorkflowDraft {
   if (!isPlainAtlasObject(value)) return false;
   return (

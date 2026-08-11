@@ -30,7 +30,7 @@ Both frontends stay in use; they cover different ground.
 | Ad-hoc job submission / handoff                                      | No — API only                                            | No — API only                                                                  |
 | Solution-pack import/export                                          | No — API only                                            | Yes, from the Workflows list and workflow editor                               |
 | Draft-from-plain-language                                            | No — API only                                            | Yes, **Draft with AI** on the Workflows list                                   |
-| Explain, Repair, Suggest workers/triggers                            | No — API only                                            | No — API only                                                                  |
+| Explain, Repair, Suggest workers/triggers                            | No — API only                                            | Yes, in the workflow editor                                                    |
 | Usage metering                                                       | Yes, plus a 7-day chart and a quota/threshold alert      | Yes, no chart, no quota alert                                                  |
 | Audit log                                                            | Yes, filterable by type, rows jump to the job/run/worker | Yes, plain log, no type filter, rows are not clickable                         |
 | Users & API tokens                                                   | Yes                                                      | Yes                                                                            |
@@ -49,8 +49,6 @@ through Atlas's REST API (see the
 
 - Submitting an ad-hoc job outside a workflow, with routing/handoff (`POST /api/jobs`).
 - Uploading a file to a run, e.g. a contract for a human gate to review (`POST /api/workflow-runs/{id}/files`).
-- Non-saving Explain/Repair drafts (`POST /api/workflows/{id}/explain|repair`). **Draft with AI** is available from the Workflows list; the editor assists remain API-only.
-- Suggest-workers / Suggest-triggers helpers (`POST /api/workflows/suggest-workers`, `POST /api/workflows/{id}/suggest-triggers`).
 - A dedicated "manager decision" panel with proposal/acceptance reasoning (visible via run events and audit instead — see §9).
 - Staging a binary file for the _start_ node. `POST /api/workflow-runs/{id}/files` needs a run that already exists, so a JSON `attachments` field carries text or metadata, never an upload.
 
@@ -242,6 +240,21 @@ instance has no worker tagged `workflow_builder`, the dialog adds a setup hint;
 configure that worker before trying again. The browser does not persist the
 prompt, and this UI does not retry the billed draft request.
 
+### Editor assists
+
+The saved workflow editor has four proposal-first assists. **Explain** opens a
+dialog with Atlas's plain-language explanation and never changes the workflow.
+When Save or Check against Atlas returns a validation 400, **Repair with AI**
+sends the current graph and policy for a validated preview; **Use repair in
+canvas** replaces the unsaved canvas draft only, and never saves automatically.
+For worker/manager nodes that have a role but no worker or workspace id,
+**Suggest workers** shows Atlas's matched, fallback, or unavailable result and
+applies a returned `worker_id` only when you click **Apply worker**. It also
+works with Atlas's deterministic local matcher when no builder worker exists.
+**Suggest triggers** displays proposed trigger rows; each becomes an Atlas
+trigger only after its own **Create trigger** click. Builder-backed assists can
+take several minutes, and the UI does not retry them.
+
 Pack import/export controls are described in the Workflow packs section below.
 
 ### The editor
@@ -327,12 +340,11 @@ entirely form-based:
 - **Allow lists**: **allowed_worker_ids**, **allowed_workspace_ids**
   (comma-separated).
 
-Toolbar actions (exact button text): **Auto-arrange**, **Save**/"Saving…",
+Toolbar actions include **Auto-arrange**, **Save**/"Saving…",
 **Check against Atlas**/"Checking…" (calls Atlas's
-`POST /api/workflows/{id}/validate`), and **Test run**/"Starting…". There is
-no **Explain**, **Repair**, or Suggest-workers button in the editor; **Draft
-with AI** starts from the Workflows list (see "Not here" above for the
-remaining API-only assists).
+`POST /api/workflows/{id}/validate`), the four editor assists above, and
+**Test run**/"Starting…". AI results stay proposals until an explicit apply or
+create click.
 
 ### Application interface
 

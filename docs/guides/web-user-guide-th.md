@@ -30,7 +30,7 @@ delivery และรายงานข้าม run ที่
 | สั่งงานเดี่ยวแบบ ad-hoc / handoff                                       | ไม่มี — ผ่าน API เท่านั้น                          | ไม่มี — ผ่าน API เท่านั้น                                                                    |
 | Import/export solution pack                                             | ไม่มี — ผ่าน API เท่านั้น                          | มีให้ใช้จากหน้า Workflows และ workflow editor                                                |
 | Draft-from-plain-language                                               | ไม่มี — ผ่าน API เท่านั้น                          | มีปุ่ม **Draft with AI** ในหน้า Workflows                                                    |
-| Explain, Repair, Suggest workers/triggers                               | ไม่มี — ผ่าน API เท่านั้น                          | ไม่มี — ผ่าน API เท่านั้น                                                                    |
+| Explain, Repair, Suggest workers/triggers                               | ไม่มี — ผ่าน API เท่านั้น                          | มีใน workflow editor                                                                         |
 | การวัดการใช้งาน (Usage)                                                 | มี พร้อมกราฟ 7 วันและแจ้งเตือน quota               | มี ไม่มีกราฟ ไม่มีแจ้งเตือน quota                                                            |
 | Audit log                                                               | มี กรองตามประเภทได้ แถวกดแล้วพาไปหา job/run/worker | มี เป็น log ธรรมดา ไม่มีตัวกรองตามประเภท แถวกดไม่ได้                                         |
 | Users และ API tokens                                                    | มี                                                 | มี                                                                                           |
@@ -49,11 +49,6 @@ Atlas (ดู
 
 - สั่งงานเดี่ยวแบบ ad-hoc นอก workflow พร้อม routing/handoff (`POST /api/jobs`)
 - อัปโหลดไฟล์เข้า run เช่น สัญญาให้ human gate ตรวจ (`POST /api/workflow-runs/{id}/files`)
-- Explain/Repair แบบ non-saving (`POST /api/workflows/{id}/explain|repair`)
-  ส่วน **Draft with AI** ใช้ได้จากหน้า Workflows แต่ตัวช่วยใน editor ยังมี
-  เฉพาะ API เท่านั้น
-- ตัวช่วย Suggest-workers / Suggest-triggers
-  (`POST /api/workflows/suggest-workers`, `POST /api/workflows/{id}/suggest-triggers`)
 - แผง "manager decision" ที่แสดง proposal และเหตุผลรับ/ปฏิเสธโดยเฉพาะ (ดูได้
   ผ่าน run events และ audit แทน — ดู §9)
 - แนบไฟล์ binary ให้ start node ตั้งแต่ก่อนเริ่ม run เพราะ
@@ -243,6 +238,20 @@ trigger ที่เสนอเป็นเพียงข้อมูลแส
 worker ที่ติด tag `workflow_builder` dialog จะแสดงคำแนะนำให้ตั้งค่า worker ก่อนลองใหม่
 prompt จะไม่ถูกเก็บใน browser และ UI นี้จะไม่ retry request ที่มีค่าใช้จ่าย
 
+### ตัวช่วยใน editor
+
+workflow editor ที่เปิดจาก definition ที่บันทึกแล้วมีตัวช่วยแบบเสนอผลก่อนใช้ 4 แบบ
+**Explain** เปิด dialog อธิบาย workflow เป็นภาษาคนและไม่แก้ไข workflow
+เมื่อ Save หรือ Check against Atlas ได้ 400 แบบ validation จะมี **Repair with AI**
+ส่ง graph/policy ปัจจุบันไปให้ Atlas ตรวจและคืน preview; กด **Use repair in canvas**
+จึงจะแทนที่ draft ที่ยังไม่ save ใน canvas และจะไม่ save ให้อัตโนมัติ
+สำหรับ node ชนิด worker/manager ที่มี role แต่ยังไม่มี worker หรือ workspace id
+**Suggest workers** จะแสดงผล matched/fallback/unavailable และจะใส่ `worker_id`
+เฉพาะเมื่อกด **Apply worker** เท่านั้น ฟีเจอร์นี้ยังใช้ local matcher ของ Atlas ได้
+แม้ไม่มี builder worker ส่วน **Suggest triggers** แสดง trigger ที่เสนอ และแต่ละรายการ
+จะสร้างจริงก็ต่อเมื่อกด **Create trigger** ของรายการนั้นเอง ตัวช่วยที่เรียก builder
+อาจใช้เวลาหลายนาที และ UI จะไม่ retry ให้เอง
+
 ปุ่ม import/export solution pack อธิบายไว้ในหัวข้อ Workflow packs ด้านล่าง
 
 ### ตัวแก้ไข (editor)
@@ -325,11 +334,10 @@ policy (ด้านล่าง) จะเปิด
 - **Allow lists**: **allowed_worker_ids**, **allowed_workspace_ids** (คั่นด้วย
   comma)
 
-ปุ่มใน toolbar (ข้อความจริง): **Auto-arrange**, **Save**/"Saving…", **Check
-against Atlas**/"Checking…" (เรียก `POST /api/workflows/{id}/validate` ของ
-Atlas) และ **Test run**/"Starting…" ไม่มีปุ่ม **Explain**, **Repair** หรือ
-Suggest-workers ใน editor; **Draft with AI** เริ่มจากหน้า Workflows (ดู
-"สิ่งที่ยังไม่มีใน UI" สำหรับตัวช่วยที่ยังมีเฉพาะ API)
+ปุ่มใน toolbar มี **Auto-arrange**, **Save**/"Saving…", **Check against Atlas**/
+"Checking…" (เรียก `POST /api/workflows/{id}/validate` ของ Atlas), ตัวช่วยใน
+editor ทั้ง 4 แบบข้างต้น และ **Test run**/"Starting…" ผลจาก AI จะเป็นเพียง
+proposal จนกว่าจะกด apply หรือ create อย่างชัดเจน
 
 ### Application interface
 

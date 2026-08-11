@@ -624,6 +624,23 @@ warnings), format:check, unit **383**, contract **136 + 3 skipped** (real Atlas)
       `bun run scan:bundle`, and `bun run build` are green for this stage (645 unit tests;
       179 contract tests plus 3 skips; bundle scan clean; build succeeded).
 
+## AI authoring — D4
+
+- [x] The saved workflow editor exposes Explain, Repair with AI, Suggest workers, and Suggest
+      triggers through typed, session-validated Atlas operations with no frontend retry.
+- [x] Repair previews the current graph/policy and replaces only the unsaved canvas draft after
+      an explicit accept; worker ids and trigger rows are applied/created only by explicit clicks.
+- [x] Worker suggestions show matched/fallback/unavailable states and retain Atlas's local
+      matcher path when no `workflow_builder` worker is configured.
+- [x] Unit coverage covers fixed assist requests and worker-application state; the real Atlas
+      mutation contract covers explain, repair, local worker suggestions, and the no-builder
+      trigger-suggestion refusal.
+- [x] Guides EN/TH and `BACKEND_INTEGRATION.md` document the editor assist contract, proposal
+      boundary, worker prerequisite, and builder latency.
+- [x] **Gate:** final D4 tree passes `bun run format:check`, `bun run lint` (0 errors; 12 existing
+      warnings), `bun run typecheck`, `bun run test` (651 passed), `bun run test:contract`
+      (182 passed; 3 skipped), `bun run scan:bundle` (clean), and `bun run build`.
+
 ### Phase 7 verification evidence (2026-07-21)
 
 Frontend baseline: `64eeae9`. Tested implementation: `7740797`; Node-runtime harness:

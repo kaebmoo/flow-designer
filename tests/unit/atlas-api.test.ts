@@ -6,6 +6,11 @@ import {
   atlasCreateWorkflow,
   atlasDraftWorkflow,
   DRAFT_WORKFLOW_TIMEOUT_MS,
+  atlasExplainWorkflow,
+  atlasRepairWorkflow,
+  atlasSuggestWorkflowTriggers,
+  atlasSuggestWorkflowWorkers,
+  WORKFLOW_BUILDER_TIMEOUT_MS,
   atlasGetArtifact,
   atlasGetMe,
   atlasListApiTokens,
@@ -186,6 +191,72 @@ describe("request construction", () => {
     expect(createBody.version).toBeUndefined();
     expect(updateBody).toMatchObject({ default_reply: null, expected_version: 2 });
     expect(updateBody.version).toBeUndefined();
+  });
+
+  it("keeps editor assists on fixed paths with validated response envelopes", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.endsWith("/explain"))
+        return Promise.resolve(jsonResponse({ explanation: "It routes work." }));
+      if (url.endsWith("/repair")) {
+        return Promise.resolve(
+          jsonResponse({
+            draft: {
+              name: "Repaired",
+              description: "A repaired graph.",
+              graph: { start: "worker_1", nodes: [{ id: "worker_1", type: "worker" }], edges: [] },
+              policy: {},
+              triggers: [],
+              explanation: "The graph is valid.",
+              warnings: [],
+            },
+          }),
+        );
+      }
+      if (url.endsWith("/suggest-workers")) {
+        return Promise.resolve(
+          jsonResponse({
+            suggestions: [
+              {
+                node_id: "worker_1",
+                role: "reporter",
+                worker_id: "wrk_1",
+                reason: "Role match.",
+                state: "matched",
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.resolve(
+        jsonResponse({
+          triggers: [{ name: "Manual intake", type: "manual", config: {}, enabled: false }],
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(atlasExplainWorkflow("tok", "wfd_1")).resolves.toBe("It routes work.");
+    await expect(
+      atlasRepairWorkflow("tok", "wfd_1", {
+        graph: { start: "worker_1", nodes: [{ id: "worker_1", type: "worker" }], edges: [] },
+        policy: {},
+      }),
+    ).resolves.toMatchObject({ name: "Repaired" });
+    await expect(
+      atlasSuggestWorkflowWorkers("tok", { graph: {}, policy: {} }),
+    ).resolves.toHaveLength(1);
+    await expect(atlasSuggestWorkflowTriggers("tok", "wfd_1")).resolves.toHaveLength(1);
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `${ATLAS_ORIGIN}/api/workflows/wfd_1/explain`,
+      `${ATLAS_ORIGIN}/api/workflows/wfd_1/repair`,
+      `${ATLAS_ORIGIN}/api/workflows/suggest-workers`,
+      `${ATLAS_ORIGIN}/api/workflows/wfd_1/suggest-triggers`,
+    ]);
+    expect(fetchMock.mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
+    expect(WORKFLOW_BUILDER_TIMEOUT_MS).toBe(60 * 60 * 1_000);
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toMatchObject({ triggers: [] });
+    expect(JSON.parse(fetchMock.mock.calls[2]![1].body)).toEqual({ graph: {}, policy: {} });
   });
 
   it("fails closed when a workflow default reply has the wrong shape", async () => {

@@ -157,6 +157,13 @@ function WorkflowEditorRoute() {
     return [...saveIssues, ...atlasValidationIssues];
   }, [save.error, atlasValidationIssues]);
 
+  const repairMessage =
+    save.error?.kind === "validation"
+      ? save.error.message
+      : validation?.ok === false && atlasValidationIssues.length > 0
+        ? validation.message
+        : null;
+
   /**
    * The observed run interface of the **saved** graph.
    *
@@ -456,6 +463,13 @@ function WorkflowEditorRoute() {
         saving={save.isPending}
         serverIssues={serverIssues}
         saveError={save.error?.kind === "conflict" ? null : save.error ? save.error.message : null}
+        repairMessage={repairMessage}
+        onRepairAccepted={() => {
+          setValidation(null);
+          setAtlasValidationIssues([]);
+          save.reset();
+          validate.reset();
+        }}
         expectedVersionOverride={expectedVersionOverride}
         onSave={onSave}
         validating={validate.isPending}

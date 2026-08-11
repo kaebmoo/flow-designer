@@ -81,6 +81,7 @@ import {
   type WorkflowPolicy,
 } from "@/lib/workflow-graph";
 import { EdgeInspector, NodeInspector, PolicyPanel } from "./workflow-inspector";
+import { WorkflowAiAssists } from "./workflow-ai-assists";
 import {
   NODE_HEIGHT,
   NODE_WIDTH,
@@ -111,7 +112,11 @@ import {
   type InterfaceDraftState,
 } from "./workflow-interface-panel";
 import type { WorkflowEditableInterface } from "@/lib/atlas-mappers";
-import { isWorkflowStatus, type AtlasWorkflowInterface } from "@/lib/atlas-types";
+import {
+  isWorkflowStatus,
+  type AtlasWorkflowDraft,
+  type AtlasWorkflowInterface,
+} from "@/lib/atlas-types";
 import { observeWorkflowContract } from "@/lib/workflow-run-contract";
 
 const nodeTypes: NodeTypes = { atlas: WorkflowCanvasNode };
@@ -327,6 +332,10 @@ export interface WorkflowEditorProps {
   serverIssues?: ValidationIssue[];
   /** The message from the last failed save. Shown verbatim, because Atlas wrote it for us. */
   saveError?: string | null;
+  /** Atlas validation/save 400 copy that makes the non-saving Repair assist relevant. */
+  repairMessage?: string | null;
+  /** Clears the failed Atlas validation/save state after a repair is accepted locally. */
+  onRepairAccepted?: () => void;
   expectedVersionOverride?: number;
   /**
    * True while Atlas's stored version differs from the one this editor is showing — another
@@ -382,6 +391,8 @@ function EditorSurface({
   saving,
   serverIssues,
   saveError,
+  repairMessage,
+  onRepairAccepted,
   expectedVersionOverride,
   serverMoved,
   onSave,
@@ -780,6 +791,29 @@ function EditorSurface({
       if (persist) writeLayout(layoutKeyId, graphVersion, next);
     },
     [layoutKeyId, graphVersion],
+  );
+
+  const applyRepair = useCallback(
+    (draft: AtlasWorkflowDraft, nextGraph: WorkflowGraph, nextPolicy: WorkflowPolicy) => {
+      pushHistory();
+      setGraph(nextGraph);
+      setPolicy(nextPolicy);
+      setName(draft.name);
+      setDescription(draft.description);
+      setSelection(null);
+      applyLayout(resolveLayout(nextGraph, layout));
+      fitSoon();
+      onRepairAccepted?.();
+    },
+    [applyLayout, fitSoon, layout, onRepairAccepted, pushHistory],
+  );
+
+  const applySuggestedWorkerGraph = useCallback(
+    (nextGraph: WorkflowGraph) => {
+      pushHistory();
+      setGraph(nextGraph);
+    },
+    [pushHistory],
   );
 
   const localIssues = useMemo(() => validateWorkflow(graph, policy), [graph, policy]);
@@ -1615,6 +1649,18 @@ function EditorSurface({
           >
             {validating ? "Checking…" : "Check against Atlas"}
           </Button>
+
+          {workflowId ? (
+            <WorkflowAiAssists
+              workflowId={workflowId}
+              workflowName={name}
+              graph={graph}
+              policy={policy}
+              repairMessage={repairMessage}
+              onApplyRepair={applyRepair}
+              onApplyWorker={applySuggestedWorkerGraph}
+            />
+          ) : null}
 
           <Button
             type="button"

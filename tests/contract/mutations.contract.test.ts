@@ -28,6 +28,7 @@ import {
   atlasDeleteWorker,
   atlasDeleteWorkspace,
   atlasDraftWorkflow,
+  atlasExplainWorkflow,
   atlasDeliverRun,
   atlasFireWorkflowTrigger,
   atlasGetJob,
@@ -41,6 +42,9 @@ import {
   atlasListWorkspaces,
   atlasLogin,
   atlasRetryDelivery,
+  atlasRepairWorkflow,
+  atlasSuggestWorkflowTriggers,
+  atlasSuggestWorkflowWorkers,
   atlasRunAction,
   atlasStartWorkflowRun,
   atlasUpdateWorkflow,
@@ -759,6 +763,50 @@ describe.skipIf(!available)("Atlas mutation contract", () => {
         await atlasDraftWorkflow(adminToken, "Create a simple workflow.").catch((e: unknown) => e),
       );
 
+      expect(error.status).toBe(400);
+      expect(error.message).toContain("No workflow_builder worker configured");
+    });
+  });
+
+  describe("editor AI assists", () => {
+    it("explains and repairs through Atlas without persisting a new definition", async () => {
+      const explanation = await atlasExplainWorkflow(adminToken, seeded!.workflowId);
+      expect(explanation).toContain("Contract Workflow");
+
+      const draft = await atlasRepairWorkflow(adminToken, seeded!.workflowId, {
+        graph: serializeWorkflowGraph(graphOf(MINIMAL_GRAPH)),
+        policy: {},
+        triggers: [],
+      });
+      expect(draft.explanation).toBe("Workflow already validates.");
+      expect(draft.name).toBe("Contract Workflow");
+      await expect(atlasGetWorkflow(adminToken, seeded!.workflowId)).resolves.toMatchObject({
+        name: "Contract Workflow",
+      });
+    });
+
+    it("returns deterministic worker suggestions without a workflow builder", async () => {
+      const suggestions = await atlasSuggestWorkflowWorkers(adminToken, {
+        graph: {
+          start: "role_node",
+          nodes: [{ id: "role_node", type: "worker", role: "reporter" }],
+          edges: [],
+        },
+        policy: {},
+      });
+      expect(suggestions).toEqual([
+        expect.objectContaining({
+          node_id: "role_node",
+          worker_id: seeded!.workerId,
+          state: "matched",
+        }),
+      ]);
+    });
+
+    it("refuses trigger suggestions without a builder instead of silently creating anything", async () => {
+      const error = atlasErrorFrom(
+        await atlasSuggestWorkflowTriggers(adminToken, seeded!.workflowId).catch((e: unknown) => e),
+      );
       expect(error.status).toBe(400);
       expect(error.message).toContain("No workflow_builder worker configured");
     });

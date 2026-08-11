@@ -38,6 +38,10 @@ import {
   atlasDeleteWorker,
   atlasDeleteWorkspace,
   atlasDraftWorkflow,
+  atlasExplainWorkflow,
+  atlasRepairWorkflow,
+  atlasSuggestWorkflowTriggers,
+  atlasSuggestWorkflowWorkers,
   atlasDeliverRun,
   atlasFireWorkflowTrigger,
   atlasGetArtifact,
@@ -64,6 +68,7 @@ import {
   atlasValidateWorkflow,
   AtlasError,
   DRAFT_WORKFLOW_TIMEOUT_MS,
+  WORKFLOW_BUILDER_TIMEOUT_MS,
   type AtlasRunAction,
 } from "./atlas-api.server";
 import { clampAtlasLimit, MAX_DRAFT_PROMPT_LENGTH } from "./atlas-limits";
@@ -107,6 +112,8 @@ import {
   WORKFLOW_STATUSES,
   isWorkflowStatus,
   type AtlasWorkflowDraft,
+  type AtlasTriggerDraft,
+  type AtlasWorkerSuggestion,
   type AtlasWorkflowInterface,
   type WorkflowExecutionMode,
   type WorkflowStatus,
@@ -198,6 +205,18 @@ function requiredDraftPrompt(data: unknown): string {
     );
   }
   return value.trim();
+}
+
+function optionalDraftPrompt(data: unknown): string | undefined {
+  const value = field(data, "plainLanguagePrompt");
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") throw new Error("plainLanguagePrompt must be a string.");
+  if (value.length > MAX_DRAFT_PROMPT_LENGTH) {
+    throw new Error(
+      "plainLanguagePrompt is too long (maximum " + MAX_DRAFT_PROMPT_LENGTH + " characters).",
+    );
+  }
+  return value.trim() || undefined;
 }
 
 function optionalText(data: unknown, key: string, max: number): string {
@@ -310,6 +329,18 @@ function plainObject(data: unknown, key: string): Record<string, unknown> {
     throw new Error(`${key} must be an object.`);
   }
   return value as Record<string, unknown>;
+}
+
+function optionalObjectArray(data: unknown, key: string): Record<string, unknown>[] {
+  const value = field(data, key);
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${key} must be an array.`);
+  return value.map((item, index) => {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`${key}[${index}] must be an object.`);
+    }
+    return item as Record<string, unknown>;
+  });
 }
 
 function requiredPackBundle(data: unknown): AtlasPackBundle {
@@ -638,6 +669,70 @@ export const draftWorkflowFn = createServerFn({ method: "POST" })
       mutate(async (token) =>
         atlasDraftWorkflow(token, data.plainLanguagePrompt, {
           timeoutMs: DRAFT_WORKFLOW_TIMEOUT_MS,
+        }),
+      ),
+  );
+
+/** `POST /api/workflows/{id}/explain` — one long-running, non-saving assist. */
+export const explainWorkflowFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => requiredId(data, "workflowId"))
+  .handler(
+    async ({ data: workflowId }): Promise<AtlasResult<string>> =>
+      mutate(async (token) =>
+        atlasExplainWorkflow(token, workflowId, { timeoutMs: WORKFLOW_BUILDER_TIMEOUT_MS }),
+      ),
+  );
+
+/** `POST /api/workflows/{id}/repair` — preview only; accepting it stays in the canvas. */
+export const repairWorkflowFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({
+    workflowId: requiredId(data, "workflowId"),
+    graph: field(data, "graph"),
+    policy: field(data, "policy"),
+    triggers: optionalObjectArray(data, "triggers"),
+  }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<AtlasWorkflowDraft>> =>
+      mutate(async (token) => {
+        const accepted = acceptGraph(data.graph, data.policy);
+        return atlasRepairWorkflow(
+          token,
+          data.workflowId,
+          { graph: accepted.graph, policy: accepted.policy, triggers: data.triggers },
+          { timeoutMs: WORKFLOW_BUILDER_TIMEOUT_MS },
+        );
+      }),
+  );
+
+/** `POST /api/workflows/suggest-workers` — Atlas may use deterministic local matching. */
+export const suggestWorkflowWorkersFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({ graph: field(data, "graph"), policy: field(data, "policy") }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<AtlasWorkerSuggestion[]>> =>
+      mutate(async (token) => {
+        const accepted = acceptGraph(data.graph, data.policy);
+        return atlasSuggestWorkflowWorkers(
+          token,
+          {
+            graph: accepted.graph,
+            policy: accepted.policy,
+          },
+          { timeoutMs: WORKFLOW_BUILDER_TIMEOUT_MS },
+        );
+      }),
+  );
+
+/** `POST /api/workflows/{id}/suggest-triggers` — proposals become rows only on explicit create. */
+export const suggestWorkflowTriggersFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({
+    workflowId: requiredId(data, "workflowId"),
+    plainLanguagePrompt: optionalDraftPrompt(data),
+  }))
+  .handler(
+    async ({ data }): Promise<AtlasResult<AtlasTriggerDraft[]>> =>
+      mutate(async (token) =>
+        atlasSuggestWorkflowTriggers(token, data.workflowId, data.plainLanguagePrompt, {
+          timeoutMs: WORKFLOW_BUILDER_TIMEOUT_MS,
         }),
       ),
   );

@@ -22,7 +22,9 @@ import {
   isAtlasArtifact,
   isAtlasArtifactListing,
   isAtlasSession,
+  isAtlasTriggerDraft,
   isAtlasUser,
+  isAtlasWorkerSuggestion,
   isAtlasWorkflowDefaultReply,
   isAtlasWorkflowDraft,
   isAtlasWorkflowEventPage,
@@ -52,6 +54,8 @@ import {
   type AtlasWorker,
   type AtlasWorkflowDefinition,
   type AtlasWorkflowDraft,
+  type AtlasTriggerDraft,
+  type AtlasWorkerSuggestion,
   type AtlasWorkflowEventPage,
   type AtlasWorkflowInterface,
   type AtlasWorkflowRun,
@@ -68,8 +72,10 @@ import { getServerEnv } from "./env.server";
 
 /** Atlas is on a private network; 10s is generous for it and still bounds a hung socket. */
 export const DEFAULT_ATLAS_TIMEOUT_MS = 10_000;
-/** A draft can spend two synchronous builder jobs; Atlas's default per-job wait is one hour. */
-export const DRAFT_WORKFLOW_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
+/** A synchronous builder job can wait as long as Atlas's one-hour per-job default. */
+export const WORKFLOW_BUILDER_TIMEOUT_MS = 60 * 60 * 1_000;
+/** A draft can spend two synchronous builder jobs; keep both waits inside one request deadline. */
+export const DRAFT_WORKFLOW_TIMEOUT_MS = 2 * WORKFLOW_BUILDER_TIMEOUT_MS;
 export { MAX_RETRY_AFTER_SECONDS } from "./atlas-retry";
 
 export class AtlasError extends Error {
@@ -579,6 +585,104 @@ export async function atlasDraftWorkflow(
       typeof value === "object" &&
       isAtlasWorkflowDraft((value as Record<string, unknown>).draft),
   ).draft;
+}
+
+/** `POST /api/workflows/{id}/explain` — AI when configured, deterministic text otherwise. */
+export async function atlasExplainWorkflow(
+  token: string,
+  workflowId: string,
+  options: AtlasCallOptions = {},
+): Promise<string> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/workflows/${encodeURIComponent(workflowId)}/explain`,
+    token,
+    body: {},
+    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
+    ...options,
+  });
+  return expectShape<{ explanation: string }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      typeof (value as Record<string, unknown>).explanation === "string",
+  ).explanation;
+}
+
+/** `POST /api/workflows/{id}/repair` — returns a validated, unsaved replacement proposal. */
+export async function atlasRepairWorkflow(
+  token: string,
+  workflowId: string,
+  candidate: {
+    graph: Record<string, unknown>;
+    policy: Record<string, unknown>;
+    triggers?: Record<string, unknown>[];
+  },
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkflowDraft> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/workflows/${encodeURIComponent(workflowId)}/repair`,
+    token,
+    body: {
+      graph: candidate.graph,
+      policy: candidate.policy,
+      triggers: candidate.triggers ?? [],
+    },
+    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
+    ...options,
+  });
+  return expectShape<{ draft: AtlasWorkflowDraft }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      isAtlasWorkflowDraft((value as Record<string, unknown>).draft),
+  ).draft;
+}
+
+/** `POST /api/workflows/suggest-workers` — local matching works without a builder. */
+export async function atlasSuggestWorkflowWorkers(
+  token: string,
+  candidate: { graph: Record<string, unknown>; policy: Record<string, unknown> },
+  options: AtlasCallOptions = {},
+): Promise<AtlasWorkerSuggestion[]> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: "/api/workflows/suggest-workers",
+    token,
+    body: { graph: candidate.graph, policy: candidate.policy },
+    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
+    ...options,
+  });
+  return expectShape<{ suggestions: AtlasWorkerSuggestion[] }>(payload, (value) => {
+    if (value === null || typeof value !== "object") return false;
+    const suggestions = (value as Record<string, unknown>).suggestions;
+    return Array.isArray(suggestions) && suggestions.every(isAtlasWorkerSuggestion);
+  }).suggestions;
+}
+
+/** `POST /api/workflows/{id}/suggest-triggers` — proposal only until each row is created. */
+export async function atlasSuggestWorkflowTriggers(
+  token: string,
+  workflowId: string,
+  plainLanguagePrompt?: string,
+  options: AtlasCallOptions = {},
+): Promise<AtlasTriggerDraft[]> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/workflows/${encodeURIComponent(workflowId)}/suggest-triggers`,
+    token,
+    body: plainLanguagePrompt ? { plain_language_prompt: plainLanguagePrompt } : {},
+    timeoutMs: options.timeoutMs ?? WORKFLOW_BUILDER_TIMEOUT_MS,
+    ...options,
+  });
+  return expectShape<{ triggers: AtlasTriggerDraft[] }>(payload, (value) => {
+    if (value === null || typeof value !== "object") return false;
+    const triggers = (value as Record<string, unknown>).triggers;
+    return Array.isArray(triggers) && triggers.every(isAtlasTriggerDraft);
+  }).triggers;
 }
 
 /** `GET /api/packs/{definitionId}/export` — 200, `{ pack }`. */

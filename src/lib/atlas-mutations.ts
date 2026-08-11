@@ -22,6 +22,10 @@ import {
   createUserFn,
   createWorkflowFn,
   draftWorkflowFn,
+  explainWorkflowFn,
+  repairWorkflowFn,
+  suggestWorkflowTriggersFn,
+  suggestWorkflowWorkersFn,
   decideApprovalFn,
   deleteTriggerFn,
   deleteUserFn,
@@ -52,6 +56,8 @@ import { exportPackFn, type AtlasResult } from "./atlas-reads.functions";
 import type { ApiTokenView, ClientAtlasError } from "./atlas-mappers";
 import type {
   AtlasWorkflowDraft,
+  AtlasTriggerDraft,
+  AtlasWorkerSuggestion,
   AtlasWorkflowInterface,
   WorkflowExecutionMode,
   WorkflowStatus,
@@ -173,6 +179,39 @@ export function useDraftWorkflow() {
     (data) => draftWorkflowFn({ data }),
     [],
   );
+}
+
+export function useExplainWorkflow() {
+  return useAtlasMutation<{ workflowId: string }, string>(
+    (data) => explainWorkflowFn({ data }),
+    [],
+  );
+}
+
+export function useRepairWorkflow() {
+  return useAtlasMutation<
+    {
+      workflowId: string;
+      graph: unknown;
+      policy: unknown;
+      triggers?: unknown[];
+    },
+    AtlasWorkflowDraft
+  >((data) => repairWorkflowFn({ data }), []);
+}
+
+export function useSuggestWorkflowWorkers() {
+  return useAtlasMutation<{ graph: unknown; policy: unknown }, AtlasWorkerSuggestion[]>(
+    (data) => suggestWorkflowWorkersFn({ data }),
+    [],
+  );
+}
+
+export function useSuggestWorkflowTriggers() {
+  return useAtlasMutation<
+    { workflowId: string; plainLanguagePrompt?: string },
+    AtlasTriggerDraft[]
+  >((data) => suggestWorkflowTriggersFn({ data }), []);
 }
 
 /**
