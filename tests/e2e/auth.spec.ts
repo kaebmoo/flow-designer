@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { ADMIN_CREDENTIALS, VIEWER_CREDENTIALS } from "../contract/atlas-instance";
 
@@ -23,16 +23,20 @@ import { ADMIN_CREDENTIALS, VIEWER_CREDENTIALS } from "../contract/atlas-instanc
  * The pre-hydration window is deliberately still covered, by the JavaScript-disabled test
  * below; it must not be waited away there.
  */
-async function gotoAuthHydrated(page: import("@playwright/test").Page) {
+async function gotoAuthHydrated(page: Page) {
   await page.goto("/auth");
   await page.locator('form[data-hydrated="true"]').waitFor({ state: "attached" });
 }
 
-async function signIn(page: import("@playwright/test").Page, creds: typeof ADMIN_CREDENTIALS) {
+async function signIn(page: Page, creds: typeof ADMIN_CREDENTIALS) {
   await gotoAuthHydrated(page);
   await page.getByLabel("Username").fill(creds.username);
   await page.getByLabel("Password").fill(creds.password);
   await page.getByRole("button", { name: "Sign in" }).click();
+}
+
+async function expandNavigation(page: Page) {
+  await page.getByRole("button", { name: "Expand navigation" }).click();
 }
 
 test("an unauthenticated visitor is redirected from a protected page to /auth", async ({
@@ -47,6 +51,7 @@ test("signing in reaches the dashboard and shows the Atlas identity", async ({ p
   await signIn(page, ADMIN_CREDENTIALS);
 
   await expect(page).toHaveURL(/\/dashboard$/);
+  await expandNavigation(page);
   await expect(page.getByText("admin", { exact: true })).toBeVisible();
   await expect(page.getByText("Admin", { exact: true })).toBeVisible();
 });
@@ -107,6 +112,7 @@ test("the session survives a full page reload", async ({ page }) => {
 
   await page.reload();
   await expect(page).toHaveURL(/\/dashboard$/);
+  await expandNavigation(page);
   await expect(page.getByText("admin", { exact: true })).toBeVisible();
 });
 
@@ -126,6 +132,7 @@ test("a viewer signs in and sees their real role", async ({ page }) => {
   await signIn(page, VIEWER_CREDENTIALS);
 
   await expect(page).toHaveURL(/\/dashboard$/);
+  await expandNavigation(page);
   await expect(page.getByText("Viewer", { exact: true })).toBeVisible();
 });
 

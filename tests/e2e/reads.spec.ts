@@ -36,6 +36,10 @@ async function signIn(page: Page, creds: typeof ADMIN_CREDENTIALS) {
   await expect(page).toHaveURL(/\/dashboard$/);
 }
 
+async function expandNavigation(page: Page) {
+  await page.getByRole("button", { name: "Expand navigation" }).click();
+}
+
 async function waitForSeededWorkflowJob(): Promise<string> {
   const seed = seedIds();
   const deadline = Date.now() + 20_000;
@@ -316,6 +320,7 @@ test("a viewer sees the same Atlas data, because Atlas grants every role `read`"
 }) => {
   await signIn(page, VIEWER_CREDENTIALS);
 
+  await expandNavigation(page);
   await expect(page.getByText("Viewer", { exact: true })).toBeVisible();
   await expect(page.getByText("Contract Workflow").first()).toBeVisible();
 
