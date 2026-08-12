@@ -58,16 +58,71 @@ describe("AI workflow draft helpers", () => {
     });
   });
 
-  it("does not misclassify validation copy that mentions an operator", () => {
+  it("demotes validator jargon to a technical detail behind a plain-language headline", () => {
+    const result = describeWorkflowDraftError({
+      kind: "validation",
+      message: "workflow draft trigger at index 0 must be an object",
+    });
+    expect(result.message).toContain("could not turn this description into a valid workflow");
+    expect(result.detail).toBe("workflow draft trigger at index 0 must be an object");
+    expect(result.forbidden).toBe(false);
+    expect(result.needsBuilderSetup).toBe(false);
+  });
+
+  it("classifies on the error kind, not a message prefix", () => {
+    // `duplicate node id` is a real Atlas validation string with no `workflow ` prefix; a prefix
+    // regex would have leaked it raw. This case is why the rule keys off `kind`.
+    const result = describeWorkflowDraftError({
+      kind: "validation",
+      message: "duplicate node id: gate",
+    });
+    expect(result.message).toContain("could not turn this description into a valid workflow");
+    expect(result.detail).toBe("duplicate node id: gate");
+  });
+
+  it("does not tell the user to simplify wording when the builder job itself failed", () => {
+    const result = describeWorkflowDraftError({
+      kind: "validation",
+      message: "workflow_builder job failed: builder worker exploded",
+    });
+    expect(result.message).toContain("builder worker could not finish");
+    expect(result.message).not.toContain("simplifying");
+    expect(result.detail).toBe("workflow_builder job failed: builder worker exploded");
+    expect(result.needsBuilderSetup).toBe(false);
+  });
+
+  it("keeps the builder-setup case verbatim with no disclosure", () => {
     expect(
       describeWorkflowDraftError({
         kind: "validation",
-        message: "The operator description is invalid",
+        message: "No workflow_builder worker configured",
       }),
     ).toEqual({
-      message: "The operator description is invalid",
+      message: "No workflow_builder worker configured",
+      forbidden: false,
+      needsBuilderSetup: true,
+    });
+  });
+
+  it("leaves non-validation kinds exactly as they were", () => {
+    expect(
+      describeWorkflowDraftError({
+        kind: "server",
+        message: "Atlas failed to process the request.",
+      }),
+    ).toEqual({
+      message: "Atlas failed to process the request.",
       forbidden: false,
       needsBuilderSetup: false,
     });
+  });
+
+  it("gives the save phase different advice than the draft phase", () => {
+    const error = { kind: "validation", message: "duplicate node id: gate" };
+    const drafting = describeWorkflowDraftError(error, "draft");
+    const saving = describeWorkflowDraftError(error, "create");
+    expect(saving.message).not.toBe(drafting.message);
+    expect(saving.message).toContain("Discard it and draft again");
+    expect(saving.detail).toBe("duplicate node id: gate");
   });
 });

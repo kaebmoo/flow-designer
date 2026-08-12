@@ -20,6 +20,7 @@ import {
   describeWorkflowDraftError,
   MAX_DRAFT_PROMPT_LENGTH,
   summarizeWorkflowDraft,
+  type WorkflowDraftPhase,
 } from "@/lib/workflow-ai-draft";
 
 export interface WorkflowAiDraftDialogProps {
@@ -30,8 +31,8 @@ export interface WorkflowAiDraftDialogProps {
   createError: unknown;
 }
 
-function ActionError({ error }: { error: unknown }) {
-  const details = describeWorkflowDraftError(error);
+function ActionError({ error, phase }: { error: unknown; phase: WorkflowDraftPhase }) {
+  const details = describeWorkflowDraftError(error, phase);
   return (
     <div
       role="alert"
@@ -49,6 +50,18 @@ function ActionError({ error }: { error: unknown }) {
         <p className="pl-5 text-muted-foreground">
           Configure a worker tagged <code>workflow_builder</code>, then try again.
         </p>
+      ) : null}
+      {details.detail ? (
+        // Collapsed so the alert stays scannable, but the verbatim Atlas text is one click
+        // away — it is the only diagnostic a user can paste back to an operator.
+        <details className="pl-5">
+          <summary className="cursor-pointer text-muted-foreground underline-offset-2 hover:underline">
+            Technical details
+          </summary>
+          <p className="mt-1 break-words font-mono text-[11px] text-muted-foreground">
+            {details.detail}
+          </p>
+        </details>
       ) : null}
     </div>
   );
@@ -172,7 +185,7 @@ export function WorkflowAiDraftDialog({
                 open; the dialog stays open while the request is in flight.
               </p>
             ) : null}
-            {draftRequest.error ? <ActionError error={draftRequest.error} /> : null}
+            {draftRequest.error ? <ActionError error={draftRequest.error} phase="draft" /> : null}
           </div>
         ) : (
           <div className="space-y-4">
@@ -209,7 +222,7 @@ export function WorkflowAiDraftDialog({
             ) : (
               <p className="text-xs text-muted-foreground">No trigger suggestions.</p>
             )}
-            {createError ? <ActionError error={createError} /> : null}
+            {createError ? <ActionError error={createError} phase="create" /> : null}
           </div>
         )}
 
