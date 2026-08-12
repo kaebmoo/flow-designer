@@ -182,6 +182,19 @@ export interface WorkflowPolicy {
   allowed_workspace_ids?: string[];
   stop_on_first_failure?: boolean;
   file_handoff?: boolean;
+  /**
+   * Where Atlas POSTs an `approval_overdue` event, overriding `ATLAS_APPROVAL_WEBHOOK_URL`.
+   *
+   * The browser can neither read that server default nor evaluate the outbound allowlist that
+   * gates the URL, so this client validates shape only and says so in the panel copy.
+   */
+  approval_webhook_url?: string;
+  /**
+   * Ascending, unique, positive hours after which a still-pending approval notifies. The INDEX
+   * is the escalation level carried in the delivery body, which is why order is a rule and not
+   * a convenience — `[72, 168]` means level 1 at 72h, level 2 at 168h.
+   */
+  approval_overdue_hours?: number[];
 }
 
 /** The integer policy keys and their inclusive maxima (`atlas/workflows.py:263-270`). */
@@ -228,6 +241,8 @@ export function collectFilesProblem(pattern: string): string | null {
 
 export const POLICY_BOOLEANS = ["stop_on_first_failure", "file_handoff"] as const;
 export const POLICY_ID_LISTS = ["allowed_worker_ids", "allowed_workspace_ids"] as const;
+export const POLICY_STRINGS = ["approval_webhook_url"] as const;
+export const POLICY_NUMBER_LISTS = ["approval_overdue_hours"] as const;
 
 // ---------------------------------------------------------------------------
 // Parsing — Atlas JSON to the semantic model, failing closed
@@ -664,7 +679,13 @@ export function parseWorkflowPolicy(raw: unknown): ParseResult<WorkflowPolicy> {
   if (raw === undefined || raw === null) return { ok: true, value: {} };
   if (!isObject(raw)) return fail("workflow policy must be an object");
 
-  const allowed = [...Object.keys(POLICY_LIMITS), ...POLICY_BOOLEANS, ...POLICY_ID_LISTS];
+  const allowed = [
+    ...Object.keys(POLICY_LIMITS),
+    ...POLICY_BOOLEANS,
+    ...POLICY_ID_LISTS,
+    ...POLICY_STRINGS,
+    ...POLICY_NUMBER_LISTS,
+  ];
   const extra = unknownKeys(raw, allowed);
   if (extra.length > 0) {
     return fail(`workflow policy has unsupported field(s): ${extra.sort().join(", ")}`);
@@ -692,6 +713,26 @@ export function parseWorkflowPolicy(raw: unknown): ParseResult<WorkflowPolicy> {
       return fail(`workflow policy ${key} must be a list of ids`);
     }
     policy[key] = value as string[];
+  }
+  for (const key of POLICY_STRINGS) {
+    const value = raw[key];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || value.trim() === "") {
+      return fail(`workflow policy ${key} must be a non-empty string`);
+    }
+    policy[key] = value;
+  }
+  for (const key of POLICY_NUMBER_LISTS) {
+    const value = raw[key];
+    if (value === undefined) continue;
+    if (
+      !Array.isArray(value) ||
+      value.length === 0 ||
+      value.some((item) => typeof item !== "number" || !Number.isInteger(item) || item < 1)
+    ) {
+      return fail(`workflow policy ${key} must be a non-empty list of positive whole numbers`);
+    }
+    policy[key] = value as number[];
   }
   return { ok: true, value: policy };
 }
@@ -1230,7 +1271,108 @@ export function validatePolicy(policy: WorkflowPolicy): ValidationIssue[] {
       });
     }
   }
+  const url = policy.approval_webhook_url;
+  if (url !== undefined && (typeof url !== "string" || url.trim() === "")) {
+    issues.push({
+      target: { kind: "policy", field: "approval_webhook_url" },
+      message: "approval_webhook_url must be a URL, or blank to use the server default.",
+    });
+  }
+  const hours = policy.approval_overdue_hours;
+  if (hours !== undefined) {
+    // Ascending and unique is a real Atlas rule, not tidiness: the index into this list is the
+    // escalation level sent to the receiver, so an out-of-order entry would deliver level 2
+    // before level 1. Checked here so the operator sees it while typing, not after a 400.
+    if (
+      !Array.isArray(hours) ||
+      hours.length === 0 ||
+      hours.some((item) => typeof item !== "number" || !Number.isInteger(item) || item < 1)
+    ) {
+      issues.push({
+        target: { kind: "policy", field: "approval_overdue_hours" },
+        message:
+          "approval_overdue_hours must be one or more whole numbers of hours, each 1 or more.",
+      });
+    } else if (hours.some((item, index) => index > 0 && item <= hours[index - 1])) {
+      issues.push({
+        target: { kind: "policy", field: "approval_overdue_hours" },
+        message:
+          "approval_overdue_hours must increase, with no repeats — each step is a later escalation.",
+      });
+    }
+  }
   return issues;
+}
+
+export interface WorkflowAdvisory {
+  nodeId: string;
+  title: string;
+  detail: string;
+}
+
+/**
+ * Non-blocking suggestions: things Atlas will happily run that cost more than they need to.
+ *
+ * Separate from `validateWorkflow` on purpose. Validation says "Atlas will reject this"; an
+ * advisory says "this works, and here is a cheaper shape" — mixing them would either block a
+ * legal workflow or bury a real error in style notes.
+ *
+ * Rule 1, the routing hop. An edge leaving a `human_gate` that declares choices MUST use
+ * `human_selected`, and an edge carries exactly one condition, so branching on an artifact after
+ * a gate genuinely needs a node in between. A `worker` there costs a model call per run; a
+ * `join` does the same routing for free. The signature of a worker that is only routing: its own
+ * outputs are read by nothing but its own outgoing conditions, and its prompt only re-reads
+ * artifacts that already exist. A classifier that reads run input is producing new information
+ * and is deliberately NOT flagged.
+ *
+ * ponytail: one heuristic rule, phrased as a suggestion because it is a heuristic. Add rules
+ * here as real workflows show real waste — do not invent them speculatively.
+ */
+export function workflowAdvisories(graph: WorkflowGraph): WorkflowAdvisory[] {
+  const advisories: WorkflowAdvisory[] = [];
+  const conditionArtifact = (edge: GraphEdge): string | undefined => {
+    const condition = edge.condition;
+    return condition.type === "artifact_equals" || condition.type === "artifact_in"
+      ? condition.artifact
+      : undefined;
+  };
+
+  for (const node of graph.nodes) {
+    if (node.type !== "worker") continue;
+    const outputs = node.outputs ?? [];
+    if (outputs.length === 0) continue;
+
+    const prompt = node.prompt ?? "";
+    const readsArtifact = /\{artifact\.[^}]+\}/.test(prompt);
+    const readsInput = /\{input\.[^}]+\}/.test(prompt);
+    if (!readsArtifact || readsInput) continue;
+
+    const own = graph.edges.filter((edge) => edge.from === node.id);
+    if (own.length < 2) continue;
+    const branchesOnOwnOutput = own.every((edge) => {
+      const artifact = conditionArtifact(edge);
+      return artifact !== undefined && outputs.includes(artifact);
+    });
+    if (!branchesOnOwnOutput) continue;
+
+    const readElsewhere = graph.nodes.some((other) => {
+      if (other.id === node.id) return false;
+      const otherPrompt = "prompt" in other ? (other.prompt ?? "") : "";
+      return outputs.some((key) => otherPrompt.includes(`{artifact.${key}}`));
+    });
+    const conditionedElsewhere = graph.edges.some(
+      (edge) => edge.from !== node.id && outputs.includes(conditionArtifact(edge) ?? ""),
+    );
+    if (readElsewhere || conditionedElsewhere) continue;
+
+    advisories.push({
+      nodeId: node.id,
+      title: "Spends a model call to route",
+      detail:
+        "This worker only re-reads an artifact that already exists and then branches on its own output. A join node routes the same way for free — change the type to join and move these conditions onto the upstream artifact.",
+    });
+  }
+  return advisories;
 }
 
 /**

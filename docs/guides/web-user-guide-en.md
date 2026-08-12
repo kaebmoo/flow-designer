@@ -335,10 +335,28 @@ entirely form-based:
   **requires_human_after_iterations** (pauses for a human once a run has
   iterated this many times), **max_budget_units** (total budget units a run
   may consume).
+- **Approval reminders**: **Reminder webhook** (`approval_webhook_url`) and
+  **Escalation steps** (`approval_overdue_hours`, comma-separated hours). Atlas
+  POSTs a signed `approval_overdue` event to that URL once each time a pending
+  human approval passes a step; the panel reads the steps back as a ladder
+  (L1 remind, L2+ escalate) because the position in the list *is* the escalation
+  level. Leave both blank to inherit the deployment's `ATLAS_APPROVAL_*`
+  defaults — the panel cannot read them, so it says so rather than guessing.
+  **The URL must point at something you have built**: Atlas only POSTs, it does
+  not send email or chat. `poc/approval_reminder_receiver.py` in the Atlas
+  repository is a runnable reference. Whether a reminder was actually sent, and
+  whether it arrived, is visible on **Deliveries** (`delivered` / `failed` /
+  `blocked` — `blocked` means the URL is not on Atlas's outbound allowlist and
+  nothing was sent).
 - **Switches**: **stop_on_first_failure**, **file_handoff** (must be on
   before any edge's **Push files** takes effect).
 - **Allow lists**: **allowed_worker_ids**, **allowed_workspace_ids**
   (comma-separated).
+- **Suggestions** appears only when the graph has one: a non-blocking note that
+  a cheaper shape exists — for example a `worker` node that only re-reads an
+  existing artifact to pick its own branch, where a `join` routes the same way
+  without spending a model call. Atlas runs the workflow either way; clicking
+  the node id selects that node on the canvas.
 
 Toolbar actions include **Auto-arrange**, **Save**/"Saving…",
 **Check against Atlas**/"Checking…" (calls Atlas's

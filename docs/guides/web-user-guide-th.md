@@ -329,10 +329,26 @@ policy (ด้านล่าง) จะเปิด
   retry ก่อนจะถือว่า node fail), **max_minutes** (เวลารวมสูงสุดของ run),
   **requires_human_after_iterations** (หยุดรอคนเมื่อ run วนครบจำนวนรอบนี้),
   **max_budget_units** (budget unit รวมสูงสุดที่ run ใช้ได้)
+- **Approval reminders**: **Reminder webhook** (`approval_webhook_url`) และ
+  **Escalation steps** (`approval_overdue_hours` ชั่วโมงคั่นด้วย comma) Atlas จะ
+  POST event `approval_overdue` ที่เซ็นแล้วไปยัง URL นั้นครั้งเดียวต่อการข้าม
+  แต่ละขั้น panel จะอ่านค่ากลับมาเป็นบันได (L1 เตือน, L2 ขึ้นไป escalate)
+  เพราะลำดับใน list *คือ* ระดับการ escalate เว้นว่างทั้งคู่เพื่อใช้ค่า
+  `ATLAS_APPROVAL_*` ของ deployment — panel อ่านค่านั้นไม่ได้ จึงบอกตรง ๆ แทน
+  การเดา **URL ต้องชี้ไปที่ระบบที่คุณสร้างเอง**: Atlas ทำได้แค่ POST ไม่ได้ส่ง
+  อีเมลหรือแชทเอง มีตัวอย่างที่รันได้จริงที่
+  `poc/approval_reminder_receiver.py` ใน repository ของ Atlas ส่วนการตรวจว่า
+  เตือนออกไปจริงไหมและถึงปลายทางไหม ดูได้ที่หน้า **Deliveries**
+  (`delivered` / `failed` / `blocked` — `blocked` แปลว่า URL ไม่อยู่ใน outbound
+  allowlist ของ Atlas และไม่ได้ส่งออกไปเลย)
 - **Switches**: **stop_on_first_failure**, **file_handoff** (ต้องเปิดก่อน
   **Push files** ของ edge ใด ๆ จึงจะมีผล)
 - **Allow lists**: **allowed_worker_ids**, **allowed_workspace_ids** (คั่นด้วย
   comma)
+- **Suggestions** จะขึ้นเฉพาะเมื่อ graph มีจุดที่ทำให้ถูกลงได้ เป็นข้อเสนอแนะที่
+  ไม่บล็อกการ save เช่น `worker` node ที่อ่าน artifact เดิมซ้ำเพียงเพื่อเลือก
+  branch ของตัวเอง ซึ่ง `join` ทำแบบเดียวกันได้โดยไม่เสีย model call — Atlas รัน
+  ได้ทั้งสองแบบ กดที่ node id เพื่อเลือก node นั้นบน canvas
 
 ปุ่มใน toolbar มี **Auto-arrange**, **Save**/"Saving…", **Check against Atlas**/
 "Checking…" (เรียก `POST /api/workflows/{id}/validate` ของ Atlas), ตัวช่วยใน

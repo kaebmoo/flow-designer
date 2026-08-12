@@ -18,6 +18,8 @@ import {
   serializeWorkflowPolicy,
   unreachableNodeIds,
   validateWorkflow,
+  validatePolicy,
+  workflowAdvisories,
   type GraphCondition,
   type WorkflowGraph,
   type WorkflowPolicy,
@@ -747,5 +749,101 @@ describe("layout keys", () => {
 
   it("keeps versioned layout keys separate until an explicit migration copies the arrangement", () => {
     expect(layoutStorageKey("wf_1", 1)).not.toBe(layoutStorageKey("wf_1", 2));
+  });
+});
+
+describe("approval SLA policy", () => {
+  it("round-trips the two Atlas keys instead of refusing to open the workflow", () => {
+    // Regression lock. `parseWorkflowPolicy` fails closed on unknown keys, so the moment Atlas
+    // gained these the editor refused to open any workflow that used them — a policy set over
+    // the API made its own workflow uneditable in the UI.
+    const raw = {
+      max_jobs: 5,
+      approval_webhook_url: "https://relay.test/x",
+      approval_overdue_hours: [72, 168],
+    };
+    const parsed = parseWorkflowPolicy(raw);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value.approval_overdue_hours).toEqual([72, 168]);
+    expect(serializeWorkflowPolicy(parsed.value)).toEqual(raw);
+  });
+
+  it("rejects steps that do not increase, because the index is the escalation level", () => {
+    const issues = validatePolicy({ approval_overdue_hours: [168, 72] });
+    expect(issues).toHaveLength(1);
+    expect(issues[0].target).toEqual({ kind: "policy", field: "approval_overdue_hours" });
+    expect(issues[0].message).toContain("must increase");
+    expect(validatePolicy({ approval_overdue_hours: [72, 72] })).toHaveLength(1);
+    expect(validatePolicy({ approval_overdue_hours: [72, 168] })).toHaveLength(0);
+  });
+
+  it("rejects a zero or fractional step and a blank url", () => {
+    expect(validatePolicy({ approval_overdue_hours: [0] })).toHaveLength(1);
+    expect(validatePolicy({ approval_overdue_hours: [1.5] })).toHaveLength(1);
+    expect(validatePolicy({ approval_webhook_url: "  " })).toHaveLength(1);
+  });
+});
+
+describe("advisories", () => {
+  const routingGraph: WorkflowGraph = {
+    start: "classify",
+    nodes: [
+      { id: "classify", type: "worker", prompt: "Classify {input.amount}.", outputs: ["tier"] },
+      { id: "gate", type: "human_gate", choices: [{ id: "approve", label: "Approve" }] },
+      {
+        id: "router",
+        type: "worker",
+        prompt: "Read {artifact.tier} and pick a branch.",
+        outputs: ["route"],
+      },
+      { id: "cheap", type: "worker", prompt: "cheap" },
+      { id: "dear", type: "worker", prompt: "dear" },
+    ],
+    edges: [
+      { from: "classify", to: "gate", condition: { type: "always" } },
+      { from: "gate", to: "router", condition: { type: "human_selected", choice: "approve" } },
+      {
+        from: "router",
+        to: "cheap",
+        condition: { type: "artifact_equals", artifact: "route", value: "cheap" },
+      },
+      {
+        from: "router",
+        to: "dear",
+        condition: { type: "artifact_equals", artifact: "route", value: "dear" },
+      },
+    ],
+  };
+
+  it("flags a worker that only re-reads an artifact to choose its own branch", () => {
+    const found = workflowAdvisories(routingGraph);
+    expect(found).toHaveLength(1);
+    expect(found[0].nodeId).toBe("router");
+    expect(found[0].detail).toContain("join");
+  });
+
+  it("does not flag a classifier that reads run input — it produces new information", () => {
+    // `classify` also branches on its own output in many real graphs; what makes it legitimate
+    // is that it derives something new rather than restating an existing artifact.
+    const graph: WorkflowGraph = {
+      ...routingGraph,
+      nodes: routingGraph.nodes.map((node) =>
+        node.id === "router"
+          ? { ...node, prompt: "Read {input.amount} and {artifact.tier}." }
+          : node,
+      ),
+    };
+    expect(workflowAdvisories(graph)).toHaveLength(0);
+  });
+
+  it("does not flag a worker whose output something else actually consumes", () => {
+    const graph: WorkflowGraph = {
+      ...routingGraph,
+      nodes: routingGraph.nodes.map((node) =>
+        node.id === "cheap" ? { ...node, prompt: "Use {artifact.route}." } : node,
+      ),
+    };
+    expect(workflowAdvisories(graph)).toHaveLength(0);
   });
 });

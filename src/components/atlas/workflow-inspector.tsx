@@ -14,7 +14,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Clock, Lightbulb } from "lucide-react";
 
 import { workersQuery, workspacesQuery } from "@/lib/atlas-queries";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ import {
   type ManagerNode,
   type WorkerNode,
   type WorkflowGraph,
+  type WorkflowAdvisory,
   type WorkflowPolicy,
 } from "@/lib/workflow-graph";
 import { counted } from "@/lib/plural";
@@ -182,6 +183,68 @@ function textToList(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function hoursToText(value: number[] | undefined): string {
+  return (value ?? []).join(", ");
+}
+
+function textToHours(value: string): number[] | undefined {
+  const parts = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  if (parts.length === 0) return undefined;
+  // Non-numeric text becomes NaN rather than being dropped, so a typo surfaces as a validation
+  // problem the operator can see instead of silently deleting a step they meant to keep.
+  return parts.map((item) => (/^\d+$/.test(item) ? Number(item) : Number.NaN));
+}
+
+/**
+ * Atlas builds every policy message as `<field> must …`, so the field's own error is the issue
+ * that starts with its key. Matching on the prefix keeps one source of truth for the wording
+ * instead of restating each rule next to its control.
+ */
+function policyFieldError(issues: string[], field: string): string | undefined {
+  return issues.find((issue) => issue.startsWith(field));
+}
+
+/**
+ * What the comma-separated hours actually mean, spelled out.
+ *
+ * The list's INDEX is the escalation level Atlas sends to the receiver, and that is invisible in
+ * `72, 168`. Reading it back as a ladder is the whole reason a plain text input is enough here:
+ * cheap to type, and the consequence is stated rather than implied.
+ */
+function EscalationLadder({ hours }: { hours: number[] | undefined }) {
+  const steps = (hours ?? []).filter((value) => Number.isInteger(value) && value > 0);
+  if (steps.length === 0) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        No steps set — Atlas uses the deployment default, and sends nothing if that is unset too.
+      </p>
+    );
+  }
+  return (
+    <ol className="space-y-1">
+      {steps.map((value, index) => (
+        <li key={`${index}:${value}`} className="flex items-baseline gap-2 text-[11px]">
+          <Clock
+            className="size-3 shrink-0 translate-y-0.5 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <span className="font-mono text-[10px] tracking-wide text-muted-foreground">
+            L{index + 1}
+          </span>
+          <span className="text-foreground">
+            {index === 0 ? "Remind" : "Escalate"} after{" "}
+            <span className="font-mono text-[11px]">{value} h</span>
+            <span className="text-muted-foreground"> · about {Math.round(value / 24)} days</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 function optionalNumber(value: string): number | undefined {
@@ -1107,6 +1170,9 @@ export interface PolicyPanelProps {
   onChange: (next: WorkflowPolicy) => void;
   defaultReply: WorkflowDefaultReply;
   onDefaultReplyChange: (next: WorkflowDefaultReply) => void;
+  /** Non-blocking cost suggestions; see `workflowAdvisories`. */
+  advisories?: WorkflowAdvisory[];
+  onSelectNode?: (nodeId: string) => void;
 }
 
 const POLICY_HINTS: Record<string, string> = {
@@ -1145,6 +1211,8 @@ export function PolicyPanel({
   onChange,
   defaultReply,
   onDefaultReplyChange,
+  advisories = [],
+  onSelectNode,
 }: PolicyPanelProps) {
   const replyMode =
     defaultReply === null
@@ -1236,6 +1304,83 @@ export function PolicyPanel({
             </Field>
           </>
         ) : null}
+      </Section>
+
+      {advisories.length > 0 ? (
+        <Section title="Suggestions">
+          {/* Separate from Problems on purpose: these run fine. Neutral surface and a non-status
+              icon keep them out of the error vocabulary — amber and red are reserved for states
+              Atlas reported. */}
+          <p className="text-[11px] text-muted-foreground">
+            {counted(advisories.length, "cheaper shape", "cheaper shapes")} for this graph. Atlas
+            runs it either way; nothing here blocks a save.
+          </p>
+          <ul className="space-y-2">
+            {advisories.map((advisory) => (
+              <li
+                key={`${advisory.nodeId}:${advisory.title}`}
+                className="rounded-md border border-border bg-secondary/20 p-2.5"
+              >
+                <p className="flex items-baseline gap-2 text-xs font-medium text-foreground">
+                  <Lightbulb className="size-3 shrink-0 translate-y-0.5" aria-hidden="true" />
+                  <span>{advisory.title}</span>
+                </p>
+                <p className="mt-1 pl-5 text-[11px] leading-relaxed text-muted-foreground">
+                  {advisory.detail}
+                </p>
+                <div className="mt-1.5 pl-5">
+                  <button
+                    type="button"
+                    onClick={() => onSelectNode?.(advisory.nodeId)}
+                    className="rounded font-mono text-[10px] tracking-wide text-primary underline-offset-4 hover:underline focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    {advisory.nodeId}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      <Section title="Approval reminders">
+        <p className="text-[11px] text-muted-foreground">
+          Atlas notifies once each time a pending approval passes a step below. Leave both blank to
+          use this deployment&apos;s configured defaults — they live in Atlas&apos;s environment, so
+          this panel cannot read or show them.
+        </p>
+        <Field
+          label="Reminder webhook"
+          code="approval_webhook_url"
+          hint="Atlas POSTs a signed approval_overdue event here. It must pass Atlas's outbound allowlist, which is checked when the event is sent, not here."
+          error={policyFieldError(issues, "approval_webhook_url")}
+        >
+          <Input
+            value={policy.approval_webhook_url ?? ""}
+            onChange={(event) =>
+              onChange({ ...policy, approval_webhook_url: event.target.value.trim() || undefined })
+            }
+            placeholder="https://relay.example.test/atlas/approval-overdue"
+            className="font-mono text-xs"
+          />
+        </Field>
+        <Field
+          label="Escalation steps"
+          code="approval_overdue_hours"
+          hint="Hours, increasing, separated by commas. Business days are the receiver's to compute — leave room for a weekend."
+          error={policyFieldError(issues, "approval_overdue_hours")}
+        >
+          <Input
+            inputMode="numeric"
+            value={hoursToText(policy.approval_overdue_hours)}
+            onChange={(event) =>
+              onChange({ ...policy, approval_overdue_hours: textToHours(event.target.value) })
+            }
+            placeholder="72, 168"
+            className="font-mono text-xs"
+          />
+        </Field>
+        <EscalationLadder hours={policy.approval_overdue_hours} />
       </Section>
 
       <Section title="Limits">

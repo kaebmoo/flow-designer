@@ -73,6 +73,7 @@ import {
   serializeWorkflowPolicy,
   unreachableNodeIds,
   validateWorkflow,
+  workflowAdvisories,
   type GraphEdge,
   type GraphNode,
   type NodeKind,
@@ -1325,6 +1326,8 @@ function EditorSurface({
       onChange={setPolicy}
       defaultReply={defaultReply}
       onDefaultReplyChange={setDefaultReply}
+      advisories={workflowAdvisories(graph)}
+      onSelectNode={(id) => setSelection({ kind: "node", id })}
     />
   ) : selection?.kind === "interface" ? (
     <WorkflowInterfacePanel
