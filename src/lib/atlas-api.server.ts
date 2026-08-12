@@ -1162,6 +1162,38 @@ export async function atlasValidateWorkflow(
 }
 
 /**
+ * `POST /api/workflows/{id}/test-approval-webhook` — one synthetic approval reminder, sent now.
+ *
+ * Atlas resolves the same URL the overdue sweep would (workflow policy first, deployment default
+ * second), sends inline, and reports the outcome instead of writing a delivery row — so this
+ * proves the real path without putting a connectivity probe in the ledger that answers "did a
+ * real reminder go out?". A refusal is a normal 200 body with `ok: false` and Atlas's own reason;
+ * only a missing configuration is a 4xx.
+ */
+export async function atlasTestApprovalWebhook(
+  token: string,
+  workflowId: string,
+  options: AtlasCallOptions = {},
+): Promise<{ ok: boolean; status?: number; reason?: string }> {
+  const payload = await atlasRequest({
+    method: "POST",
+    path: `/api/workflows/${encodeURIComponent(workflowId)}/test-approval-webhook`,
+    token,
+    body: {},
+    ...options,
+  });
+
+  const result = expectShape<{ test: { ok: boolean; status?: number; reason?: string } }>(
+    payload,
+    (value) =>
+      value !== null &&
+      typeof value === "object" &&
+      typeof (value as Record<string, unknown>).test === "object",
+  );
+  return result.test;
+}
+
+/**
  * `POST /api/workflow-runs` — 202 with the persisted run, including its real Atlas id.
  *
  * `expectedWorkflowVersion` is the same optimistic-concurrency shape the workflow save already

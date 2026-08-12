@@ -873,3 +873,32 @@ describe("escalation hours as typed text", () => {
     expect(validatePolicy({ approval_overdue_hours: textToHours("72, abc") })).toHaveLength(1);
   });
 });
+
+describe("approval webhook url shape", () => {
+  // Only what a browser can prove. Reachability and the outbound allowlist stay Atlas's, but a
+  // typo'd scheme is knowable now — the alternative is a policy that saves green and fails
+  // silently three days later, when the first reminder was due.
+  const problem = (url: string) =>
+    validatePolicy({ approval_webhook_url: url }).map((issue) => issue.message)[0];
+
+  it("accepts a well-formed https url", () => {
+    expect(
+      validatePolicy({ approval_webhook_url: "https://relay.example.test/hook" }),
+    ).toHaveLength(0);
+  });
+
+  it("accepts plain http only for loopback", () => {
+    expect(validatePolicy({ approval_webhook_url: "http://127.0.0.1:9000/hook" })).toHaveLength(0);
+    expect(validatePolicy({ approval_webhook_url: "http://localhost:9000/hook" })).toHaveLength(0);
+    expect(problem("http://relay.example.test/hook")).toContain("https");
+  });
+
+  it("rejects the shapes that would save green and fail days later", () => {
+    // `htp:/typo` parses — it has a scheme — so the honest complaint is the scheme itself.
+    expect(problem("htp:/typo")).toContain("http or https");
+    expect(problem("relay.internal")).toContain("complete URL");
+    expect(problem("ftp://relay.example.test/hook")).toContain("http or https");
+    expect(problem("https://user:pass@relay.example.test/hook")).toContain("credentials");
+    expect(problem("  ")).toContain("must be a URL");
+  });
+});

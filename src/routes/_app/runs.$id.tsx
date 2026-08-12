@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { AlertTriangle, Check, ShieldCheck, Upload } from "lucide-react";
+import { AlertTriangle, BellRing, Check, ShieldCheck, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ArtifactContentActions, ArtifactDownloadError } from "@/components/atlas/artifact-actions";
@@ -781,6 +781,26 @@ function PendingApprovalCard({
               {approval.reason ? (
                 <span className="mt-0.5 block text-xs text-muted-foreground">
                   {approval.reason}
+                </span>
+              ) : null}
+              {/* Whether anyone has actually been chased. Muted, not a status hue: this is a
+                  fact about the reminder ledger, not a state Atlas reported for the run. */}
+              {approval.overdueLevel > 0 ? (
+                <span className="mt-1 flex items-baseline gap-1.5 text-xs text-muted-foreground">
+                  <BellRing aria-hidden className="size-3 shrink-0 translate-y-0.5" />
+                  <span>
+                    {approval.overdueLevel === 1
+                      ? "Overdue reminder sent"
+                      : `Escalated to level ${approval.overdueLevel}`}{" "}
+                    ·{" "}
+                    <Link
+                      to="/deliveries"
+                      search={{ event: "approval_overdue" }}
+                      className="text-primary underline underline-offset-2"
+                    >
+                      check delivery
+                    </Link>
+                  </span>
                 </span>
               ) : null}
             </div>

@@ -556,6 +556,8 @@ export interface AtlasApproval {
   created_at: string;
   decided_at: string | null;
   updated_at: string;
+  /** Highest overdue-reminder step already notified (D2c-2); 0 or absent means none. */
+  overdue_level?: number;
 }
 
 /** `GET /api/workflow-runs/{id}` (`atlas/app.py:666-673`). */
@@ -680,6 +682,11 @@ export interface AtlasDelivery {
   created_at: string;
   updated_at: string;
   delivered_at: string | null;
+  /**
+   * Frozen event body for a non-completion delivery (`approval_overdue`); absent or `{}` for a
+   * run-completion delivery, whose body Atlas rebuilds from the run on every attempt.
+   */
+  payload?: JsonObject | null;
 }
 
 /**

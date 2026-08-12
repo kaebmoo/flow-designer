@@ -47,6 +47,7 @@ import {
   updateUserFn,
   upsertWorkerFn,
   upsertWorkspaceFn,
+  testApprovalWebhookFn,
   validateWorkflowFn,
   importPackFn,
   type GraphRejection,
@@ -260,6 +261,12 @@ export function useImportPack() {
 }
 
 /** Validation writes nothing, so it invalidates nothing. */
+export function useTestApprovalWebhook() {
+  // Invalidates nothing: a probe writes no delivery row and changes no Atlas state, so there is
+  // no cached family that could have gone stale.
+  return useAtlasMutation((data: { workflowId: string }) => testApprovalWebhookFn({ data }), []);
+}
+
 export function useValidateWorkflow() {
   return useAtlasMutation(
     (data: { workflowId: string; graph: unknown; policy: unknown }) => validateWorkflowFn({ data }),

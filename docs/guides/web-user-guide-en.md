@@ -347,7 +347,11 @@ entirely form-based:
   repository is a runnable reference. Whether a reminder was actually sent, and
   whether it arrived, is visible on **Deliveries** (`delivered` / `failed` /
   `blocked` — `blocked` means the URL is not on Atlas's outbound allowlist and
-  nothing was sent).
+  nothing was sent), where the **all events / approval reminders / run
+  completions** chips separate the two kinds of row. **Send a test reminder**
+  fires one probe at the saved webhook immediately and reports the outcome, so a
+  wrong URL surfaces in a second instead of at the first real threshold days
+  later; the probe writes no delivery row and is marked `test: true`.
 - **Switches**: **stop_on_first_failure**, **file_handoff** (must be on
   before any edge's **Push files** takes effect).
 - **Allow lists**: **allowed_worker_ids**, **allowed_workspace_ids**

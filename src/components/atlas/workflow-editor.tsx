@@ -1327,6 +1327,7 @@ function EditorSurface({
       defaultReply={defaultReply}
       onDefaultReplyChange={setDefaultReply}
       advisories={workflowAdvisories(graph)}
+      workflowId={workflowId ?? undefined}
       onSelectNode={(id) => setSelection({ kind: "node", id })}
     />
   ) : selection?.kind === "interface" ? (

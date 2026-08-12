@@ -635,3 +635,26 @@ Move the architecture discussion back to Atlas before claiming higher scale when
 - shared multi-tenant hosting is required
 - run/event retention exceeds practical single-file backup windows
 - job scheduling needs distributed fairness or global concurrency limits
+
+## Approval reminders: a dead-lettered level is not re-swept
+
+`sweep_overdue_approvals` claims the threshold level with a compare-and-set BEFORE sending, so
+two concurrent scheduler ticks cannot double-notify. The cost runs the other way: if the
+receiver is unreachable for the whole bounded retry burst (5 attempts inside roughly a second,
+plus up to `ATLAS_OUTBOUND_TIMEOUT` each), that level is consumed and the sweep will not try it
+again. Nobody is told until the approval crosses the *next* threshold — and if it was the last
+one, nobody is told at all.
+
+Re-claiming on failure would not fix it alone: the delivery id is deterministic per
+(approval, level), so the next sweep's `claim_delivery` finds the existing failed row instead of
+sending. A real fix has to version the delivery id or add a re-drive path, which is a larger
+change than the failure justifies today.
+
+**The recovery that exists is manual and adequate.** A dead-lettered reminder appears on
+**Deliveries** as a `failed` row labelled *Approval reminder* (filter: approval reminders),
+carrying the receiver's own error, and **Retry webhook** gives it one more bounded attempt.
+Treat a `failed` `dlv_apr_*` row as an operational alert rather than a log line: it is the one
+signal that a human was supposed to be chased and was not.
+
+Prevention beats recovery here — **Send a test reminder** in a workflow's Run policy panel
+proves the receiver answers before any real approval depends on it.

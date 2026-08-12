@@ -65,6 +65,7 @@ import {
   atlasUpdateWorkflowTrigger,
   atlasUpsertWorker,
   atlasUpsertWorkspace,
+  atlasTestApprovalWebhook,
   atlasValidateWorkflow,
   AtlasError,
   DRAFT_WORKFLOW_TIMEOUT_MS,
@@ -817,6 +818,21 @@ export const validateWorkflowFn = createServerFn({ method: "POST" })
         });
         return { valid: true as const };
       }),
+  );
+
+/**
+ * Send one synthetic approval reminder to the workflow's configured webhook, right now.
+ *
+ * Without it the only way to learn whether a receiver exists is to build a gate, start a run,
+ * and wait for the threshold — days, for a value like 72 hours. A refused send is a successful
+ * call carrying Atlas's reason, not a thrown error: "nothing is listening" is the answer the
+ * operator asked for, not a failure of the asking.
+ */
+export const testApprovalWebhookFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => ({ workflowId: requiredId(data, "workflowId") }))
+  .handler(
+    async ({ data }): Promise<SaveResult<{ ok: boolean; status?: number; reason?: string }>> =>
+      saveMutation(async (token) => atlasTestApprovalWebhook(token, data.workflowId)),
   );
 
 // ---------------------------------------------------------------------------

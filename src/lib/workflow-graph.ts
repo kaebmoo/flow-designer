@@ -1272,11 +1272,21 @@ export function validatePolicy(policy: WorkflowPolicy): ValidationIssue[] {
     }
   }
   const url = policy.approval_webhook_url;
-  if (url !== undefined && (typeof url !== "string" || url.trim() === "")) {
-    issues.push({
-      target: { kind: "policy", field: "approval_webhook_url" },
-      message: "approval_webhook_url must be a URL, or blank to use the server default.",
-    });
+  if (url !== undefined) {
+    // Only the checks a browser can honestly make. Atlas resolves the host against the
+    // operator's outbound allowlist at SEND time, which this client cannot read — but a typo'd
+    // scheme or a bare hostname is knowable now, and the alternative is a policy that saves
+    // green and fails silently three days later when the first reminder is due.
+    const problem =
+      typeof url !== "string" || url.trim() === ""
+        ? "must be a URL, or blank to use the server default"
+        : urlProblem(url);
+    if (problem) {
+      issues.push({
+        target: { kind: "policy", field: "approval_webhook_url" },
+        message: `approval_webhook_url ${problem}.`,
+      });
+    }
   }
   const hours = policy.approval_overdue_hours;
   if (hours !== undefined) {
@@ -1302,6 +1312,35 @@ export function validatePolicy(policy: WorkflowPolicy): ValidationIssue[] {
     }
   }
   return issues;
+}
+
+/**
+ * The shape problems a browser can prove about an outbound URL, or null.
+ *
+ * Deliberately stops short of reachability and of the allowlist: Atlas owns both, and a client
+ * that guessed at them would either block a legal URL or promise a delivery it cannot make.
+ */
+function urlProblem(value: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    return "must be a complete URL including the scheme, such as https://relay.example.test/hook";
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return `must use http or https, not ${parsed.protocol.replace(":", "")}`;
+  }
+  const loopback =
+    parsed.hostname === "localhost" ||
+    /^127(\.\d+){3}$/.test(parsed.hostname) ||
+    parsed.hostname === "[::1]";
+  if (parsed.protocol === "http:" && !loopback) {
+    return "must use https unless it points at loopback — Atlas refuses plain http to any other host";
+  }
+  if (parsed.username || parsed.password) {
+    return "must not carry credentials in the URL; Atlas signs the body instead";
+  }
+  return null;
 }
 
 export interface WorkflowAdvisory {

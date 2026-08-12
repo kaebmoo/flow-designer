@@ -17,6 +17,7 @@ import { useState } from "react";
 import { ChevronRight, Clock, Lightbulb } from "lucide-react";
 
 import { workersQuery, workspacesQuery } from "@/lib/atlas-queries";
+import { useTestApprovalWebhook } from "@/lib/atlas-mutations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -312,6 +313,54 @@ function EscalationLadder({
         ))}
       </ol>
     </>
+  );
+}
+
+/**
+ * Send one synthetic reminder and say what happened.
+ *
+ * The alternative was to build a gate, start a run, and wait out the threshold — days — to learn
+ * whether anything is listening. Atlas resolves the SAME url the sweep would and answers with
+ * its own words, so "blocked by the allowlist" and "nothing answered" arrive here in one round
+ * trip instead of surfacing as a `failed` ledger row nobody was watching.
+ *
+ * It sends against the STORED policy, so a URL typed but not yet saved is not what gets probed —
+ * the copy says so rather than letting a green result vouch for an unsaved value.
+ */
+function TestWebhookAction({ workflowId }: { workflowId: string }) {
+  const test = useTestApprovalWebhook();
+  const result = test.data;
+  return (
+    <div className="space-y-1.5">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={test.isPending}
+        onClick={() => test.mutate({ workflowId })}
+      >
+        {test.isPending ? "Sending…" : "Send a test reminder"}
+      </Button>
+      <p className="text-[11px] text-muted-foreground">
+        Uses the saved webhook, not unsaved edits. The body is marked <code>test: true</code> so a
+        receiver can ignore it.
+      </p>
+      {/* role="status" because the outcome arrives after the click without moving focus. Hue is
+          paired with a word in every branch — no state is carried by colour alone. */}
+      {test.isError ? (
+        <p role="status" className="text-xs text-destructive">
+          Could not run the test: {String((test.error as Error)?.message ?? test.error)}
+        </p>
+      ) : result?.ok ? (
+        <p role="status" className="text-xs text-success">
+          Delivered — the receiver answered {result.status ?? 200}.
+        </p>
+      ) : result ? (
+        <p role="status" className="text-xs text-destructive">
+          Not delivered. {result.reason ?? "Atlas gave no reason."}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -1241,6 +1290,8 @@ export interface PolicyPanelProps {
   /** Non-blocking cost suggestions; see `workflowAdvisories`. */
   advisories?: WorkflowAdvisory[];
   onSelectNode?: (nodeId: string) => void;
+  /** Absent while a workflow is unsaved: Atlas resolves the webhook from the STORED policy. */
+  workflowId?: string;
 }
 
 const POLICY_HINTS: Record<string, string> = {
@@ -1281,6 +1332,7 @@ export function PolicyPanel({
   onDefaultReplyChange,
   advisories = [],
   onSelectNode,
+  workflowId,
 }: PolicyPanelProps) {
   const replyMode =
     defaultReply === null
@@ -1448,6 +1500,7 @@ export function PolicyPanel({
           hours={policy.approval_overdue_hours}
           hasWebhook={Boolean(policy.approval_webhook_url)}
         />
+        {workflowId ? <TestWebhookAction workflowId={workflowId} /> : null}
       </Section>
 
       <Section title="Limits">

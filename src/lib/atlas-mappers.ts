@@ -687,6 +687,13 @@ export interface ApprovalView {
   selectedChoice: string | null;
   createdAt: string;
   decidedAt: string;
+  /**
+   * How many overdue reminders Atlas has already sent for this approval.
+   *
+   * Atlas has always put this on the wire; dropping it left the one screen where someone asks
+   * "has anyone been told?" unable to answer. 0 means nobody has been nudged yet.
+   */
+  overdueLevel: number;
 }
 
 export function toApprovalView(approval: AtlasApproval): ApprovalView {
@@ -702,6 +709,7 @@ export function toApprovalView(approval: AtlasApproval): ApprovalView {
     selectedChoice: approval.selected_choice,
     createdAt: formatAtlasTimestamp(approval.created_at),
     decidedAt: formatAtlasTimestamp(approval.decided_at),
+    overdueLevel: Number(approval.overdue_level) || 0,
   };
 }
 
@@ -1188,11 +1196,38 @@ export interface DeliveryView {
   correlationId: string | null;
   createdAt: string;
   deliveredAt: string;
+  /**
+   * What this delivery is about, in the operator's words.
+   *
+   * The ledger holds two kinds of row and used to render them identically, so a reminder and a
+   * run result were told apart only by an id prefix nothing explained. Atlas already carries the
+   * discriminator in the frozen `payload.event`; this reads it rather than parsing the id.
+   */
+  event: "approval_overdue" | "run_completion";
+  eventLabel: string;
+  /** Escalation level and gate label, present only on an approval reminder. */
+  approvalLevel: number | null;
+  approvalLabel: string | null;
 }
 
 export function toDeliveryView(delivery: AtlasDelivery): DeliveryView {
   const attempts = Number(delivery.attempts) || 0;
   const maxAttempts = Number(delivery.max_attempts) || 0;
+  const payload = delivery.payload;
+  const approval =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).approval
+      : undefined;
+  const approvalRecord =
+    approval && typeof approval === "object" && !Array.isArray(approval)
+      ? (approval as Record<string, unknown>)
+      : undefined;
+  const event =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).event
+      : undefined;
+  const isApproval = event === "approval_overdue";
+  const level = typeof approvalRecord?.level === "number" ? approvalRecord.level : null;
   return {
     id: delivery.id,
     runId: delivery.run_id,
@@ -1205,6 +1240,17 @@ export function toDeliveryView(delivery: AtlasDelivery): DeliveryView {
     correlationId: delivery.correlation_id,
     createdAt: formatAtlasTimestamp(delivery.created_at),
     deliveredAt: formatAtlasTimestamp(delivery.delivered_at),
+    event: isApproval ? "approval_overdue" : "run_completion",
+    eventLabel: isApproval
+      ? level === null
+        ? "Approval reminder"
+        : level === 1
+          ? "Approval reminder"
+          : `Approval escalation L${level}`
+      : "Run completion",
+    approvalLevel: isApproval ? level : null,
+    approvalLabel:
+      isApproval && typeof approvalRecord?.label === "string" ? approvalRecord.label : null,
   };
 }
 

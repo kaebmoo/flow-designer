@@ -340,7 +340,11 @@ policy (ด้านล่าง) จะเปิด
   `poc/approval_reminder_receiver.py` ใน repository ของ Atlas ส่วนการตรวจว่า
   เตือนออกไปจริงไหมและถึงปลายทางไหม ดูได้ที่หน้า **Deliveries**
   (`delivered` / `failed` / `blocked` — `blocked` แปลว่า URL ไม่อยู่ใน outbound
-  allowlist ของ Atlas และไม่ได้ส่งออกไปเลย)
+  allowlist ของ Atlas และไม่ได้ส่งออกไปเลย) โดยมีชิป **all events / approval
+  reminders / run completions** ให้แยกสองชนิดออกจากกัน ส่วนปุ่ม **Send a test
+  reminder** จะยิงทดสอบไปที่ webhook ที่บันทึกไว้ทันทีแล้วรายงานผล ทำให้ URL ที่ผิด
+  ถูกจับได้ในไม่กี่วินาที แทนที่จะไปรู้ตอนถึงเกณฑ์จริงอีกหลายวันข้างหน้า — การทดสอบ
+  ไม่เขียนแถวใน delivery ledger และมี `test: true` กำกับไว้
 - **Switches**: **stop_on_first_failure**, **file_handoff** (ต้องเปิดก่อน
   **Push files** ของ edge ใด ๆ จึงจะมีผล)
 - **Allow lists**: **allowed_worker_ids**, **allowed_workspace_ids** (คั่นด้วย

@@ -21,6 +21,21 @@ const appRoute = getRouteApi("/_app");
 /** The exact status vocabulary Atlas stores and filters on (`atlas/outbound.py`). */
 const DELIVERY_STATUSES = ["pending", "delivered", "failed", "blocked"] as const;
 
+/**
+ * The two kinds of row this ledger holds. Filtered in the browser over the fetched window —
+ * Atlas's own filters are status and run id, so pushing this down would need an API change for
+ * a distinction the frozen payload already carries.
+ */
+const EVENT_FILTERS = [
+  { value: undefined, label: "all events" },
+  { value: "approval_overdue" as const, label: "approval reminders" },
+  { value: "run_completion" as const, label: "run completions" },
+];
+
+function parseEventSearch(value: unknown): "approval_overdue" | "run_completion" | undefined {
+  return value === "approval_overdue" || value === "run_completion" ? value : undefined;
+}
+
 function parseStatusSearch(value: unknown): string | undefined {
   return typeof value === "string" && (DELIVERY_STATUSES as readonly string[]).includes(value)
     ? value
@@ -29,19 +44,21 @@ function parseStatusSearch(value: unknown): string | undefined {
 
 export const Route = createFileRoute("/_app/deliveries")({
   validateSearch: (
-    search: { limit?: number; status?: string; run?: string } & SearchSchemaInput,
+    search: { limit?: number; status?: string; run?: string; event?: string } & SearchSchemaInput,
   ) => ({
     limit: parseLimitSearch(search.limit),
     /** Both pushed down to Atlas — `status` and `run_id` are real filters on this route. */
     status: parseStatusSearch(search.status),
     run: parseStringSearch(search.run),
+    /** Applied in the browser; see EVENT_FILTERS. */
+    event: parseEventSearch(search.event),
   }),
   component: DeliveriesPage,
   head: () => ({ meta: [{ title: "Webhook Deliveries · Atlas Control" }] }),
 });
 
 function DeliveriesPage() {
-  const { limit, status, run } = Route.useSearch();
+  const { limit, status, run, event } = Route.useSearch();
   const navigate = Route.useNavigate();
   const identity = appRoute.useLoaderData();
   const role = identity.status === "authenticated" ? identity.identity.role : null;
@@ -54,13 +71,14 @@ function DeliveriesPage() {
 
   const deliveries = useQuery(deliveriesQuery({ limit, runId: run, status }));
 
-  const rows = deliveries.data ?? [];
+  const fetched = deliveries.data ?? [];
+  const rows = event ? fetched.filter((row) => row.event === event) : fetched;
 
   return (
     <>
       <PageHeader
         title="Webhook Deliveries"
-        subtitle="Outbound callbacks sent after completed workflow runs."
+        subtitle="Signed callbacks Atlas sends out — run results, and reminders for approvals left waiting."
         meta={
           <div className="flex flex-wrap items-center gap-1">
             <FilterChip
@@ -76,6 +94,21 @@ function DeliveriesPage() {
                 onClick={() => void navigate({ search: (prev) => ({ ...prev, status: option }) })}
               >
                 {option}
+              </FilterChip>
+            ))}
+            <span className="mx-2 h-4 w-px bg-border" aria-hidden="true" />
+            {/* Client-side, over the window already fetched: Atlas filters deliveries by status
+                and run id only, and inventing a server filter this page cannot push down would
+                make the window notice below lie about what was searched. */}
+            {EVENT_FILTERS.map((option) => (
+              <FilterChip
+                key={option.value}
+                active={event === option.value}
+                onClick={() =>
+                  void navigate({ search: (prev) => ({ ...prev, event: option.value }) })
+                }
+              >
+                {option.label}
               </FilterChip>
             ))}
             <span className="mx-2 h-4 w-px bg-border" aria-hidden="true" />
@@ -115,11 +148,27 @@ function DeliveriesPage() {
               rows={rows}
               rowKey={(row) => row.id}
               empty={
-                status || run
+                status || run || event
                   ? "Atlas has no webhook deliveries matching these filters."
-                  : "Atlas has recorded no webhook deliveries yet. They appear when a completed run sends a callback webhook."
+                  : "Atlas has recorded no webhook deliveries yet. They appear when a completed run sends a callback, or when an approval passes an overdue step."
               }
               columns={[
+                {
+                  key: "event",
+                  header: "Event",
+                  render: (row: DeliveryView) => (
+                    <span className="block">
+                      <span className="text-xs whitespace-nowrap text-foreground">
+                        {row.eventLabel}
+                      </span>
+                      {row.approvalLabel ? (
+                        <span className="block max-w-[16rem] truncate text-[11px] text-muted-foreground">
+                          {row.approvalLabel}
+                        </span>
+                      ) : null}
+                    </span>
+                  ),
+                },
                 {
                   key: "id",
                   header: "Delivery ID",
@@ -177,10 +226,10 @@ function DeliveriesPage() {
                   header: "Last error",
                   render: (row: DeliveryView) =>
                     row.lastError ? (
-                      <span
-                        className="block max-w-xs truncate text-xs text-muted-foreground"
-                        title={row.lastError}
-                      >
+                      // Unwrapped, not a title= tooltip. On a blocked row this string is the
+                      // page's entire explanation — it names the host Atlas refused — and a
+                      // tooltip reaches neither a keyboard, a screen reader, nor a touch device.
+                      <span className="block max-w-md text-xs break-words text-muted-foreground">
                         {row.lastError}
                       </span>
                     ) : (
@@ -203,9 +252,9 @@ function DeliveriesPage() {
               ]}
             />
             <WindowNotice
-              count={rows.length}
+              count={fetched.length}
               limit={limit}
-              mayHaveMore={rows.length >= limit}
+              mayHaveMore={fetched.length >= limit}
               noun="webhook delivery"
               pluralNoun="webhook deliveries"
             />
