@@ -234,8 +234,10 @@ Reviewer, Coder → Tester → Reviewer และ Manager-directed loop — ซ�
 Atlas ตั้งค่าเริ่มต้นเป็น `draft` แล้วเปิด editor; **Discard** จะไม่เปลี่ยน Atlas
 
 trigger ที่เสนอเป็นเพียงข้อมูลแสดงผลและมีลิงก์ไปหน้า **Triggers** เท่านั้น ระบบจะ
-ไม่สร้าง trigger ให้อัตโนมัติ ข้อความ 400 จาก Atlas จะแสดงตามจริง หาก instance ไม่มี
-worker ที่ติด tag `workflow_builder` dialog จะแสดงคำแนะนำให้ตั้งค่า worker ก่อนลองใหม่
+ไม่สร้าง trigger ให้อัตโนมัติ draft ที่ถูกปฏิเสธจะขึ้นหัวข้อเป็นภาษาคนก่อน ส่วนข้อความ
+400 จาก Atlas เก็บไว้ตามจริงห่างไปหนึ่งคลิกใต้ **Technical details** ซึ่งเป็นข้อความที่
+ใช้ส่งต่อให้ operator ดู หาก instance ไม่มี worker ที่ติด tag `workflow_builder`
+dialog จะแสดงคำแนะนำให้ตั้งค่า worker ก่อนลองใหม่
 prompt จะไม่ถูกเก็บใน browser และ UI นี้จะไม่ retry request ที่มีค่าใช้จ่าย
 
 ### ตัวช่วยใน editor
@@ -333,7 +335,7 @@ policy (ด้านล่าง) จะเปิด
   **Escalation steps** (`approval_overdue_hours` ชั่วโมงคั่นด้วย comma) Atlas จะ
   POST event `approval_overdue` ที่เซ็นแล้วไปยัง URL นั้นครั้งเดียวต่อการข้าม
   แต่ละขั้น panel จะอ่านค่ากลับมาเป็นบันได (L1 เตือน, L2 ขึ้นไป escalate)
-  เพราะลำดับใน list *คือ* ระดับการ escalate เว้นว่างทั้งคู่เพื่อใช้ค่า
+  เพราะลำดับใน list _คือ_ ระดับการ escalate เว้นว่างทั้งคู่เพื่อใช้ค่า
   `ATLAS_APPROVAL_*` ของ deployment — panel อ่านค่านั้นไม่ได้ จึงบอกตรง ๆ แทน
   การเดา **URL ต้องชี้ไปที่ระบบที่คุณสร้างเอง**: Atlas ทำได้แค่ POST ไม่ได้ส่ง
   อีเมลหรือแชทเอง มีตัวอย่างที่รันได้จริงที่

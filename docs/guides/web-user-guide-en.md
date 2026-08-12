@@ -235,7 +235,9 @@ creates one Atlas workflow without a status field, so Atlas defaults it to
 `draft`, and then opens the editor. **Discard** leaves Atlas unchanged.
 
 Any proposed triggers are display-only and link to **Triggers**; they are never
-created as part of workflow creation. Atlas 400 text is shown verbatim. If the
+created as part of workflow creation. A rejected draft leads with a
+plain-language headline; Atlas's exact 400 text is kept verbatim one click away
+under **Technical details**, which is what you paste to an operator. If the
 instance has no worker tagged `workflow_builder`, the dialog adds a setup hint;
 configure that worker before trying again. The browser does not persist the
 prompt, and this UI does not retry the billed draft request.
@@ -339,7 +341,7 @@ entirely form-based:
   **Escalation steps** (`approval_overdue_hours`, comma-separated hours). Atlas
   POSTs a signed `approval_overdue` event to that URL once each time a pending
   human approval passes a step; the panel reads the steps back as a ladder
-  (L1 remind, L2+ escalate) because the position in the list *is* the escalation
+  (L1 remind, L2+ escalate) because the position in the list _is_ the escalation
   level. Leave both blank to inherit the deployment's `ATLAS_APPROVAL_*`
   defaults — the panel cannot read them, so it says so rather than guessing.
   **The URL must point at something you have built**: Atlas only POSTs, it does

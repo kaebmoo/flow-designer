@@ -49,26 +49,26 @@ Both requirements are met; neither is traded off.
 
 ## Current behavior
 
-| Input | `message` today | Rendered as |
-|---|---|---|
-| `workflow draft trigger at index 0 must be an object` | same string | alert body |
-| `No workflow_builder worker configured` | same string | alert body + setup hint |
-| `workflow_builder job failed: …` | same string | alert body |
-| `{kind: "forbidden", message: "Access denied"}` | `Access denied` | accent-styled alert |
+| Input                                                 | `message` today | Rendered as             |
+| ----------------------------------------------------- | --------------- | ----------------------- |
+| `workflow draft trigger at index 0 must be an object` | same string     | alert body              |
+| `No workflow_builder worker configured`               | same string     | alert body + setup hint |
+| `workflow_builder job failed: …`                      | same string     | alert body              |
+| `{kind: "forbidden", message: "Access denied"}`       | `Access denied` | accent-styled alert     |
 
 ## Classify on the error kind, not the message text
 
 The obvious implementation — regex the message for a `^workflow ` prefix — was
 drafted first and rejected after checking it against Atlas's actual error strings:
 
-- **False negatives.** Real deterministic validation messages that do *not* start
+- **False negatives.** Real deterministic validation messages that do _not_ start
   with `workflow `: `duplicate node id: …` (`atlas/workflows.py:216`),
   `unsupported workflow condition: …` (`:2477`),
   `unsupported workflow trigger type: …` (`:2056`),
   `unknown workflow trigger config key(s) for …` (`:2067`). Each would have kept
   leaking raw.
 - **False positive waiting to happen.** `workflow job timed out: …`
-  (`atlas/workflows.py:1827-1859`) *does* start with the prefix and is not a
+  (`atlas/workflows.py:1827-1859`) _does_ start with the prefix and is not a
   validation error. It is harmless only by accident today — `TimeoutError` is not
   a `ValueError`, so it surfaces as a 5xx whose text
   `toClientAtlasError` already redacts. A future "make timeouts a 400" change
@@ -105,11 +105,11 @@ Every other kind, and every non-Atlas `Error`, keeps today's behavior exactly:
 
 Headlines — one per phase, no per-error variants:
 
-| Phase | Headline |
-|---|---|
-| `draft` | Atlas could not turn this description into a valid workflow. Try simplifying it, or splitting it into smaller workflows. |
-| `create` | Atlas rejected this proposal when saving it. Discard it and draft again. |
-| builder job failed (either phase) | The builder worker could not finish this request. Check the worker, then try again. |
+| Phase                             | Headline                                                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `draft`                           | Atlas could not turn this description into a valid workflow. Try simplifying it, or splitting it into smaller workflows. |
+| `create`                          | Atlas rejected this proposal when saving it. Discard it and draft again.                                                 |
+| builder job failed (either phase) | The builder worker could not finish this request. Check the worker, then try again.                                      |
 
 Two phases because `ActionError` is reused for both `draftRequest.error` and
 `createError` in the same dialog; "simplify your description" is wrong advice once
@@ -139,12 +139,12 @@ variants.
 
 ## Files
 
-| File | Change |
-|---|---|
-| `src/lib/workflow-ai-draft.ts` | `describeWorkflowDraftError` gains `phase` + `detail` and the kind-based classification |
+| File                                                | Change                                                                                                    |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `src/lib/workflow-ai-draft.ts`                      | `describeWorkflowDraftError` gains `phase` + `detail` and the kind-based classification                   |
 | `src/components/atlas/workflow-ai-draft-dialog.tsx` | `ActionError` takes `phase`, renders the `Technical details` disclosure; both call sites pass their phase |
-| `tests/unit/workflow-ai-draft.test.ts` | new cases (below) |
-| `docs/guides/web-user-guide-en.md` / `-th.md` | only if they quote the old error copy |
+| `tests/unit/workflow-ai-draft.test.ts`              | new cases (below)                                                                                         |
+| `docs/guides/web-user-guide-en.md` / `-th.md`       | only if they quote the old error copy                                                                     |
 
 ## Tests
 
