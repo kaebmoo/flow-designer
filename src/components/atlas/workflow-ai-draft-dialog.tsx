@@ -93,8 +93,16 @@ function ProposedTriggers({ triggers }: { triggers: AtlasWorkflowDraft["triggers
         <h3 className="font-mono text-[10px] uppercase tracking-widest text-warning">
           Proposed triggers · display only
         </h3>
-        <Link to="/triggers" className="text-xs text-primary underline-offset-4 hover:underline">
-          Manage triggers
+        {/* New tab, deliberately: the draft lives only in this dialog's mutation state and is
+            never persisted, so an in-app navigation here silently destroys an unsaved proposal
+            the user just paid a model call for. */}
+        <Link
+          to="/triggers"
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs text-primary underline-offset-4 hover:underline"
+        >
+          Manage triggers (new tab)
         </Link>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
