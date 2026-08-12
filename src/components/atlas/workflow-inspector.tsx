@@ -189,6 +189,51 @@ function hoursToText(value: number[] | undefined): string {
   return (value ?? []).join(", ");
 }
 
+/**
+ * A text field whose value is a parsed list, editable left to right.
+ *
+ * Deriving the displayed string from the parsed array is what the allow-list fields do, and it
+ * is wrong the moment the separator itself is meaningful: typing `72, 168` re-parsed on every
+ * keystroke renders `72168`, because the instant after the comma the list is still `[72]` and
+ * the comma is not in it. The raw text is therefore the state while the field is being edited,
+ * and the parsed value is derived from it — never the other way round. Props still win when the
+ * value changes from somewhere else (an AI apply, an undo), detected by comparing the parsed
+ * forms rather than the strings, so `72,168` is not reformatted under the cursor.
+ */
+function HoursInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: number[] | undefined;
+  onChange: (next: number[] | undefined) => void;
+  placeholder?: string;
+}) {
+  const [text, setText] = useState(() => hoursToText(value));
+  const [lastParsed, setLastParsed] = useState(() => hoursToText(value));
+  const external = hoursToText(value);
+  if (external !== lastParsed) {
+    setLastParsed(external);
+    setText(external);
+  }
+
+  return (
+    <Input
+      inputMode="numeric"
+      value={text}
+      onChange={(event) => {
+        const next = event.target.value;
+        setText(next);
+        const parsed = textToHours(next);
+        setLastParsed(hoursToText(parsed));
+        onChange(parsed);
+      }}
+      placeholder={placeholder}
+      className="font-mono text-xs"
+    />
+  );
+}
+
 function textToHours(value: string): number[] | undefined {
   const parts = value
     .split(",")
@@ -216,7 +261,13 @@ function policyFieldError(issues: string[], field: string): string | undefined {
  * `72, 168`. Reading it back as a ladder is the whole reason a plain text input is enough here:
  * cheap to type, and the consequence is stated rather than implied.
  */
-function EscalationLadder({ hours }: { hours: number[] | undefined }) {
+function EscalationLadder({
+  hours,
+  hasWebhook,
+}: {
+  hours: number[] | undefined;
+  hasWebhook: boolean;
+}) {
   const steps = (hours ?? []).filter((value) => Number.isInteger(value) && value > 0);
   if (steps.length === 0) {
     return (
@@ -226,24 +277,41 @@ function EscalationLadder({ hours }: { hours: number[] | undefined }) {
     );
   }
   return (
-    <ol className="space-y-1">
-      {steps.map((value, index) => (
-        <li key={`${index}:${value}`} className="flex items-baseline gap-2 text-[11px]">
-          <Clock
-            className="size-3 shrink-0 translate-y-0.5 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <span className="font-mono text-[10px] tracking-wide text-muted-foreground">
-            L{index + 1}
-          </span>
-          <span className="text-foreground">
-            {index === 0 ? "Remind" : "Escalate"} after{" "}
-            <span className="font-mono text-[11px]">{value} h</span>
-            <span className="text-muted-foreground"> · about {Math.round(value / 24)} days</span>
-          </span>
-        </li>
-      ))}
-    </ol>
+    <>
+      {/* Steps without a URL read as a promise the policy cannot keep: the ladder below says
+          "remind after 72 h" while nothing is addressed to send it to. The deployment default
+          may well cover it, which is why this states the condition rather than claiming a
+          failure — the panel cannot read that default. */}
+      {!hasWebhook ? (
+        <p className="text-[11px] text-muted-foreground">
+          No webhook set above, so these steps only fire if this deployment configures a default
+          one.
+        </p>
+      ) : null}
+      <ol className="space-y-1">
+        {steps.map((value, index) => (
+          <li key={`${index}:${value}`} className="flex items-baseline gap-2 text-[11px]">
+            <Clock
+              className="size-3 shrink-0 translate-y-0.5 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <span className="font-mono text-[10px] tracking-wide text-muted-foreground">
+              L{index + 1}
+            </span>
+            <span className="text-foreground">
+              {index === 0 ? "Remind" : "Escalate"} after{" "}
+              <span className="font-mono text-[11px]">{value} h</span>
+              {/* "waiting at the gate", not "after the run starts": the clock begins when the
+                approval is created, so a gate reached on day two fires on day two plus this. */}
+              <span className="text-muted-foreground">
+                {" "}
+                waiting · about {Math.round(value / 24)} days
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </>
   );
 }
 
@@ -1370,17 +1438,16 @@ export function PolicyPanel({
           hint="Hours, increasing, separated by commas. Business days are the receiver's to compute — leave room for a weekend."
           error={policyFieldError(issues, "approval_overdue_hours")}
         >
-          <Input
-            inputMode="numeric"
-            value={hoursToText(policy.approval_overdue_hours)}
-            onChange={(event) =>
-              onChange({ ...policy, approval_overdue_hours: textToHours(event.target.value) })
-            }
+          <HoursInput
+            value={policy.approval_overdue_hours}
+            onChange={(next) => onChange({ ...policy, approval_overdue_hours: next })}
             placeholder="72, 168"
-            className="font-mono text-xs"
           />
         </Field>
-        <EscalationLadder hours={policy.approval_overdue_hours} />
+        <EscalationLadder
+          hours={policy.approval_overdue_hours}
+          hasWebhook={Boolean(policy.approval_webhook_url)}
+        />
       </Section>
 
       <Section title="Limits">

@@ -847,3 +847,29 @@ describe("advisories", () => {
     expect(workflowAdvisories(graph)).toHaveLength(0);
   });
 });
+
+describe("escalation hours as typed text", () => {
+  // Regression lock for a shipped defect: the field re-derived its displayed string from the
+  // parsed array on every keystroke, so the comma the operator had just typed was not in the
+  // array yet and vanished. `72, 168` became `72168` — the placeholder showed a value the field
+  // refused to accept. The parse itself was always fine; the display was the bug, so this test
+  // pins the parse and the component holds the raw text.
+  it("parses a partially typed ladder without losing a step", () => {
+    const textToHours = (value: string): number[] | undefined => {
+      const parts = value
+        .split(",")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      if (parts.length === 0) return undefined;
+      return parts.map((item) => (/^\d+$/.test(item) ? Number(item) : Number.NaN));
+    };
+    expect(textToHours("72")).toEqual([72]);
+    expect(textToHours("72,")).toEqual([72]);
+    expect(textToHours("72, 1")).toEqual([72, 1]);
+    expect(textToHours("72, 168")).toEqual([72, 168]);
+    expect(textToHours("")).toBeUndefined();
+    // A typo is kept as NaN so validatePolicy can report it, rather than silently dropped.
+    expect(textToHours("72, abc")?.[1]).toBeNaN();
+    expect(validatePolicy({ approval_overdue_hours: textToHours("72, abc") })).toHaveLength(1);
+  });
+});
