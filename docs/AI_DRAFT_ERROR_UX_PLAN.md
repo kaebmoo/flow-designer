@@ -1,6 +1,7 @@
 # AI draft error UX plan — stop leaking Atlas validator strings
 
-Status: Planned 2026-08-11. Not implemented.
+Status: Implemented 2026-08-12 (flow-designer `b87eb59`); dialog coverage added as
+`tests/e2e/zz-ai-draft-error.spec.ts`.
 
 Scope: `src/lib/workflow-ai-draft.ts` and
 `src/components/atlas/workflow-ai-draft-dialog.tsx` only. This is stage **D2b-5**
@@ -171,6 +172,18 @@ objects unless noted:
 
 Plus one dialog-level test: given a validation-class error, the alert shows the
 headline and a disclosure whose content is the raw Atlas string.
+
+**Delivered as Playwright, not jsdom** (`tests/e2e/zz-ai-draft-error.spec.ts`).
+This repo has no component-render harness — every vitest project runs
+`environment: "node"` — so a jsdom test would have meant adding
+`@testing-library/react` and a new config, which this plan's own Non-goals forbid
+("No new dependency"). The existing browser harness needs neither and proves
+strictly more: a stub worker registered under the `workflow_builder` role answers
+with prose, so Atlas really runs two builder jobs, really fails
+`_json_from_text`, and really returns its own 400 — the string the test opens the
+disclosure to read is Atlas's, not a fixture's. Mutation-tested by reverting
+`describeWorkflowDraftError` to pass the raw text through as the headline, which
+turns it red.
 
 Gate: `bun run lint && bun run typecheck && bun run test && bun run test:contract
 && bun run scan:bundle && bun run build`, then walk `docs/CHECKLIST.md` for the
