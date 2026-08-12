@@ -191,6 +191,10 @@ function DeliveriesPage() {
                 },
                 {
                   key: "url",
+                  // The table already scrolls horizontally; without a floor this column collapses
+                  // to a few characters wide and break-all shreds the URL down the page one
+                  // character per line — which is what adding the Event column exposed.
+                  className: "min-w-56",
                   header: "Target",
                   render: (row: DeliveryView) => (
                     <span className="break-all font-mono text-xs">{row.url}</span>
