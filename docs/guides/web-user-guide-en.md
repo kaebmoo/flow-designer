@@ -585,11 +585,17 @@ Deleting a trigger warns that it deletes the trigger's whole fire history too
 
 ## 11. Webhook Deliveries
 
-**Webhook Deliveries** lists outbound callback attempts Atlas made after a
-workflow run finished: Delivery ID, Run (linked), Target URL, Attempts
-(`n/max`), Last error, Status. The four statuses are `pending`, `delivered`,
-`failed`, `blocked`. Filter by status chip or by run id ("Filter by run id
-(applied by Atlas)"). **Retry webhook** is offered only on `failed`/`blocked`
+**Webhook Deliveries** lists every signed callback Atlas sends out — both the
+result of a finished run and a reminder for an approval left waiting: Event,
+Delivery ID, Run (linked), Target URL, Created, Delivered, Attempts (`n/max`),
+Last error, Status. **Event** reads _Run completion_, _Approval reminder_, or
+_Approval escalation L2_, with the gate's label underneath, so the two kinds of
+row are told apart without decoding an id. The four statuses are `pending`,
+`delivered`, `failed`, `blocked`; a `blocked` row's reason is shown in full,
+because it names the host Atlas refused and is the whole explanation for that
+row. Filter by status chip, by event chip (**all events / approval reminders /
+run completions**, applied in the browser over the fetched window), or by run id
+("Filter by run id (applied by Atlas)"). **Retry webhook** is offered only on `failed`/`blocked`
 rows, and only to `admin`/`operator` (Atlas still enforces this server-side
 regardless of what the button shows).
 

@@ -609,7 +609,16 @@ Backend follow-up:
 
 - Name the audit export correctly; add a `limit` or pagination to `/api/usage`.
 
-### P2 — A `blocked` delivery can only arise from allowlist drift
+### P2 — A `blocked` delivery can only arise from allowlist drift ~~(run-completion only)~~
+
+> **Superseded for approval reminders (D2c-2, 2026-08-12).** The reasoning below still holds
+> for run-completion deliveries, whose `callback_url` is fail-closed at run start. It does not
+> hold for `approval_overdue` reminders: `policy.approval_webhook_url` is validated for SHAPE
+> only at save time and is first checked against the allowlist when the sweep tries to send,
+> so a plausible URL on a host nobody allowlisted saves green and surfaces hours later as a
+> `blocked` row. That is now an ordinary first-run outcome, not evidence of drift — which is
+> why the Deliveries page renders the blocked reason in full rather than behind a tooltip, and
+> why the Run policy panel offers **Send a test reminder**.
 
 Confirmed while writing the Phase 5 contract tests: `validate_run_input_envelope` fail-closes
 a non-allowlisted `_meta.reply.callback_url` at run **start** (`atlas/workflows.py:94-131`),

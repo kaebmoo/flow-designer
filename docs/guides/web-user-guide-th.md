@@ -572,11 +572,16 @@ trigger มี 6 ชนิดเหมือนกับฝั่ง API ขอ�
 
 ## 11. Webhook Deliveries
 
-**Webhook Deliveries** แสดงรายการส่ง webhook ขาออกที่ Atlas ทำหลัง workflow
-run จบ: Delivery ID, Run (ลิงก์), Target URL, Attempts (`n/max`), Last
-error, Status สถานะมี 4 แบบ: `pending`, `delivered`, `failed`, `blocked`
-กรองด้วย chip สถานะ หรือกรองด้วย run id ("Filter by run id (applied by
-Atlas)") ปุ่ม **Retry webhook** มีให้เฉพาะแถว `failed`/`blocked` และเฉพาะ
+**Webhook Deliveries** แสดงทุก callback ที่เซ็นแล้วซึ่ง Atlas ส่งออกไป — ทั้งผลของ
+run ที่จบแล้ว และการเตือน approval ที่ค้างอยู่: Event, Delivery ID, Run (ลิงก์),
+Target URL, Created, Delivered, Attempts (`n/max`), Last error, Status
+คอลัมน์ **Event** จะขึ้นว่า _Run completion_, _Approval reminder_ หรือ
+_Approval escalation L2_ พร้อม label ของ gate ข้างใต้ ทำให้แยกสองชนิดออกจากกัน
+ได้โดยไม่ต้องแกะ id สถานะมี 4 แบบ: `pending`, `delivered`, `failed`, `blocked`
+โดยแถวที่ `blocked` จะแสดงเหตุผลเต็ม เพราะมันระบุ host ที่ Atlas ปฏิเสธ ซึ่งเป็น
+คำอธิบายทั้งหมดของแถวนั้น กรองด้วย chip สถานะ, chip event (**all events /
+approval reminders / run completions** กรองในเบราว์เซอร์จากชุดที่ดึงมาแล้ว) หรือ
+กรองด้วย run id ("Filter by run id (applied by Atlas)") ปุ่ม **Retry webhook** มีให้เฉพาะแถว `failed`/`blocked` และเฉพาะ
 role `admin`/`operator` (Atlas ยังบังคับสิทธิ์นี้ที่ฝั่ง server เสมอไม่ว่าปุ่ม
 จะแสดงอย่างไร)
 
