@@ -16,7 +16,12 @@ Verified against Atlas `82207f7` (`atlas/config.py`, `atlas/app.py`):
 - Atlas env vars are all `ATLAS_*`: `ATLAS_HOST`, `ATLAS_PORT`, `ATLAS_DB`,
   `ATLAS_UPLOAD_DIR`, `ATLAS_API_TOKEN`, `ATLAS_LOOPBACK_NO_AUTH`, `ATLAS_SECRET_KEY`,
   `ATLAS_CORS_ORIGINS`, `ATLAS_SERVE_UI`, `ATLAS_PUBLIC_BASE_URL`,
-  `ATLAS_OUTBOUND_ALLOWLIST`, `ATLAS_REQUEST_LOG`, and related timeouts. Session lifecycle is
+  `ATLAS_OUTBOUND_ALLOWLIST`, `ATLAS_REQUEST_LOG`, and related timeouts. Approval reminders
+  add `ATLAS_APPROVAL_WEBHOOK_URL` (unset ⇒ the overdue sweep is inert, so upgrading cannot
+  start notifying a host nobody configured) and `ATLAS_APPROVAL_OVERDUE_HOURS` (comma-separated
+  ascending hours, e.g. `72,168`; the position is the escalation level). Both are deployment
+  defaults that a workflow's own `policy.approval_webhook_url` /
+  `policy.approval_overdue_hours` override. Session lifecycle is
   Atlas-owned through `ATLAS_SESSION_TOKEN_TTL_SECONDS` (default 28,800),
   `ATLAS_MAX_ACTIVE_SESSIONS` (5), `ATLAS_LOGIN_RATE_LIMIT_ATTEMPTS` (5),
   `ATLAS_LOGIN_RATE_LIMIT_WINDOW_SECONDS` (60), and

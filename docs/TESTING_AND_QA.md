@@ -85,6 +85,9 @@ Mock-only tests are not sufficient for the release gate.
 - approval decision
 - artifact download
 - delivery retry
+- AI draft rejection shows a plain-language headline with Atlas's own 400 text in a
+  collapsed disclosure (`tests/e2e/zz-ai-draft-error.spec.ts`, against a real Atlas 400
+  produced by a stub `workflow_builder` worker)
 - audit and usage filters
 - two tabs observe a mutation
 - Atlas restart while the UI is open

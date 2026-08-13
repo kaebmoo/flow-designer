@@ -7,6 +7,37 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Approval reminders** in the workflow Run policy panel: a webhook URL and an
+  escalation ladder (`policy.approval_webhook_url` /
+  `policy.approval_overdue_hours`), the hours read back as "L1 remind after 72 h,
+  L2 escalate after 168 h" because the position in the list is the level Atlas
+  sends, and **Send a test reminder**, which proves a receiver exists in one round
+  trip instead of waiting out a real threshold.
+- The Deliveries page tells its two kinds of row apart — an Event column derived
+  from `payload.event` plus event filter chips — and a pending approval on the run
+  page now shows whether anyone has been chased.
+- Non-blocking editor advisories (`workflowAdvisories`), kept separate from
+  validation. The first rule flags a worker that only re-reads an artifact to pick
+  its own branch, where a `join` routes for free.
+
+### Changed
+
+- A rejected AI draft leads with a plain-language headline; Atlas's exact 400 text
+  stays verbatim behind a collapsed **Technical details** disclosure, covered by
+  `tests/e2e/zz-ai-draft-error.spec.ts` against a real Atlas 400.
+- **Manage triggers** in the draft dialog opens in a new tab — an in-app
+  navigation silently discarded a draft the user had just paid a model call for.
+
+### Fixed
+
+- The editor could not open any workflow whose policy carried Atlas's new approval
+  keys: `parseWorkflowPolicy` fails closed on unknown keys, so the client model
+  lagging Atlas is a hard failure, not a cosmetic gap.
+- A blocked delivery's reason is rendered in the document instead of a mouse-only
+  `title=` tooltip, and no longer reads like a pending row.
+
 ## [0.2.0] - 2026-08-11
 
 ### Added

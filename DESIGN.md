@@ -387,6 +387,16 @@ rationed cyan on any worker-heavy graph, so it stays quiet until there is
 something to report, then paints each mark with the same run-state colours the
 canvas uses. It is hidden below `xl`, where it cost a tenth of the viewport.
 
+### Disclosure ("Technical details")
+
+Raw machine text that a user needs but should not be led with — a validator string, a
+stack-shaped error. Collapsed `<details>` by default inside the alert that carries the
+human headline; `<summary>` in Inter Display at body size, the revealed text in JetBrains
+Mono one step down, both on the alert's own surface with AA contrast in the destructive and
+accent variants alike. Native `<details>`, so it is keyboard-operable and announced without
+any script. Never use it to hide something the user must act on — only to demote something
+they must be able to copy.
+
 ### Navigation (sidebar)
 
 Persistent obsidian-raised rail; items use ghost-style hover (highlight wash),

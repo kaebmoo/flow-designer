@@ -26,7 +26,7 @@ Both frontends stay in use; they cover different ground.
 | Webhook deliveries                                                   | No — API only                                            | Yes                                                                            |
 | Global artifact ledger (all runs)                                    | No                                                       | Yes                                                                            |
 | Per-run artifacts                                                    | Yes, download only                                       | Yes, download or in-page preview                                               |
-| Run file upload (e.g. a contract PDF for a human gate)               | No — API only                                            | No — API only                                                                  |
+| Run file upload (e.g. a contract PDF for a human gate)               | No — API only                                            | Yes, **Upload input file** on the run detail page                              |
 | Ad-hoc job submission / handoff                                      | No — API only                                            | No — API only                                                                  |
 | Solution-pack import/export                                          | No — API only                                            | Yes, from the Workflows list and workflow editor                               |
 | Draft-from-plain-language                                            | No — API only                                            | Yes, **Draft with AI** on the Workflows list                                   |
@@ -48,7 +48,6 @@ through Atlas's REST API (see the
 [API Reference](https://github.com/kaebmoo/atlas-control-plane/blob/main/docs/specs/api-reference-en.md)):
 
 - Submitting an ad-hoc job outside a workflow, with routing/handoff (`POST /api/jobs`).
-- Uploading a file to a run, e.g. a contract for a human gate to review (`POST /api/workflow-runs/{id}/files`).
 - A dedicated "manager decision" panel with proposal/acceptance reasoning (visible via run events and audit instead — see §9).
 - Staging a binary file for the _start_ node. `POST /api/workflow-runs/{id}/files` needs a run that already exists, so a JSON `attachments` field carries text or metadata, never an upload.
 
@@ -531,7 +530,11 @@ Opening a run shows, in order:
   run?" / **Reject and fail the run**). A decided gate shows its timestamp;
   gates are undecidable a second time. There is no separate "manager
   decisions" panel — a manager node's outcome shows up like any other node in
-  Runtime nodes/the canvas, labeled **AI Decision**.
+  Runtime nodes/the canvas, labeled **AI Decision**. A gate still waiting shows
+  whether anyone has been chased: **Overdue reminder sent** or **Escalated to
+  level N**, with a link to the matching Deliveries rows. No line means no
+  reminder has gone out — either the gate is not old enough, or this workflow
+  has no reminder webhook configured.
 - **Artifacts**: key, kind, size, created, and a **Download** or **Preview**
   action (never both — `file_ref` artifacts download, everything else
   previews in a dialog capped at the first 32,000 characters). A key this

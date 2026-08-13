@@ -26,7 +26,7 @@ delivery และรายงานข้าม run ที่
 | Webhook deliveries                                                      | ไม่มี — ผ่าน API เท่านั้น                          | มี                                                                                           |
 | Artifact ledger ทั้งระบบ (ทุก run)                                      | ไม่มี                                              | มี                                                                                           |
 | Artifact ของแต่ละ run                                                   | มี ดาวน์โหลดได้อย่างเดียว                          | มี ดาวน์โหลดหรือ preview ในหน้าได้                                                           |
-| อัปโหลดไฟล์เข้า run (เช่น PDF สัญญาให้ human gate ตรวจ)                 | ไม่มี — ผ่าน API เท่านั้น                          | ไม่มี — ผ่าน API เท่านั้น                                                                    |
+| อัปโหลดไฟล์เข้า run (เช่น PDF สัญญาให้ human gate ตรวจ)                 | ไม่มี — ผ่าน API เท่านั้น                          | มี ปุ่ม **Upload input file** ในหน้ารายละเอียด run                                           |
 | สั่งงานเดี่ยวแบบ ad-hoc / handoff                                       | ไม่มี — ผ่าน API เท่านั้น                          | ไม่มี — ผ่าน API เท่านั้น                                                                    |
 | Import/export solution pack                                             | ไม่มี — ผ่าน API เท่านั้น                          | มีให้ใช้จากหน้า Workflows และ workflow editor                                                |
 | Draft-from-plain-language                                               | ไม่มี — ผ่าน API เท่านั้น                          | มีปุ่ม **Draft with AI** ในหน้า Workflows                                                    |
@@ -48,7 +48,6 @@ Atlas (ดู
 [API Reference](https://github.com/kaebmoo/atlas-control-plane/blob/main/docs/specs/api-reference-th.md)):
 
 - สั่งงานเดี่ยวแบบ ad-hoc นอก workflow พร้อม routing/handoff (`POST /api/jobs`)
-- อัปโหลดไฟล์เข้า run เช่น สัญญาให้ human gate ตรวจ (`POST /api/workflow-runs/{id}/files`)
 - แผง "manager decision" ที่แสดง proposal และเหตุผลรับ/ปฏิเสธโดยเฉพาะ (ดูได้
   ผ่าน run events และ audit แทน — ดู §9)
 - แนบไฟล์ binary ให้ start node ตั้งแต่ก่อนเริ่ม run เพราะ
@@ -519,7 +518,10 @@ duration, state กรองด้วย chip สถานะ (`all`, `running`,
   **Reject and fail the run**) gate ที่ตัดสินแล้วจะโชว์เวลา ตัดสินซ้ำครั้งที่
   สองไม่ได้ ไม่มีแผง "manager decisions" แยกต่างหาก — ผลของ manager node
   จะโผล่เหมือน node ทั่วไปใน Runtime nodes/บน canvas โดยมีป้ายว่า **AI
-  Decision**
+  Decision** ส่วน gate ที่ยังรออยู่จะบอกด้วยว่ามีการตามหรือยัง: **Overdue
+  reminder sent** หรือ **Escalated to level N** พร้อมลิงก์ไปยังแถวใน Deliveries
+  ที่ตรงกัน ถ้าไม่มีบรรทัดนี้แปลว่ายังไม่มีการเตือนออกไป — อาจเพราะ gate ยังไม่
+  เก่าพอ หรือ workflow นี้ยังไม่ได้ตั้ง webhook เตือนไว้
 - **Artifacts**: key, kind, size, created และปุ่ม **Download** หรือ
   **Preview** (ไม่มีทั้งสองพร้อมกัน — artifact ชนิด `file_ref` ดาวน์โหลด
   ส่วนชนิดอื่น preview ในกล่องโต้ตอบที่จำกัดไว้ 32,000 ตัวอักษรแรก) key ที่

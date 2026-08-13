@@ -731,3 +731,41 @@ an ambiguous `localStorage` key lookup in the test's own helper. `1a34544`, `cfd
 `aaec1e0` close the remaining issue (with the correct root cause) and add the missing
 malformed-input guard tests and a `runEventsQuery` placeholder-scope fix a stricter re-read
 surfaced. Full evidence: `RELEASE_READINESS.md`.
+
+## Approval reminders and AI draft error UX — D2b-5 / D2c (2026-08-12)
+
+Atlas shipped the approval SLA sweep (PR #59); this repo gained the UI, the
+discrimination on the deliveries ledger, and the error presentation.
+
+- [x] Both new policy keys round-trip: `parseWorkflowPolicy` accepts
+      `approval_webhook_url` / `approval_overdue_hours`, `serializeWorkflowPolicy`
+      emits them unchanged. This is a **fix, not a feature** — the parser fails
+      closed on unknown keys, so from the moment Atlas shipped them any workflow
+      that set them over the API could not be opened in the editor at all.
+- [x] The escalation ladder is typeable left to right. Deriving the field's text
+      from the parsed array ate the comma on the keystroke that typed it, so
+      `72, 168` became `72168` and the placeholder showed a value the field
+      refused to accept.
+- [x] A malformed webhook URL is refused at save with the checks a browser can
+      honestly make (parseable, http/https, https unless loopback, no embedded
+      credentials) — and deliberately not reachability or the allowlist, which
+      are Atlas's to judge.
+- [x] **Send a test reminder** proves a receiver exists in one round trip instead
+      of waiting out a real threshold; it reports Atlas's own words on refusal.
+- [x] The deliveries ledger tells its two kinds of row apart (Event column, event
+      filter chips) and a `blocked` row's reason is rendered in full rather than
+      truncated behind a mouse-only tooltip.
+- [x] A pending approval says whether anyone has been chased (`overdueLevel`).
+- [x] Advisories are separate from validation: `workflowAdvisories` suggests a
+      cheaper shape, `validateWorkflow` says Atlas will reject. Mixing them would
+      either block a legal workflow or bury a real error under a style note.
+- [x] AI draft failures lead with a plain-language headline; Atlas's exact 400
+      text stays verbatim one click away under **Technical details**.
+- [x] Gate green: `lint`, `format:check`, `typecheck`, `test` (667), `test:contract`
+      (182), `scan:bundle`, `build`, and the full Playwright suite (159), including
+      `tests/e2e/zz-ai-draft-error.spec.ts` — mutation-tested by reverting
+      `describeWorkflowDraftError`.
+- [x] Docs: EN/TH user guides (policy panel, deliveries page, approvals reminder
+      line), BACKEND_INTEGRATION (endpoint, policy keys, `payload`,
+      `overdue_level`, the `max_minutes` semantics change), ATLAS_LIMITATIONS
+      (the `blocked`-only-from-drift entry is superseded for reminders).

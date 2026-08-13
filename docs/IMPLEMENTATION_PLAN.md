@@ -245,3 +245,27 @@ real ledger through the standard layers:
 - **Gate:** user verifies `/artifacts` against a running Atlas >= `5c08ee3`; pre-route Atlas
   answers 404, while an Atlas that ignores the metadata opt-in and still carries `content` is a
   protocol error.
+
+## Approval reminders and AI draft error UX (2026-08-12) — adopts Atlas PR #59
+
+Atlas gained an approval SLA sweep and a test probe; this client gained the UI for
+both, plus the ledger changes that make a reminder's fate visible.
+
+- Run policy panel: an **Approval reminders** section writing
+  `policy.approval_webhook_url` and `policy.approval_overdue_hours`, with the hours
+  read back as an escalation ladder (the position in the list is the level Atlas
+  sends, which nothing about `72, 168` says on its own), URL-shape validation at
+  save, and **Send a test reminder** over
+  `POST /api/workflows/{id}/test-approval-webhook`.
+- Deliveries: an Event column and event filter chips derived from `payload.event`,
+  and a `blocked` row's reason rendered in the document rather than in a tooltip.
+- Run detail: a pending approval shows `overdue_level` as "Overdue reminder sent" /
+  "Escalated to level N".
+- Editor: `workflowAdvisories`, a non-blocking suggestion channel kept separate from
+  validation. First rule — a worker that only re-reads an artifact to pick its own
+  branch, where a `join` routes for free.
+- AI draft errors: plain-language headline, Atlas's verbatim text behind a
+  disclosure, covered by `tests/e2e/zz-ai-draft-error.spec.ts`.
+
+Gate: `lint`, `format:check`, `typecheck`, `test`, `test:contract`, `scan:bundle`,
+`build`, full Playwright suite. See `docs/CHECKLIST.md` for the acceptance list.

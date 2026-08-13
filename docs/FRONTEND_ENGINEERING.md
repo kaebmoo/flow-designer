@@ -101,7 +101,9 @@ Every server-backed screen needs distinct states for:
 
 - The visual system is documented in [`DESIGN.md`](../DESIGN.md) ("Air Traffic Obsidian"); product truth in [`PRODUCT.md`](../PRODUCT.md). Style from the semantic tokens in `src/styles.css` — never `bg-black`/`text-white`/hex/arbitrary colour literals. A unit test (`tests/unit/design-tokens.test.ts`) fails the build on new literals.
 - Reuse the shared primitives in `src/components/atlas/page.tsx` instead of hand-rolling: `PageHeader`, `DataTable` (supports `onRowClick` keyboard-operable rows and `activeRowKey` selection), `StatusPill` (tone + optional per-state `icon`), `FilterChip` (carries `aria-pressed`; wrap a set in `role="group"` with an `aria-label`), and `EmptyHint`. State/empty helpers live in `src/components/atlas/states.tsx` and `window.tsx`.
-- **Accessibility bar is WCAG 2.1 AA.** State is never conveyed by colour alone — pair a tone with an icon and text (the "never colour alone" rule). Disabled-control reasons must reach keyboard/SR users (`aria-describedby`, not a `title=` tooltip). Guard `animate-pulse` and other motion with `motion-reduce:*`. Give conditionally-mounted dialogs `useReturnFocus` (Radix's own restore dies with the unmount).
+- **Accessibility bar is WCAG 2.1 AA.** State is never conveyed by colour alone — pair a tone with an icon and text (the "never colour alone" rule). A string that is the only explanation of a state — a disabled control's reason, a blocked
+  delivery's reason, a validation cause — must reach keyboard and screen-reader users in the
+  document, never through a `title=` tooltip (`aria-describedby`, or simply rendered inline). Guard `animate-pulse` and other motion with `motion-reduce:*`. Give conditionally-mounted dialogs `useReturnFocus` (Radix's own restore dies with the unmount).
 - **Ration the cyan primary** to genuinely live/primary/selected elements (≤~10% of a screen); machine values (IDs, cursors, counts, edge conditions) go in `font-mono` on the documented three-rung mono micro-scale (9/10/11px), never body copy.
 
 ## Security rules

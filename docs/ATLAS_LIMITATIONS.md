@@ -500,7 +500,11 @@ Frontend mitigation:
 
 - Say so in the gate inspector rather than offering an approver or timeout field that would be
   accepted by the form and dropped on save.
-- Present `policy.max_minutes` as the only time bound that exists.
+- Do **not** present `policy.max_minutes` as a bound on how long a gate may wait. Since D2c-1
+  it excludes time parked on a pending approval, so it bounds a run's non-waiting time only —
+  and since D2c-2 a workflow can carry `policy.approval_overdue_hours`, which chases the
+  approver at each threshold. Neither expires the gate: it still waits indefinitely, which is
+  the part that remains a real gap.
 
 Backend follow-up:
 

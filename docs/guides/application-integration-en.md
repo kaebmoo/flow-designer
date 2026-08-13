@@ -165,6 +165,48 @@ Your endpoint must be on Atlas's outbound allowlist and must not embed credentia
 in the URL. A workflow can also carry a `default_reply` so callers need not repeat
 the reply block on every run.
 
+### 5b. The other signed callback: an approval left waiting
+
+Run completion is not the only thing Atlas POSTs. If a workflow's `policy` carries
+`approval_webhook_url` and `approval_overdue_hours` (or the deployment configures the
+`ATLAS_APPROVAL_*` defaults), a human approval that stays pending past each threshold
+produces one signed `approval_overdue` delivery — same `X-Atlas-Signature` header, same
+raw-bytes verification, same allowlist.
+
+The body is a different shape, so **branch on `event` before reading anything else**: an
+approval reminder has `approval` and `run` objects, not a top-level `run_id`, and a receiver
+that assumes the completion shape will mis-route it.
+
+```json
+{
+  "event": "approval_overdue",
+  "delivery_id": "dlv_apr_apr_123_l2",
+  "approval": {
+    "id": "apr_123",
+    "label": "Approve purchase request",
+    "reason": "…",
+    "choices": [],
+    "created_at": "…",
+    "age_hours": 130.5,
+    "level": 2,
+    "threshold_hours": 120
+  },
+  "run": {
+    "id": "wfr_…",
+    "node_key": "dept_head_approval",
+    "workflow_definition_id": "wfd_…",
+    "workflow_name": "Purchase approval"
+  },
+  "signed_at": "…"
+}
+```
+
+`level` is 1-based — 1 is the first reminder, 2+ are escalations — and `run.node_key` is
+which gate is stuck. Route on those two; Atlas states the fact and does not choose a
+recipient. Deduplicate on `delivery_id`, answer 2xx quickly and notify afterwards, and
+ignore any `event` you do not recognise. Atlas ships a runnable reference receiver at
+`poc/approval_reminder_receiver.py`.
+
 ## Two contract modes: declared and observed
 
 Flow Designer's **Test run → Integration** tab generates a per-workflow

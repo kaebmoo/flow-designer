@@ -151,6 +151,46 @@ Atlas จะ sign callback ด้วย `X-Atlas-Signature: sha256=<hex>` ซึ
 endpoint ของคุณต้องอยู่ใน outbound allowlist ของ Atlas และห้ามฝัง credential ไว้ใน URL
 ส่วน workflow ตั้ง `default_reply` ไว้ได้ ผู้เรียกจะได้ไม่ต้องส่ง reply block ซ้ำทุกครั้ง
 
+### 5b. callback ที่เซ็นอีกแบบ: approval ที่ค้างอยู่
+
+run ที่จบไม่ใช่สิ่งเดียวที่ Atlas POST ออกมา ถ้า `policy` ของ workflow มี
+`approval_webhook_url` และ `approval_overdue_hours` (หรือ deployment ตั้งค่า `ATLAS_APPROVAL_*`
+ไว้) approval ที่ยังค้างเกินแต่ละเกณฑ์จะสร้าง delivery `approval_overdue` ที่เซ็นแล้วขั้นละ
+หนึ่งครั้ง — header `X-Atlas-Signature` เดียวกัน ตรวจจาก raw bytes เหมือนกัน allowlist เดียวกัน
+
+body เป็นคนละรูป จึงต้อง **แยกด้วย `event` ก่อนอ่านอย่างอื่น**: การเตือน approval มี object
+`approval` กับ `run` ไม่ใช่ `run_id` ที่ระดับบนสุด ผู้รับที่สมมติว่าเป็นรูปแบบ run completion
+จะ route ผิด
+
+```json
+{
+  "event": "approval_overdue",
+  "delivery_id": "dlv_apr_apr_123_l2",
+  "approval": {
+    "id": "apr_123",
+    "label": "อนุมัติคำขอจัดซื้อ",
+    "reason": "…",
+    "choices": [],
+    "created_at": "…",
+    "age_hours": 130.5,
+    "level": 2,
+    "threshold_hours": 120
+  },
+  "run": {
+    "id": "wfr_…",
+    "node_key": "dept_head_approval",
+    "workflow_definition_id": "wfd_…",
+    "workflow_name": "อนุมัติคำขอจัดซื้อ"
+  },
+  "signed_at": "…"
+}
+```
+
+`level` เริ่มจาก 1 — 1 คือเตือนครั้งแรก ตั้งแต่ 2 ขึ้นไปคือ escalate — ส่วน `run.node_key`
+บอกว่า gate ไหนค้าง ให้ route จากสองค่านี้ Atlas บอกแค่ข้อเท็จจริงและไม่ได้เลือกผู้รับให้
+กันซ้ำด้วย `delivery_id` ตอบ 2xx ให้เร็วแล้วค่อยแจ้งเตือน และข้าม `event` ที่ไม่รู้จักไป
+Atlas มีตัวอย่าง receiver ที่รันได้จริงที่ `poc/approval_reminder_receiver.py`
+
 ## สองโหมดของ contract: declared และ observed
 
 แท็บ **Test run → Integration** ของ Flow Designer สร้างเอกสารต่อ workflow ให้ —
